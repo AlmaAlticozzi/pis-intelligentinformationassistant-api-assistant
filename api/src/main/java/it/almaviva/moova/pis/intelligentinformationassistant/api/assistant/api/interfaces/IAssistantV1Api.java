@@ -14,12 +14,9 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import java.util.UUID;
 
 import jakarta.ws.rs.*;
-import jakarta.ws.rs.core.Response;
 
 import io.swagger.annotations.*;
 
-import java.io.InputStream;
-import java.util.Map;
 import java.util.List;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
@@ -30,7 +27,7 @@ import jakarta.validation.Valid;
 @Path("/v1")
 @Api(description = "the v1 API")
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
-public interface V1Api {
+public interface IAssistantV1Api {
 
     /**
      * Approves a suggestion. When `finalMessage` is provided, the suggestion is considered edited and approved. This operation does not publish the message to passenger channels. 
