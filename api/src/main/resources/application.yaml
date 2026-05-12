@@ -1,0 +1,18 @@
+quarkus:
+  datasource:
+    db-kind: postgresql
+    username: moova
+    password: moova
+    jdbc:
+      url: jdbc:postgresql://localhost:5432/moova-lab
+  hibernate-orm:
+    multitenant: SCHEMA
+    packages: "it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository"
+  devservices:
+    enabled: false
+  smallrye-openapi:
+    store-schema-directory: generated
+    servers: /pis/intelligentinformationassistant/assistant/api
+  http:
+    root-path: /pis/intelligentinformationassistant/assistant/api
+    enable-compression: false

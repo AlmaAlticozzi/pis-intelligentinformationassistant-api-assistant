@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- BOM Quarkus FOUNDATION -->
+    <parent>
+        <groupId>it.almaviva.fnd</groupId>
+        <artifactId>fnd-core-lib-quarkusbom</artifactId>
+        <version>1.1.0</version>
+    </parent>
+
+    <groupId>it.almaviva.moova.pis</groupId>
+    <artifactId>pis-intelligentinformationassistant-parent-assistant</artifactId>
+    <version>0.0.1</version>
+    <packaging>pom</packaging>
+    <name>parent</name>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <com.blazebit.blaze-persistence.version>1.6.18</com.blazebit.blaze-persistence.version>
+        <argLine/>
+        <quarkus.config-tracking.enabled>true</quarkus.config-tracking.enabled>
+    </properties>
+
+    <modules>
+        <module>api</module>
+        <module>model</module>
+        <module>repository</module>
+        <module>service</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.blazebit</groupId>
+                <artifactId>blaze-persistence-bom</artifactId>
+                <version>${com.blazebit.blaze-persistence.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>it.almaviva.moova.pis</groupId>
+                <artifactId>pis-intelligentinformationassistant-model-assistant</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>it.almaviva.moova.pis</groupId>
+                <artifactId>pis-intelligentinformationassistant-repository-assistant</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>it.almaviva.moova.pis</groupId>
+                <artifactId>pis-intelligentinformationassistant-service-assistant</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>it.almaviva.moova.pis</groupId>
+                <artifactId>pis-intelligentinformationassistant-api-assistant</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.blazebit</groupId>
+                <artifactId>blaze-persistence-integration-quarkus-3</artifactId>
+                <version>${com.blazebit.blaze-persistence.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-jdbc</artifactId>
+                <version>2.0.4</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+</project>
