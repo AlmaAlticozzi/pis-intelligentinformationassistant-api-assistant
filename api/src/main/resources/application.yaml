@@ -16,3 +16,29 @@ quarkus:
   http:
     root-path: /pis/intelligentinformationassistant/assistant/api
     enable-compression: false
+
+
+fnd:
+  mode: ${FND_CORE_LIB_QUARKUS_MODE:}
+  multi-tenant: ${FND_CORE_LIB_QUARKUS_MULTI_TENANT:}
+  security:
+    use-bearer-for-auth: ${FND_CORE_LIB_QUARKUS_SECURITY_USE_BEARER_FOR_AUTH:}
+    profile-retriever: ${FND_CORE_LIB_QUARKUS_SECURITY_PROFILE_RETRIEVER:}
+    jwt:
+      skew: ${FND_CORE_LIB_QUARKUS_SECURITY_JWT_SKEW:}
+    keystore:
+      path: ${FND_CORE_LIB_QUARKUS_SECURITY_KEYSTORE_PATH:}
+      password: ${FND_CORE_LIB_QUARKUS_SECURITY_KEYSTORE_PASSWORD:}
+  api-filters:
+    auto-configuration: ${FND_CORE_LIB_QUARKUS_API_FILTERS_AUTO_CONFIGURATION:}
+    pagination-elements-in-response-body: ${FND_CORE_LIB_QUARKUS_API_FILTERS_PAGINATION_ELEMENTS_IN_RESPONSE_BODY:}
+    business-logic-extension:
+      strict: ${FND_CORE_LIB_QUARKUS_API_FILTERS_BUSINESS_LOGIC_EXTENSION_STRICT:}
+      http-request-methods: ${FND_CORE_LIB_QUARKUS_API_FILTERS_BUSINESS_LOGIC_EXTENSION_HTTP_REQUEST_METHODS:}
+    fnd-api-exception-logging:
+      enabled: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_ENABLED:}
+      flags-override: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_FLAGS_OVERRIDE:}
+      include:
+        message: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_INCLUDE_MESSAGE:}
+        stacktrace: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_INCLUDE_STACKTRACE:}
+  default-schema: ${FND_CORE_LIB_QUARKUS_DEFAULT_SCHEMA:moova}
