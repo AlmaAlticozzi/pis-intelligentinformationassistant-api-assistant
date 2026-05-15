@@ -1,4 +1,8 @@
 quarkus:
+  console:
+    basic: true
+  test:
+    continuous-testing: disabled
   datasource:
     db-kind: postgresql
     username: moova
@@ -7,7 +11,12 @@ quarkus:
       url: jdbc:postgresql://localhost:5432/moova-lab
   hibernate-orm:
     multitenant: SCHEMA
-    packages: "it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository"
+    packages: "it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity"
+    mapping:
+      format:
+        global: ignore
+  jackson:
+    write-dates-as-timestamps: false
   devservices:
     enabled: false
   smallrye-openapi:
@@ -16,6 +25,7 @@ quarkus:
   http:
     root-path: /pis/intelligentinformationassistant/assistant/api
     enable-compression: false
+
 
 
 fnd:
@@ -41,4 +51,4 @@ fnd:
       include:
         message: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_INCLUDE_MESSAGE:}
         stacktrace: ${FND_CORE_LIB_QUARKUS_API_FILTERS_FND_API_EXCEPTION_LOGGING_INCLUDE_STACKTRACE:}
-  default-schema: ${FND_CORE_LIB_QUARKUS_DEFAULT_SCHEMA:moova}
+  default-schema: ${FND_CORE_LIB_QUARKUS_DEFAULT_SCHEMA:pis_intelligentinformationassistant}
