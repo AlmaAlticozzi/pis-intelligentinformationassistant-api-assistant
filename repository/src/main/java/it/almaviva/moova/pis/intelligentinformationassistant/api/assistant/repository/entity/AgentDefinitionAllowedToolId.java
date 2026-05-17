@@ -13,29 +13,30 @@ import java.util.Objects;
 @Getter
 @Setter
 @Embeddable
-public class AssistantAnswerItemId implements java.io.Serializable {
-    private static final long serialVersionUID = -2282253473328332957L;
+public class AgentDefinitionAllowedToolId implements java.io.Serializable {
+    private static final long serialVersionUID = 4789407591735696198L;
     @Size(max = 50)
     @NotNull
-    @Column(name = "cod_question", nullable = false, length = 50)
-    private String codQuestion;
+    @Column(name = "cod_agentdefinition", nullable = false, length = 50)
+    private String codAgentdefinition;
 
+    @Size(max = 120)
     @NotNull
-    @Column(name = "num_itemposition", nullable = false)
-    private Integer numItemposition;
+    @Column(name = "dsc_toolname", nullable = false, length = 120)
+    private String dscToolname;
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
-        AssistantAnswerItemId entity = (AssistantAnswerItemId) o;
-        return Objects.equals(this.numItemposition, entity.numItemposition) &&
-                Objects.equals(this.codQuestion, entity.codQuestion);
+        AgentDefinitionAllowedToolId entity = (AgentDefinitionAllowedToolId) o;
+        return Objects.equals(this.dscToolname, entity.dscToolname) &&
+                Objects.equals(this.codAgentdefinition, entity.codAgentdefinition);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(numItemposition, codQuestion);
+        return Objects.hash(dscToolname, codAgentdefinition);
     }
 
 }

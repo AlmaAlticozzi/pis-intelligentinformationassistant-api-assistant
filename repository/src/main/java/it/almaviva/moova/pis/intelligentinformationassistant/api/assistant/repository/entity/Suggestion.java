@@ -35,6 +35,22 @@ public class Suggestion {
     @JoinColumn(name = "cod_alert", nullable = false)
     private Alert codAlert;
 
+    @Column(name = "num_alertversion")
+    @jakarta.validation.constraints.Min(1)
+    private Integer numAlertversion;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cod_agentdefinition")
+    private AgentDefinition codAgentdefinition;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cod_agentrun")
+    private AgentRun codAgentrun;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cod_agentoutput")
+    private AgentOutput codAgentoutput;
+
     @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @ColumnDefault("'TO_REVIEW'")
@@ -142,6 +158,14 @@ public class Suggestion {
     @Size(max = 50)
     @Column(name = "dsc_promptversion", length = 50)
     private String dscPromptversion;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sgl_artifacttype")
+    private AgentArtifactType sglArtifacttype;
+
+    @Size(max = 255)
+    @Column(name = "dsc_artifacthash")
+    private String dscArtifacthash;
 
     @Column(name = "jsn_generationwarnings")
     @JdbcTypeCode(SqlTypes.JSON)

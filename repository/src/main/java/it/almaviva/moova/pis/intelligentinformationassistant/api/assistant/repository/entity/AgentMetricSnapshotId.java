@@ -8,34 +8,35 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.Hibernate;
 
+import java.time.OffsetDateTime;
 import java.util.Objects;
 
 @Getter
 @Setter
 @Embeddable
-public class AssistantAnswerItemId implements java.io.Serializable {
-    private static final long serialVersionUID = -2282253473328332957L;
+public class AgentMetricSnapshotId implements java.io.Serializable {
+    private static final long serialVersionUID = -910755421092023112L;
     @Size(max = 50)
     @NotNull
-    @Column(name = "cod_question", nullable = false, length = 50)
-    private String codQuestion;
+    @Column(name = "cod_agentrun", nullable = false, length = 50)
+    private String codAgentrun;
 
     @NotNull
-    @Column(name = "num_itemposition", nullable = false)
-    private Integer numItemposition;
+    @Column(name = "dt_sampledat", nullable = false)
+    private OffsetDateTime dtSampledat;
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
-        AssistantAnswerItemId entity = (AssistantAnswerItemId) o;
-        return Objects.equals(this.numItemposition, entity.numItemposition) &&
-                Objects.equals(this.codQuestion, entity.codQuestion);
+        AgentMetricSnapshotId entity = (AgentMetricSnapshotId) o;
+        return Objects.equals(this.dtSampledat, entity.dtSampledat) &&
+                Objects.equals(this.codAgentrun, entity.codAgentrun);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(numItemposition, codQuestion);
+        return Objects.hash(dtSampledat, codAgentrun);
     }
 
 }

@@ -13,29 +13,29 @@ import java.util.Objects;
 @Getter
 @Setter
 @Embeddable
-public class AssistantAnswerItemId implements java.io.Serializable {
-    private static final long serialVersionUID = -2282253473328332957L;
+public class AgentRunLogId implements java.io.Serializable {
+    private static final long serialVersionUID = -1082604066036023922L;
     @Size(max = 50)
     @NotNull
-    @Column(name = "cod_question", nullable = false, length = 50)
-    private String codQuestion;
+    @Column(name = "cod_agentrun", nullable = false, length = 50)
+    private String codAgentrun;
 
     @NotNull
-    @Column(name = "num_itemposition", nullable = false)
-    private Integer numItemposition;
+    @Column(name = "num_logsequence", nullable = false)
+    private Long numLogsequence;
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
-        AssistantAnswerItemId entity = (AssistantAnswerItemId) o;
-        return Objects.equals(this.numItemposition, entity.numItemposition) &&
-                Objects.equals(this.codQuestion, entity.codQuestion);
+        AgentRunLogId entity = (AgentRunLogId) o;
+        return Objects.equals(this.numLogsequence, entity.numLogsequence) &&
+                Objects.equals(this.codAgentrun, entity.codAgentrun);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(numItemposition, codQuestion);
+        return Objects.hash(numLogsequence, codAgentrun);
     }
 
 }

@@ -34,7 +34,6 @@ public class AssistantSessionMessage {
     private AssistantMessageRole sglRole;
 
     @NotNull
-    @jakarta.validation.constraints.NotBlank
     @Column(name = "dsc_content", nullable = false, length = Integer.MAX_VALUE)
     private String dscContent;
 

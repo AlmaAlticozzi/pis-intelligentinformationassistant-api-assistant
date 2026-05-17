@@ -46,6 +46,12 @@ public class Alert {
     private String dscPrompt;
 
     @NotNull
+    @ColumnDefault("1")
+    @Column(name = "num_version", nullable = false)
+    @jakarta.validation.constraints.Min(1)
+    private Integer numVersion = 1;
+
+    @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @ColumnDefault("'VERIFYING'")
     @JoinColumn(name = "sgl_status", nullable = false)
@@ -54,7 +60,7 @@ public class Alert {
     @NotNull
     @ColumnDefault("false")
     @Column(name = "flg_enabled", nullable = false)
-    private Boolean flgEnabled = false;
+    private Boolean flgEnabled = true;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @ColumnDefault("'PENDING'")
@@ -102,6 +108,14 @@ public class Alert {
     @Column(name = "jsn_safetychecks")
     @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, Object> jsnSafetychecks;
+
+    @Column(name = "jsn_technicalspecification")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private Map<String, Object> jsnTechnicalspecification;
+
+    @Column(name = "jsn_agentblueprintpreview")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private Map<String, Object> jsnAgentblueprintpreview;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sgl_interpretertype")
@@ -168,7 +182,7 @@ public class Alert {
     @ColumnDefault("0")
     @Column(name = "num_executioncount", nullable = false)
     @jakarta.validation.constraints.Min(0)
-    private Long numExecutioncount;
+    private Long numExecutioncount = 0L;
 
     @Column(name = "dsc_runtimeerrormessage", length = Integer.MAX_VALUE)
     private String dscRuntimeerrormessage;

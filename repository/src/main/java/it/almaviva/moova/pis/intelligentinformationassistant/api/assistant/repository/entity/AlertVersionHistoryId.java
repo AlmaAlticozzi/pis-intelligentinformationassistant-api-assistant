@@ -13,29 +13,29 @@ import java.util.Objects;
 @Getter
 @Setter
 @Embeddable
-public class AssistantAnswerItemId implements java.io.Serializable {
-    private static final long serialVersionUID = -2282253473328332957L;
+public class AlertVersionHistoryId implements java.io.Serializable {
+    private static final long serialVersionUID = 1654285929066642369L;
     @Size(max = 50)
     @NotNull
-    @Column(name = "cod_question", nullable = false, length = 50)
-    private String codQuestion;
+    @Column(name = "cod_alert", nullable = false, length = 50)
+    private String codAlert;
 
     @NotNull
-    @Column(name = "num_itemposition", nullable = false)
-    private Integer numItemposition;
+    @Column(name = "num_version", nullable = false)
+    private Integer numVersion;
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || Hibernate.getClass(this) != Hibernate.getClass(o)) return false;
-        AssistantAnswerItemId entity = (AssistantAnswerItemId) o;
-        return Objects.equals(this.numItemposition, entity.numItemposition) &&
-                Objects.equals(this.codQuestion, entity.codQuestion);
+        AlertVersionHistoryId entity = (AlertVersionHistoryId) o;
+        return Objects.equals(this.numVersion, entity.numVersion) &&
+                Objects.equals(this.codAlert, entity.codAlert);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(numItemposition, codQuestion);
+        return Objects.hash(numVersion, codAlert);
     }
 
 }

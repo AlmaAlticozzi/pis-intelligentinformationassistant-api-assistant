@@ -36,7 +36,6 @@ public class AssistantQuestion {
 
     @Size(max = 2000)
     @NotNull
-    @jakarta.validation.constraints.NotBlank
     @Column(name = "dsc_question", nullable = false, length = 2000)
     private String dscQuestion;
 

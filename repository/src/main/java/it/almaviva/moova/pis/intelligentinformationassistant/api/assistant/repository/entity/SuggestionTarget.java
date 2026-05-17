@@ -12,6 +12,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.Map;
 
 @Getter
@@ -47,7 +48,6 @@ public class SuggestionTarget {
     private String dscCriteria;
 
     @Column(name = "num_totalitems")
-    @jakarta.validation.constraints.Min(0)
     private Integer numTotalitems;
 
     @Size(max = 255)
@@ -139,6 +139,6 @@ public class SuggestionTarget {
     @ColumnDefault("'{}'")
     @Column(name = "jsn_targetdetail", nullable = false)
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnTargetdetail = new java.util.HashMap<>();
+    private Map<String, Object> jsnTargetdetail = new HashMap<>();
 
 }
