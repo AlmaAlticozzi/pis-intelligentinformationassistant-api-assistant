@@ -13,53 +13,60 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
-/**
- * Generic place reference.
- **/
-@ApiModel(description = "Generic place reference.")
-@JsonTypeName("PlaceRef")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
-public class PlaceRef   {
+
+
+@JsonTypeName("AlertReference")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+public class AlertReference   {
   private String id;
   private String name;
 
-  public PlaceRef() {
+  public AlertReference() {
+  }
+
+  @JsonCreator
+  public AlertReference(
+    @JsonProperty(required = true, value = "id") String id,
+    @JsonProperty(required = true, value = "name") String name
+  ) {
+    this.id = id;
+    this.name = name;
   }
 
   /**
    **/
-  public PlaceRef id(String id) {
+  public AlertReference id(String id) {
     this.id = id;
     return this;
   }
 
   
-  @ApiModelProperty(example = "SP-MI-CENTRALE", value = "")
-  @JsonProperty("id")
-  public String getId() {
+  @ApiModelProperty(example = "ALRT2026251400000001", required = true, value = "")
+  @JsonProperty(required = true, value = "id")
+  @NotNull  @Size(max=50)public String getId() {
     return id;
   }
 
-  @JsonProperty("id")
+  @JsonProperty(required = true, value = "id")
   public void setId(String id) {
     this.id = id;
   }
 
   /**
    **/
-  public PlaceRef name(String name) {
+  public AlertReference name(String name) {
     this.name = name;
     return this;
   }
 
   
-  @ApiModelProperty(example = "Milano Centrale", value = "")
-  @JsonProperty("name")
-  public String getName() {
+  @ApiModelProperty(example = "Cancelled journeys without announcements", required = true, value = "")
+  @JsonProperty(required = true, value = "name")
+  @NotNull public String getName() {
     return name;
   }
 
-  @JsonProperty("name")
+  @JsonProperty(required = true, value = "name")
   public void setName(String name) {
     this.name = name;
   }
@@ -73,9 +80,9 @@ public class PlaceRef   {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    PlaceRef placeRef = (PlaceRef) o;
-    return Objects.equals(this.id, placeRef.id) &&
-        Objects.equals(this.name, placeRef.name);
+    AlertReference alertReference = (AlertReference) o;
+    return Objects.equals(this.id, alertReference.id) &&
+        Objects.equals(this.name, alertReference.name);
   }
 
   @Override
@@ -86,7 +93,7 @@ public class PlaceRef   {
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append("class PlaceRef {\n");
+    sb.append("class AlertReference {\n");
     
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");

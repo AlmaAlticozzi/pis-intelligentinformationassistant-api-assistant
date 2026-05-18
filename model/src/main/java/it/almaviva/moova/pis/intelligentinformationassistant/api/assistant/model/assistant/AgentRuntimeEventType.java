@@ -1,0 +1,87 @@
+package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant;
+
+import jakarta.validation.constraints.*;
+import jakarta.validation.Valid;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
+/**
+ * Gets or Sets AgentRuntimeEventType
+ */
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+public enum AgentRuntimeEventType {
+  
+  AGENT_STARTED("AGENT_STARTED"),
+  
+  AGENT_READY("AGENT_READY"),
+  
+  AGENT_HEARTBEAT("AGENT_HEARTBEAT"),
+  
+  AGENT_STOP_REQUESTED("AGENT_STOP_REQUESTED"),
+  
+  AGENT_STOPPED("AGENT_STOPPED"),
+  
+  AGENT_FAILED("AGENT_FAILED"),
+  
+  AGENT_KILLED("AGENT_KILLED"),
+  
+  AGENT_EXPIRED("AGENT_EXPIRED"),
+  
+  AGENT_DEGRADED("AGENT_DEGRADED"),
+  
+  AGENT_RECOVERED("AGENT_RECOVERED"),
+  
+  ARTIFACT_LOADED("ARTIFACT_LOADED"),
+  
+  ARTIFACT_VALIDATION_FAILED("ARTIFACT_VALIDATION_FAILED"),
+  
+  OUTPUT_GENERATED("OUTPUT_GENERATED"),
+  
+  OUTPUT_REJECTED("OUTPUT_REJECTED"),
+  
+  STATE_STORE_ERROR("STATE_STORE_ERROR"),
+  
+  TOOL_GATEWAY_ERROR("TOOL_GATEWAY_ERROR"),
+  
+  RESOURCE_LIMIT_WARNING("RESOURCE_LIMIT_WARNING");
+
+  private String value;
+
+  AgentRuntimeEventType(String value) {
+    this.value = value;
+  }
+
+    /**
+     * Convert a String into String, as specified in the
+     * <a href="https://download.oracle.com/otndocs/jcp/jaxrs-2_0-fr-eval-spec/index.html">See JAX RS 2.0 Specification, section 3.2, p. 12</a>
+     */
+    public static AgentRuntimeEventType fromString(String s) {
+      for (AgentRuntimeEventType b : AgentRuntimeEventType.values()) {
+        // using Objects.toString() to be safe if value type non-object type
+        // because types like 'int' etc. will be auto-boxed
+        if (java.util.Objects.toString(b.value).equals(s)) {
+          return b;
+        }
+      }
+      throw new IllegalArgumentException("Unexpected string value '" + s + "'");
+    }
+
+  @Override
+  @JsonValue
+  public String toString() {
+    return String.valueOf(value);
+  }
+
+  @JsonCreator
+  public static AgentRuntimeEventType fromValue(String value) {
+    for (AgentRuntimeEventType b : AgentRuntimeEventType.values()) {
+      if (b.value.equals(value)) {
+        return b;
+      }
+    }
+    throw new IllegalArgumentException("Unexpected value '" + value + "'");
+  }
+}
+
+

@@ -1,6 +1,5 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant;
 
-import io.swagger.annotations.ApiModel;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -8,9 +7,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Functional severity assigned by the Assistant rule engine.
+ * Gets or Sets SuggestionSeverity
  */
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public enum SuggestionSeverity {
   
   LOW("LOW"),

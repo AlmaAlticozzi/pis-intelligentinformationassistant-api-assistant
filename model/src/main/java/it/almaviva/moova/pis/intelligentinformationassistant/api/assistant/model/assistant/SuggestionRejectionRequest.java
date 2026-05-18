@@ -14,11 +14,11 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
 /**
- * Request used by the operator to reject a suggestion.
+ * Request used to reject a suggestion.
  **/
-@ApiModel(description = "Request used by the operator to reject a suggestion.")
+@ApiModel(description = "Request used to reject a suggestion.")
 @JsonTypeName("SuggestionRejectionRequest")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class SuggestionRejectionRequest   {
   private String operatorNote;
 
@@ -34,7 +34,7 @@ public class SuggestionRejectionRequest   {
   }
 
   
-  @ApiModelProperty(example = "The message is not relevant because the event has already been handled.", value = "Optional rejection note.")
+  @ApiModelProperty(example = "The event has already been handled by the control room.", value = "Optional rejection note.")
   @JsonProperty("operatorNote")
    @Size(max=1000)public String getOperatorNote() {
     return operatorNote;

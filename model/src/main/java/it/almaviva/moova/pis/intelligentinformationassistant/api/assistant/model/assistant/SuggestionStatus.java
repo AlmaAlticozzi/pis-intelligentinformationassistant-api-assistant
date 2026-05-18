@@ -10,20 +10,18 @@ import com.fasterxml.jackson.annotation.JsonValue;
 /**
  * Suggestion lifecycle status.
  */
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public enum SuggestionStatus {
-  
-  TO_GENERATE("TO_GENERATE"),
   
   TO_REVIEW("TO_REVIEW"),
   
   APPROVED("APPROVED"),
   
-  EDITED_AND_APPROVED("EDITED_AND_APPROVED"),
-  
   REJECTED("REJECTED"),
   
-  ERROR("ERROR");
+  ERROR("ERROR"),
+  
+  EXPIRED("EXPIRED");
 
   private String value;
 

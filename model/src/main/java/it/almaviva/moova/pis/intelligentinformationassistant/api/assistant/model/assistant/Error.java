@@ -13,16 +13,16 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
-/**
- * Standard API error.
- **/
-@ApiModel(description = "Standard API error.")
+
+
 @JsonTypeName("Error")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class Error   {
   private String code;
   private String title;
   private String detail;
+  private String source;
+  private String traceId;
 
   public Error() {
   }
@@ -82,7 +82,7 @@ public class Error   {
   }
 
   
-  @ApiModelProperty(example = "The question field is mandatory.", value = "")
+  @ApiModelProperty(example = "The lookbackHours parameter is mandatory.", value = "")
   @JsonProperty("detail")
   public String getDetail() {
     return detail;
@@ -91,6 +91,44 @@ public class Error   {
   @JsonProperty("detail")
   public void setDetail(String detail) {
     this.detail = detail;
+  }
+
+  /**
+   **/
+  public Error source(String source) {
+    this.source = source;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "lookbackHours", value = "")
+  @JsonProperty("source")
+  public String getSource() {
+    return source;
+  }
+
+  @JsonProperty("source")
+  public void setSource(String source) {
+    this.source = source;
+  }
+
+  /**
+   **/
+  public Error traceId(String traceId) {
+    this.traceId = traceId;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "9c39746e-d77a-481f-9db1-37cd4784c854", value = "")
+  @JsonProperty("traceId")
+  public String getTraceId() {
+    return traceId;
+  }
+
+  @JsonProperty("traceId")
+  public void setTraceId(String traceId) {
+    this.traceId = traceId;
   }
 
 
@@ -105,12 +143,14 @@ public class Error   {
     Error error = (Error) o;
     return Objects.equals(this.code, error.code) &&
         Objects.equals(this.title, error.title) &&
-        Objects.equals(this.detail, error.detail);
+        Objects.equals(this.detail, error.detail) &&
+        Objects.equals(this.source, error.source) &&
+        Objects.equals(this.traceId, error.traceId);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(code, title, detail);
+    return Objects.hash(code, title, detail, source, traceId);
   }
 
   @Override
@@ -121,6 +161,8 @@ public class Error   {
     sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("    title: ").append(toIndentedString(title)).append("\n");
     sb.append("    detail: ").append(toIndentedString(detail)).append("\n");
+    sb.append("    source: ").append(toIndentedString(source)).append("\n");
+    sb.append("    traceId: ").append(toIndentedString(traceId)).append("\n");
     sb.append("}");
     return sb.toString();
   }

@@ -18,10 +18,11 @@ import org.openapitools.jackson.nullable.JsonNullable;
  **/
 @ApiModel(description = "Stop point reference.")
 @JsonTypeName("StopPointRef")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class StopPointRef   {
   private String id;
   private String name;
+  private String platform;
 
   public StopPointRef() {
   }
@@ -34,7 +35,7 @@ public class StopPointRef   {
   }
 
   
-  @ApiModelProperty(example = "SP-TO-PORTA-NUOVA", value = "")
+  @ApiModelProperty(example = "SP-GE-BRIGNOLE", value = "")
   @JsonProperty("id")
   public String getId() {
     return id;
@@ -53,7 +54,7 @@ public class StopPointRef   {
   }
 
   
-  @ApiModelProperty(example = "Torino Porta Nuova", value = "")
+  @ApiModelProperty(example = "Genova Brignole", value = "")
   @JsonProperty("name")
   public String getName() {
     return name;
@@ -62,6 +63,25 @@ public class StopPointRef   {
   @JsonProperty("name")
   public void setName(String name) {
     this.name = name;
+  }
+
+  /**
+   **/
+  public StopPointRef platform(String platform) {
+    this.platform = platform;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "4", value = "")
+  @JsonProperty("platform")
+  public String getPlatform() {
+    return platform;
+  }
+
+  @JsonProperty("platform")
+  public void setPlatform(String platform) {
+    this.platform = platform;
   }
 
 
@@ -75,12 +95,13 @@ public class StopPointRef   {
     }
     StopPointRef stopPointRef = (StopPointRef) o;
     return Objects.equals(this.id, stopPointRef.id) &&
-        Objects.equals(this.name, stopPointRef.name);
+        Objects.equals(this.name, stopPointRef.name) &&
+        Objects.equals(this.platform, stopPointRef.platform);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name);
+    return Objects.hash(id, name, platform);
   }
 
   @Override
@@ -90,6 +111,7 @@ public class StopPointRef   {
     
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
+    sb.append("    platform: ").append(toIndentedString(platform)).append("\n");
     sb.append("}");
     return sb.toString();
   }

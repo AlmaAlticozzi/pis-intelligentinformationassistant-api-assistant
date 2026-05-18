@@ -1,6 +1,5 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant;
 
-import io.swagger.annotations.ApiModel;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -8,22 +7,24 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Status of an operator question submitted to the assistant.
+ * Gets or Sets AgentHealthStatus
  */
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
-public enum OperatorQuestionStatus {
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+public enum AgentHealthStatus {
   
-  RECEIVED("RECEIVED"),
+  HEALTHY("HEALTHY"),
   
-  ANSWERED("ANSWERED"),
+  DEGRADED("DEGRADED"),
   
-  UNSUPPORTED("UNSUPPORTED"),
+  UNRESPONSIVE("UNRESPONSIVE"),
   
-  ERROR("ERROR");
+  FAILED("FAILED"),
+  
+  UNKNOWN("UNKNOWN");
 
   private String value;
 
-  OperatorQuestionStatus(String value) {
+  AgentHealthStatus(String value) {
     this.value = value;
   }
 
@@ -31,8 +32,8 @@ public enum OperatorQuestionStatus {
      * Convert a String into String, as specified in the
      * <a href="https://download.oracle.com/otndocs/jcp/jaxrs-2_0-fr-eval-spec/index.html">See JAX RS 2.0 Specification, section 3.2, p. 12</a>
      */
-    public static OperatorQuestionStatus fromString(String s) {
-      for (OperatorQuestionStatus b : OperatorQuestionStatus.values()) {
+    public static AgentHealthStatus fromString(String s) {
+      for (AgentHealthStatus b : AgentHealthStatus.values()) {
         // using Objects.toString() to be safe if value type non-object type
         // because types like 'int' etc. will be auto-boxed
         if (java.util.Objects.toString(b.value).equals(s)) {
@@ -49,8 +50,8 @@ public enum OperatorQuestionStatus {
   }
 
   @JsonCreator
-  public static OperatorQuestionStatus fromValue(String value) {
-    for (OperatorQuestionStatus b : OperatorQuestionStatus.values()) {
+  public static AgentHealthStatus fromValue(String value) {
+    for (AgentHealthStatus b : AgentHealthStatus.values()) {
       if (b.value.equals(value)) {
         return b;
       }

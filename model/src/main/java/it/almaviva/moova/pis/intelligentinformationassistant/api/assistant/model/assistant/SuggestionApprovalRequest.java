@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.mode
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
+import org.openapitools.jackson.nullable.JsonNullable;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -14,36 +15,57 @@ import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
 /**
- * Request used by the operator to approve a suggestion.
+ * Request used to approve a suggestion.
  **/
-@ApiModel(description = "Request used by the operator to approve a suggestion.")
+@ApiModel(description = "Request used to approve a suggestion.")
 @JsonTypeName("SuggestionApprovalRequest")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class SuggestionApprovalRequest   {
-  private String finalMessage;
+  private String operatorAdvice;
+  private String passengerMessage;
   private String operatorNote;
 
   public SuggestionApprovalRequest() {
   }
 
   /**
-   * Optional edited final message. When provided, it becomes the approved message.
+   * Optional final operator advice override.
    **/
-  public SuggestionApprovalRequest finalMessage(String finalMessage) {
-    this.finalMessage = finalMessage;
+  public SuggestionApprovalRequest operatorAdvice(String operatorAdvice) {
+    this.operatorAdvice = operatorAdvice;
     return this;
   }
 
   
-  @ApiModelProperty(example = "Si informa la gentile clientela che la corsa AV 304 partirà con circa 15 minuti di ritardo.", value = "Optional edited final message. When provided, it becomes the approved message.")
-  @JsonProperty("finalMessage")
-   @Size(max=4000)public String getFinalMessage() {
-    return finalMessage;
+  @ApiModelProperty(value = "Optional final operator advice override.")
+  @JsonProperty("operatorAdvice")
+   @Size(max=4000)public String getOperatorAdvice() {
+    return operatorAdvice;
   }
 
-  @JsonProperty("finalMessage")
-  public void setFinalMessage(String finalMessage) {
-    this.finalMessage = finalMessage;
+  @JsonProperty("operatorAdvice")
+  public void setOperatorAdvice(String operatorAdvice) {
+    this.operatorAdvice = operatorAdvice;
+  }
+
+  /**
+   * Optional final passenger-facing message override.
+   **/
+  public SuggestionApprovalRequest passengerMessage(String passengerMessage) {
+    this.passengerMessage = passengerMessage;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Optional final passenger-facing message override.")
+  @JsonProperty("passengerMessage")
+   @Size(max=4000)public String getPassengerMessage() {
+    return passengerMessage;
+  }
+
+  @JsonProperty("passengerMessage")
+  public void setPassengerMessage(String passengerMessage) {
+    this.passengerMessage = passengerMessage;
   }
 
   /**
@@ -55,7 +77,7 @@ public class SuggestionApprovalRequest   {
   }
 
   
-  @ApiModelProperty(example = "Message approved after minor review.", value = "Optional operator note.")
+  @ApiModelProperty(example = "Approved after checking the operational context.", value = "Optional operator note.")
   @JsonProperty("operatorNote")
    @Size(max=1000)public String getOperatorNote() {
     return operatorNote;
@@ -76,13 +98,14 @@ public class SuggestionApprovalRequest   {
       return false;
     }
     SuggestionApprovalRequest suggestionApprovalRequest = (SuggestionApprovalRequest) o;
-    return Objects.equals(this.finalMessage, suggestionApprovalRequest.finalMessage) &&
+    return Objects.equals(this.operatorAdvice, suggestionApprovalRequest.operatorAdvice) &&
+        Objects.equals(this.passengerMessage, suggestionApprovalRequest.passengerMessage) &&
         Objects.equals(this.operatorNote, suggestionApprovalRequest.operatorNote);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(finalMessage, operatorNote);
+    return Objects.hash(operatorAdvice, passengerMessage, operatorNote);
   }
 
   @Override
@@ -90,7 +113,8 @@ public class SuggestionApprovalRequest   {
     StringBuilder sb = new StringBuilder();
     sb.append("class SuggestionApprovalRequest {\n");
     
-    sb.append("    finalMessage: ").append(toIndentedString(finalMessage)).append("\n");
+    sb.append("    operatorAdvice: ").append(toIndentedString(operatorAdvice)).append("\n");
+    sb.append("    passengerMessage: ").append(toIndentedString(passengerMessage)).append("\n");
     sb.append("    operatorNote: ").append(toIndentedString(operatorNote)).append("\n");
     sb.append("}");
     return sb.toString();

@@ -2,13 +2,16 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.mode
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
-
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AssistantAnswerItem;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AssistantQuestionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.Clarification;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.ToolExecutionSummary;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -20,26 +23,21 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
-/**
- * Assistant answer returned to the operator.
- **/
-@ApiModel(description = "Assistant answer returned to the operator.")
+
+
 @JsonTypeName("AssistantQuestionResponse")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-12T15:20:56.039425814Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class AssistantQuestionResponse   {
-  private UUID questionId;
-  private OperatorQuestionStatus status;
+  private String questionId;
+  private String sessionId;
+  private AssistantQuestionStatus status;
   private String detectedIntent;
   private String answer;
-  private @Valid Map<String, Object> resolvedEntities = new HashMap<>();
-  private @Valid List<@Valid UsedTool> usedTools = new ArrayList<>();
+  private @Valid Map<String, Object> entities = new HashMap<>();
   private @Valid List<AssistantAnswerItem> items = new ArrayList<>();
-  private Boolean interpretedByLlm;
-  private Boolean answeredByLlm;
-  private String llmProvider;
-  private String llmModel;
-  private String promptCode;
-  private String promptVersion;
+  private Clarification clarification;
+  private @Valid List<@Valid ToolExecutionSummary> toolExecutions = new ArrayList<>();
+  private @Valid List<String> warnings = new ArrayList<>();
   private OffsetDateTime createdAt;
   private OffsetDateTime answeredAt;
 
@@ -48,38 +46,58 @@ public class AssistantQuestionResponse   {
 
   @JsonCreator
   public AssistantQuestionResponse(
-    @JsonProperty(required = true, value = "questionId") UUID questionId,
-    @JsonProperty(required = true, value = "status") OperatorQuestionStatus status,
+    @JsonProperty(required = true, value = "questionId") String questionId,
+    @JsonProperty(required = true, value = "sessionId") String sessionId,
+    @JsonProperty(required = true, value = "status") AssistantQuestionStatus status,
     @JsonProperty(required = true, value = "answer") String answer
   ) {
     this.questionId = questionId;
+    this.sessionId = sessionId;
     this.status = status;
     this.answer = answer;
   }
 
   /**
-   * UUID identifier.
    **/
-  public AssistantQuestionResponse questionId(UUID questionId) {
+  public AssistantQuestionResponse questionId(String questionId) {
     this.questionId = questionId;
     return this;
   }
 
   
-  @ApiModelProperty(example = "7e2ff31e-7768-4a23-b1bc-51f426d42bd2", required = true, value = "UUID identifier.")
+  @ApiModelProperty(example = "QSTN2026251400000001", required = true, value = "")
   @JsonProperty(required = true, value = "questionId")
-  @NotNull public UUID getQuestionId() {
+  @NotNull  @Size(max=50)public String getQuestionId() {
     return questionId;
   }
 
   @JsonProperty(required = true, value = "questionId")
-  public void setQuestionId(UUID questionId) {
+  public void setQuestionId(String questionId) {
     this.questionId = questionId;
   }
 
   /**
    **/
-  public AssistantQuestionResponse status(OperatorQuestionStatus status) {
+  public AssistantQuestionResponse sessionId(String sessionId) {
+    this.sessionId = sessionId;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "SSSN2026251400000001", required = true, value = "")
+  @JsonProperty(required = true, value = "sessionId")
+  @NotNull  @Size(max=50)public String getSessionId() {
+    return sessionId;
+  }
+
+  @JsonProperty(required = true, value = "sessionId")
+  public void setSessionId(String sessionId) {
+    this.sessionId = sessionId;
+  }
+
+  /**
+   **/
+  public AssistantQuestionResponse status(AssistantQuestionStatus status) {
     this.status = status;
     return this;
   }
@@ -87,17 +105,16 @@ public class AssistantQuestionResponse   {
   
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "status")
-  @NotNull public OperatorQuestionStatus getStatus() {
+  @NotNull public AssistantQuestionStatus getStatus() {
     return status;
   }
 
   @JsonProperty(required = true, value = "status")
-  public void setStatus(OperatorQuestionStatus status) {
+  public void setStatus(AssistantQuestionStatus status) {
     this.status = status;
   }
 
   /**
-   * Intent detected by the backend.
    **/
   public AssistantQuestionResponse detectedIntent(String detectedIntent) {
     this.detectedIntent = detectedIntent;
@@ -105,7 +122,7 @@ public class AssistantQuestionResponse   {
   }
 
   
-  @ApiModelProperty(example = "LIST_DEPARTING_JOURNEYS", value = "Intent detected by the backend.")
+  @ApiModelProperty(example = "SEARCH_DEPARTURES", value = "")
   @JsonProperty("detectedIntent")
   public String getDetectedIntent() {
     return detectedIntent;
@@ -117,7 +134,6 @@ public class AssistantQuestionResponse   {
   }
 
   /**
-   * Natural language answer generated from retrieved tool results.
    **/
   public AssistantQuestionResponse answer(String answer) {
     this.answer = answer;
@@ -125,7 +141,7 @@ public class AssistantQuestionResponse   {
   }
 
   
-  @ApiModelProperty(example = "Da Torino alle 13:00 risultano 4 corse in partenza.", required = true, value = "Natural language answer generated from retrieved tool results.")
+  @ApiModelProperty(example = "Da Torino alle 13:00 risultano 4 corse in partenza.", required = true, value = "")
   @JsonProperty(required = true, value = "answer")
   @NotNull public String getAnswer() {
     return answer;
@@ -137,79 +153,41 @@ public class AssistantQuestionResponse   {
   }
 
   /**
-   * Entities resolved from the question.
    **/
-  public AssistantQuestionResponse resolvedEntities(Map<String, Object> resolvedEntities) {
-    this.resolvedEntities = resolvedEntities;
+  public AssistantQuestionResponse entities(Map<String, Object> entities) {
+    this.entities = entities;
     return this;
   }
 
   
-  @ApiModelProperty(example = "{\"placeName\":\"Torino\",\"time\":\"13:00\",\"date\":\"2026-05-10\"}", value = "Entities resolved from the question.")
-  @JsonProperty("resolvedEntities")
-  public Map<String, Object> getResolvedEntities() {
-    return resolvedEntities;
+  @ApiModelProperty(value = "")
+  @JsonProperty("entities")
+  public Map<String, Object> getEntities() {
+    return entities;
   }
 
-  @JsonProperty("resolvedEntities")
-  public void setResolvedEntities(Map<String, Object> resolvedEntities) {
-    this.resolvedEntities = resolvedEntities;
+  @JsonProperty("entities")
+  public void setEntities(Map<String, Object> entities) {
+    this.entities = entities;
   }
 
-  public AssistantQuestionResponse putResolvedEntitiesItem(String key, Object resolvedEntitiesItem) {
-    if (this.resolvedEntities == null) {
-      this.resolvedEntities = new HashMap<>();
+  public AssistantQuestionResponse putEntitiesItem(String key, Object entitiesItem) {
+    if (this.entities == null) {
+      this.entities = new HashMap<>();
     }
 
-    this.resolvedEntities.put(key, resolvedEntitiesItem);
+    this.entities.put(key, entitiesItem);
     return this;
   }
 
-  public AssistantQuestionResponse removeResolvedEntitiesItem(String key) {
-    if (this.resolvedEntities != null) {
-      this.resolvedEntities.remove(key);
+  public AssistantQuestionResponse removeEntitiesItem(String key) {
+    if (this.entities != null) {
+      this.entities.remove(key);
     }
 
     return this;
   }
   /**
-   * Tools/domain APIs used to answer the question.
-   **/
-  public AssistantQuestionResponse usedTools(List<@Valid UsedTool> usedTools) {
-    this.usedTools = usedTools;
-    return this;
-  }
-
-  
-  @ApiModelProperty(value = "Tools/domain APIs used to answer the question.")
-  @JsonProperty("usedTools")
-  @Valid public List<@Valid UsedTool> getUsedTools() {
-    return usedTools;
-  }
-
-  @JsonProperty("usedTools")
-  public void setUsedTools(List<@Valid UsedTool> usedTools) {
-    this.usedTools = usedTools;
-  }
-
-  public AssistantQuestionResponse addUsedToolsItem(UsedTool usedToolsItem) {
-    if (this.usedTools == null) {
-      this.usedTools = new ArrayList<>();
-    }
-
-    this.usedTools.add(usedToolsItem);
-    return this;
-  }
-
-  public AssistantQuestionResponse removeUsedToolsItem(UsedTool usedToolsItem) {
-    if (usedToolsItem != null && this.usedTools != null) {
-      this.usedTools.remove(usedToolsItem);
-    }
-
-    return this;
-  }
-  /**
-   * Structured result items supporting the natural language answer.
    **/
   public AssistantQuestionResponse items(List<AssistantAnswerItem> items) {
     this.items = items;
@@ -217,7 +195,7 @@ public class AssistantQuestionResponse   {
   }
 
   
-  @ApiModelProperty(value = "Structured result items supporting the natural language answer.")
+  @ApiModelProperty(value = "")
   @JsonProperty("items")
   @Valid public List<@Valid AssistantAnswerItem> getItems() {
     return items;
@@ -245,121 +223,94 @@ public class AssistantQuestionResponse   {
     return this;
   }
   /**
-   * True when an LLM was used to interpret the question.
    **/
-  public AssistantQuestionResponse interpretedByLlm(Boolean interpretedByLlm) {
-    this.interpretedByLlm = interpretedByLlm;
+  public AssistantQuestionResponse clarification(Clarification clarification) {
+    this.clarification = clarification;
     return this;
   }
 
   
-  @ApiModelProperty(example = "true", value = "True when an LLM was used to interpret the question.")
-  @JsonProperty("interpretedByLlm")
-  public Boolean getInterpretedByLlm() {
-    return interpretedByLlm;
+  @ApiModelProperty(value = "")
+  @JsonProperty("clarification")
+  @Valid public Clarification getClarification() {
+    return clarification;
   }
 
-  @JsonProperty("interpretedByLlm")
-  public void setInterpretedByLlm(Boolean interpretedByLlm) {
-    this.interpretedByLlm = interpretedByLlm;
-  }
-
-  /**
-   * True when an LLM was used to format the final answer.
-   **/
-  public AssistantQuestionResponse answeredByLlm(Boolean answeredByLlm) {
-    this.answeredByLlm = answeredByLlm;
-    return this;
-  }
-
-  
-  @ApiModelProperty(example = "true", value = "True when an LLM was used to format the final answer.")
-  @JsonProperty("answeredByLlm")
-  public Boolean getAnsweredByLlm() {
-    return answeredByLlm;
-  }
-
-  @JsonProperty("answeredByLlm")
-  public void setAnsweredByLlm(Boolean answeredByLlm) {
-    this.answeredByLlm = answeredByLlm;
+  @JsonProperty("clarification")
+  public void setClarification(Clarification clarification) {
+    this.clarification = clarification;
   }
 
   /**
    **/
-  public AssistantQuestionResponse llmProvider(String llmProvider) {
-    this.llmProvider = llmProvider;
+  public AssistantQuestionResponse toolExecutions(List<@Valid ToolExecutionSummary> toolExecutions) {
+    this.toolExecutions = toolExecutions;
     return this;
   }
 
   
-  @ApiModelProperty(example = "azure-openai", value = "")
-  @JsonProperty("llmProvider")
-  public String getLlmProvider() {
-    return llmProvider;
+  @ApiModelProperty(value = "")
+  @JsonProperty("toolExecutions")
+  @Valid public List<@Valid ToolExecutionSummary> getToolExecutions() {
+    return toolExecutions;
   }
 
-  @JsonProperty("llmProvider")
-  public void setLlmProvider(String llmProvider) {
-    this.llmProvider = llmProvider;
+  @JsonProperty("toolExecutions")
+  public void setToolExecutions(List<@Valid ToolExecutionSummary> toolExecutions) {
+    this.toolExecutions = toolExecutions;
   }
 
+  public AssistantQuestionResponse addToolExecutionsItem(ToolExecutionSummary toolExecutionsItem) {
+    if (this.toolExecutions == null) {
+      this.toolExecutions = new ArrayList<>();
+    }
+
+    this.toolExecutions.add(toolExecutionsItem);
+    return this;
+  }
+
+  public AssistantQuestionResponse removeToolExecutionsItem(ToolExecutionSummary toolExecutionsItem) {
+    if (toolExecutionsItem != null && this.toolExecutions != null) {
+      this.toolExecutions.remove(toolExecutionsItem);
+    }
+
+    return this;
+  }
   /**
    **/
-  public AssistantQuestionResponse llmModel(String llmModel) {
-    this.llmModel = llmModel;
+  public AssistantQuestionResponse warnings(List<String> warnings) {
+    this.warnings = warnings;
     return this;
   }
 
   
-  @ApiModelProperty(example = "gpt-4o-mini", value = "")
-  @JsonProperty("llmModel")
-  public String getLlmModel() {
-    return llmModel;
+  @ApiModelProperty(value = "")
+  @JsonProperty("warnings")
+  public List<String> getWarnings() {
+    return warnings;
   }
 
-  @JsonProperty("llmModel")
-  public void setLlmModel(String llmModel) {
-    this.llmModel = llmModel;
+  @JsonProperty("warnings")
+  public void setWarnings(List<String> warnings) {
+    this.warnings = warnings;
   }
 
-  /**
-   **/
-  public AssistantQuestionResponse promptCode(String promptCode) {
-    this.promptCode = promptCode;
+  public AssistantQuestionResponse addWarningsItem(String warningsItem) {
+    if (this.warnings == null) {
+      this.warnings = new ArrayList<>();
+    }
+
+    this.warnings.add(warningsItem);
     return this;
   }
 
-  
-  @ApiModelProperty(example = "ASSISTANT_QUESTION_ORCHESTRATION", value = "")
-  @JsonProperty("promptCode")
-  public String getPromptCode() {
-    return promptCode;
-  }
+  public AssistantQuestionResponse removeWarningsItem(String warningsItem) {
+    if (warningsItem != null && this.warnings != null) {
+      this.warnings.remove(warningsItem);
+    }
 
-  @JsonProperty("promptCode")
-  public void setPromptCode(String promptCode) {
-    this.promptCode = promptCode;
-  }
-
-  /**
-   **/
-  public AssistantQuestionResponse promptVersion(String promptVersion) {
-    this.promptVersion = promptVersion;
     return this;
   }
-
-  
-  @ApiModelProperty(example = "0.0.1", value = "")
-  @JsonProperty("promptVersion")
-  public String getPromptVersion() {
-    return promptVersion;
-  }
-
-  @JsonProperty("promptVersion")
-  public void setPromptVersion(String promptVersion) {
-    this.promptVersion = promptVersion;
-  }
-
   /**
    **/
   public AssistantQuestionResponse createdAt(OffsetDateTime createdAt) {
@@ -409,25 +360,22 @@ public class AssistantQuestionResponse   {
     }
     AssistantQuestionResponse assistantQuestionResponse = (AssistantQuestionResponse) o;
     return Objects.equals(this.questionId, assistantQuestionResponse.questionId) &&
+        Objects.equals(this.sessionId, assistantQuestionResponse.sessionId) &&
         Objects.equals(this.status, assistantQuestionResponse.status) &&
         Objects.equals(this.detectedIntent, assistantQuestionResponse.detectedIntent) &&
         Objects.equals(this.answer, assistantQuestionResponse.answer) &&
-        Objects.equals(this.resolvedEntities, assistantQuestionResponse.resolvedEntities) &&
-        Objects.equals(this.usedTools, assistantQuestionResponse.usedTools) &&
+        Objects.equals(this.entities, assistantQuestionResponse.entities) &&
         Objects.equals(this.items, assistantQuestionResponse.items) &&
-        Objects.equals(this.interpretedByLlm, assistantQuestionResponse.interpretedByLlm) &&
-        Objects.equals(this.answeredByLlm, assistantQuestionResponse.answeredByLlm) &&
-        Objects.equals(this.llmProvider, assistantQuestionResponse.llmProvider) &&
-        Objects.equals(this.llmModel, assistantQuestionResponse.llmModel) &&
-        Objects.equals(this.promptCode, assistantQuestionResponse.promptCode) &&
-        Objects.equals(this.promptVersion, assistantQuestionResponse.promptVersion) &&
+        Objects.equals(this.clarification, assistantQuestionResponse.clarification) &&
+        Objects.equals(this.toolExecutions, assistantQuestionResponse.toolExecutions) &&
+        Objects.equals(this.warnings, assistantQuestionResponse.warnings) &&
         Objects.equals(this.createdAt, assistantQuestionResponse.createdAt) &&
         Objects.equals(this.answeredAt, assistantQuestionResponse.answeredAt);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(questionId, status, detectedIntent, answer, resolvedEntities, usedTools, items, interpretedByLlm, answeredByLlm, llmProvider, llmModel, promptCode, promptVersion, createdAt, answeredAt);
+    return Objects.hash(questionId, sessionId, status, detectedIntent, answer, entities, items, clarification, toolExecutions, warnings, createdAt, answeredAt);
   }
 
   @Override
@@ -436,18 +384,15 @@ public class AssistantQuestionResponse   {
     sb.append("class AssistantQuestionResponse {\n");
     
     sb.append("    questionId: ").append(toIndentedString(questionId)).append("\n");
+    sb.append("    sessionId: ").append(toIndentedString(sessionId)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("    detectedIntent: ").append(toIndentedString(detectedIntent)).append("\n");
     sb.append("    answer: ").append(toIndentedString(answer)).append("\n");
-    sb.append("    resolvedEntities: ").append(toIndentedString(resolvedEntities)).append("\n");
-    sb.append("    usedTools: ").append(toIndentedString(usedTools)).append("\n");
+    sb.append("    entities: ").append(toIndentedString(entities)).append("\n");
     sb.append("    items: ").append(toIndentedString(items)).append("\n");
-    sb.append("    interpretedByLlm: ").append(toIndentedString(interpretedByLlm)).append("\n");
-    sb.append("    answeredByLlm: ").append(toIndentedString(answeredByLlm)).append("\n");
-    sb.append("    llmProvider: ").append(toIndentedString(llmProvider)).append("\n");
-    sb.append("    llmModel: ").append(toIndentedString(llmModel)).append("\n");
-    sb.append("    promptCode: ").append(toIndentedString(promptCode)).append("\n");
-    sb.append("    promptVersion: ").append(toIndentedString(promptVersion)).append("\n");
+    sb.append("    clarification: ").append(toIndentedString(clarification)).append("\n");
+    sb.append("    toolExecutions: ").append(toIndentedString(toolExecutions)).append("\n");
+    sb.append("    warnings: ").append(toIndentedString(warnings)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    answeredAt: ").append(toIndentedString(answeredAt)).append("\n");
     sb.append("}");
