@@ -5,8 +5,10 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.TextImprovementPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.ServiceUnavailableException;
 
 import java.util.UUID;
 
@@ -25,16 +27,30 @@ public class TextImproveUseCase {
     @Inject
     LlmGateway llmGateway;
 
+    @Inject
+    AiConfiguration aiConfiguration;
+
     public String improve(String inputText) {
         String normalizedInput = validator.validateAndNormalizeInput(inputText);
         System.out.println("[IIA-AI-TEST] TextImproveUseCase validated input");
+
+        AiConfiguration.TextImprove textImproveConfiguration = aiConfiguration.textImprove();
+        if (!textImproveConfiguration.enabled()) {
+            throw new ServiceUnavailableException("IIA-UTL-TXI-503-001");
+        }
+
+        System.out.println("[IIA-AI-TEST] AI config loaded provider="
+                + aiConfiguration.provider()
+                + ", model="
+                + textImproveConfiguration.model());
+
         LlmRequest request = new LlmRequest(
                 AiUseCase.TEXT_IMPROVE,
                 promptBuilder.systemPrompt(),
                 promptBuilder.userPrompt(normalizedInput),
-                null,
-                0.1,
-                1200,
+                textImproveConfiguration.model(),
+                textImproveConfiguration.temperature(),
+                textImproveConfiguration.maxOutputTokens(),
                 UUID.randomUUID().toString());
 
         LlmResponse response = llmGateway.generateText(request);
