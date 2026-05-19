@@ -7,6 +7,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.TextImprovementPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.ServiceUnavailableException;
 
@@ -25,7 +26,7 @@ public class TextImproveUseCase {
     TextImprovementPromptBuilder promptBuilder;
 
     @Inject
-    LlmGateway llmGateway;
+    Instance<LlmGateway> llmGateways;
 
     @Inject
     AiConfiguration aiConfiguration;
@@ -53,7 +54,7 @@ public class TextImproveUseCase {
                 textImproveConfiguration.maxOutputTokens(),
                 UUID.randomUUID().toString());
 
-        LlmResponse response = llmGateway.generateText(request);
+        LlmResponse response = llmGateways.get().generateText(request);
         return validator.validateAndNormalizeOutput(response == null ? null : response.text());
     }
 }

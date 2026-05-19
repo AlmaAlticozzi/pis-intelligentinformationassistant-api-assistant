@@ -24,7 +24,7 @@ quarkus:
     servers: /pis/intelligentinformationassistant/assistant/api
   langchain4j:
     openai:
-      api-key: ${OPENAI_API_KEY:XXX}
+      api-key: ${OPENAI_API_KEY}
       timeout: 20s
       chat-model:
         model-name: ${IIA_OPENAI_MODEL:gpt-4.1-mini}
@@ -45,7 +45,7 @@ quarkus:
 
 iia:
   ai:
-    provider: fake
+    provider: openai
     text-improve:
       enabled: true
       model: gpt-4.1-mini
