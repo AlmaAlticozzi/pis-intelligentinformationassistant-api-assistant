@@ -11,8 +11,6 @@ import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.Map;
-
 @Getter
 @Setter
 @org.hibernate.annotations.DynamicInsert
@@ -99,23 +97,23 @@ public class Alert {
 
     @Column(name = "jsn_verificationwarnings")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnVerificationwarnings;
+    private Object jsnVerificationwarnings;
 
     @Column(name = "jsn_interpretedeventnames")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnInterpretedeventnames;
+    private Object jsnInterpretedeventnames;
 
     @Column(name = "jsn_safetychecks")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnSafetychecks;
+    private Object jsnSafetychecks;
 
     @Column(name = "jsn_technicalspecification")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnTechnicalspecification;
+    private Object jsnTechnicalspecification;
 
     @Column(name = "jsn_agentblueprintpreview")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnAgentblueprintpreview;
+    private Object jsnAgentblueprintpreview;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sgl_interpretertype")

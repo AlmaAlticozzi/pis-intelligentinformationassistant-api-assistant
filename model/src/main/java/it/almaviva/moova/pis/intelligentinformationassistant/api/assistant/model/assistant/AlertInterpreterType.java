@@ -11,16 +11,10 @@ import com.fasterxml.jackson.annotation.JsonValue;
  */
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public enum AlertInterpreterType {
-  
+
   EVENT_INTERPRETER("EVENT_INTERPRETER"),
   
-  SCHEDULED_INTERPRETER("SCHEDULED_INTERPRETER"),
-  
-  AGENT_BLUEPRINT("AGENT_BLUEPRINT"),
-  
-  AGENT_DSL("AGENT_DSL"),
-  
-  GENERATED_JAVA("GENERATED_JAVA");
+  SCHEDULED_INTERPRETER("SCHEDULED_INTERPRETER");
 
   private String value;
 

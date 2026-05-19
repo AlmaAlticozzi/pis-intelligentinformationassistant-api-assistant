@@ -1,19 +1,28 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.controller;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.error.AssistantApiErrors;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.interfaces.IAssistantV1Api;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation.AssistantApiInputValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
 
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import jakarta.inject.Inject;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Response;
 
 @ApplicationScoped
 @Path("/v1")
 public class AssistantV1Api implements IAssistantV1Api {
+
+    @Inject
+    AlertService alertService;
 
     @POST
     @Path("/agent-definitions/{agentDefinitionId}/activate")
@@ -70,9 +79,32 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
-    public AlertDetail createAlert(@Valid @NotNull AlertCreateRequest alertCreateRequest) {
-        System.out.println("createAlert: " + "alertCreateRequest=" + alertCreateRequest);
-        return new AlertDetail();
+    public AlertDetail createAlert(AlertCreateRequest alertCreateRequest) {
+        try {
+            AlertCreateRequest validatedRequest = AssistantApiInputValidator.validateAlertCreate(alertCreateRequest);
+            System.out.println("createAlert: " + "alertCreateRequest=" + validatedRequest);
+
+            if (Boolean.TRUE.equals(validatedRequest.getVerifyImmediately())) {
+                throw new WebApplicationException(Response.status(422)
+                        .entity(AssistantApiErrors.alertCreateVerificationUnsupported())
+                        .build());
+            }
+
+            if (alertService.existsActiveAlertWithNormalizedName(validatedRequest.getName())) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertCreateDuplicateName())
+                        .build());
+            }
+
+            return alertService.createDraftAlert(validatedRequest);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertCreateUnexpectedError())
+                    .build());
+        }
     }
 
     @POST
@@ -209,8 +241,21 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertDetail getAlert(@PathParam("alertId") @Size(max=50) String alertId) {
-        System.out.println("getAlert: " + "alertId=" + alertId);
-        return new AlertDetail();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForGet(alertId);
+            System.out.println("getAlert: " + "alertId=" + validatedAlertId);
+            return alertService.getAlert(validatedAlertId)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertGetNotFound())
+                            .build()));
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertGetUnexpectedError())
+                    .build());
+        }
     }
 
     @GET
@@ -341,9 +386,19 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Path("/alerts")
     @Produces({ "application/json" })
     @Override
-    public AlertSummaryListResponse searchAlerts(@QueryParam("status") AlertStatus status, @QueryParam("enabled") Boolean enabled, @QueryParam("interpreterType") AlertInterpreterType interpreterType, @QueryParam("text") @Size(max=200) String text) {
-        System.out.println("searchAlerts: " + "status=" + status + ", " + "enabled=" + enabled + ", " + "interpreterType=" + interpreterType + ", " + "text=" + text);
-        return new AlertSummaryListResponse();
+    public AlertSummaryListResponse searchAlerts(@QueryParam("status") String status, @QueryParam("enabled") String enabled, @QueryParam("interpreterType") String interpreterType, @QueryParam("text") String text) {
+        try {
+            AlertSearchCriteria criteria = AssistantApiInputValidator.validateAlertSearch(status, enabled, interpreterType, text);
+            System.out.println("searchAlerts: " + "criteria=" + criteria);
+            return alertService.searchAlerts(criteria);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertSearchUnexpectedError())
+                    .build());
+        }
     }
 
     @GET
@@ -363,6 +418,14 @@ public class AssistantV1Api implements IAssistantV1Api {
     public AlertDetail verifyAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AlertVerificationRequest alertVerificationRequest) {
         System.out.println("verifyAlert: " + "alertId=" + alertId + ", " + "alertVerificationRequest=" + alertVerificationRequest);
         return new AlertDetail();
+    }
+    @POST
+    @Path("/utilities/text/improve")
+    @Consumes({ "application/json" })
+    @Produces({ "application/json" })
+    @Override
+    public String improveText(@Valid @NotNull String body) {
+        return "TEST";
     }
 
 }

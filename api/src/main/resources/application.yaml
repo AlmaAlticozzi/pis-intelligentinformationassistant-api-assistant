@@ -25,6 +25,13 @@ quarkus:
   http:
     root-path: /pis/intelligentinformationassistant/assistant/api
     enable-compression: false
+    cors:
+      enabled: true
+      origins: /.*/
+      methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+      headers: accept,authorization,content-type,x-wtf-profile
+      exposed-headers: location
+      access-control-max-age: 24H
 
 
 

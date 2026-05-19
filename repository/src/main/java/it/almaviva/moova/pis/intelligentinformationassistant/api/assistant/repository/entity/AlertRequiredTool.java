@@ -8,8 +8,6 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
 
-import java.util.Map;
-
 @Getter
 @Setter
 @org.hibernate.annotations.DynamicInsert
@@ -27,6 +25,6 @@ public class AlertRequiredTool {
 
     @Column(name = "jsn_operations")
     @JdbcTypeCode(SqlTypes.JSON)
-    private Map<String, Object> jsnOperations;
+    private Object jsnOperations;
 
 }

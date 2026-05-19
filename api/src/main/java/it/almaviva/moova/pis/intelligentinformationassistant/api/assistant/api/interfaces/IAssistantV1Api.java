@@ -1180,7 +1180,7 @@ public interface IAssistantV1Api {
         @ApiResponse(code = 401, message = "Missing or invalid authentication.", response = Error.class),
         @ApiResponse(code = 403, message = "Authenticated user is not allowed to perform the operation.", response = Error.class),
         @ApiResponse(code = 500, message = "Unexpected error.", response = Error.class) })
-    AlertSummaryListResponse searchAlerts(@QueryParam("status")  @ApiParam("Optional exact filter by alert lifecycle status.")  AlertStatus status,@QueryParam("enabled")  @ApiParam("Optional filter by enabled flag.")  Boolean enabled,@QueryParam("interpreterType")  @ApiParam("Optional filter by interpreter type.")  AlertInterpreterType interpreterType,@QueryParam("text") @Size(max=200)  @ApiParam("Optional partial-match filter over alert name and prompt.")  String text);
+    AlertSummaryListResponse searchAlerts(@QueryParam("status")  @ApiParam("Optional exact filter by alert lifecycle status.")  String status,@QueryParam("enabled")  @ApiParam("Optional filter by enabled flag.")  String enabled,@QueryParam("interpreterType")  @ApiParam("Optional filter by interpreter type.")  String interpreterType,@QueryParam("text")  @ApiParam("Optional partial-match filter over alert name and prompt.")  String text);
 
 
     /**
@@ -1251,4 +1251,33 @@ public interface IAssistantV1Api {
         @ApiResponse(code = 503, message = "A downstream system, tool or LLM provider is not available.", response = Error.class) })
     AlertDetail verifyAlert(@PathParam("alertId") @Size(max=50) @ApiParam("Alert identifier.") String alertId,@Valid AlertVerificationRequest alertVerificationRequest);
 
+
+
+    /**
+     * Utility endpoint that sends a single plain string to the AI provider and returns a single improved string.  The operation is intentionally minimal and is meant to be used first as a safe integration test for AI invocation and later by the application to make operator prompts more ordered, readable and grammatically correct.  The backend should preserve the original meaning, correct spelling and grammar, improve clarity and readability, and avoid adding operational facts, IDs, constraints or domain details that are not present in the input text.  ## Errors  Invalid parameters should raise an HTTP Status Code 400 according with the following list:  - `HTTP Status Code 400`, when the request body is missing. Error code: `IIA-UTL-TXI-400-001`  - `HTTP Status Code 400`, when the request body is not a JSON string. Error code: `IIA-UTL-TXI-400-002`  - `HTTP Status Code 400`, when the text is empty or contains only whitespace characters. Error code: `IIA-UTL-TXI-400-003`  - `HTTP Status Code 400`, when the text exceeds 8000 characters. Error code: `IIA-UTL-TXI-400-004`  - `HTTP Status Code 500`, when an unexpected error occurs while improving the text. Error code: `IIA-UTL-TXI-500-001`  - `HTTP Status Code 503`, when the LLM provider is temporarily unavailable. Error code: `IIA-UTL-TXI-503-001`
+     *
+     * @param body
+     * @return Text improved successfully.
+     * @return Invalid request or invalid parameter.
+     * @return Missing or invalid authentication.
+     * @return Authenticated user is not allowed to perform the operation.
+     * @return Unexpected error.
+     * @return A downstream system, tool or LLM provider is not available.
+     */
+    @POST
+    @Path("/utilities/text/improve")
+    @Consumes({ "application/json" })
+    @Produces({ "application/json" })
+    @ApiOperation(value = "Improve a text with AI", notes = "Utility endpoint that sends a single plain string to the AI provider and returns a single improved string.  The operation is intentionally minimal and is meant to be used first as a safe integration test for AI invocation and later by the application to make operator prompts more ordered, readable and grammatically correct.  The backend should preserve the original meaning, correct spelling and grammar, improve clarity and readability, and avoid adding operational facts, IDs, constraints or domain details that are not present in the input text.  ## Errors  Invalid parameters should raise an HTTP Status Code 400 according with the following list:  - `HTTP Status Code 400`, when the request body is missing. Error code: `IIA-UTL-TXI-400-001`  - `HTTP Status Code 400`, when the request body is not a JSON string. Error code: `IIA-UTL-TXI-400-002`  - `HTTP Status Code 400`, when the text is empty or contains only whitespace characters. Error code: `IIA-UTL-TXI-400-003`  - `HTTP Status Code 400`, when the text exceeds 8000 characters. Error code: `IIA-UTL-TXI-400-004`  - `HTTP Status Code 500`, when an unexpected error occurs while improving the text. Error code: `IIA-UTL-TXI-500-001`  - `HTTP Status Code 503`, when the LLM provider is temporarily unavailable. Error code: `IIA-UTL-TXI-503-001` ", authorizations = {
+
+            @Authorization(value = "bearerAuth")
+    }, tags={ "Utilities" })
+    @ApiResponses(value = {
+            @ApiResponse(code = 200, message = "Text improved successfully.", response = String.class),
+            @ApiResponse(code = 400, message = "Invalid request or invalid parameter.", response = Error.class),
+            @ApiResponse(code = 401, message = "Missing or invalid authentication.", response = Error.class),
+            @ApiResponse(code = 403, message = "Authenticated user is not allowed to perform the operation.", response = Error.class),
+            @ApiResponse(code = 500, message = "Unexpected error.", response = Error.class),
+            @ApiResponse(code = 503, message = "A downstream system, tool or LLM provider is not available.", response = Error.class) })
+    String improveText(@Valid @NotNull String body);
 }

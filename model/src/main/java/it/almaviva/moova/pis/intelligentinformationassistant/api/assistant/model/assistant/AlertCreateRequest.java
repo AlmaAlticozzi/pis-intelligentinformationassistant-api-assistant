@@ -2,8 +2,6 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.mode
 
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -18,13 +16,12 @@ import org.openapitools.jackson.nullable.JsonNullable;
 
 
 @JsonTypeName("AlertCreateRequest")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-19T15:56:44.348406306Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class AlertCreateRequest   {
   private String name;
   private String description;
   private String prompt;
-  private AlertInterpreterType preferredInterpreterType;
-  private AlertSchedule schedule;
+  private Boolean verifyImmediately = false;
   private Boolean enableAfterVerification = false;
 
   public AlertCreateRequest() {
@@ -32,8 +29,8 @@ public class AlertCreateRequest   {
 
   @JsonCreator
   public AlertCreateRequest(
-    @JsonProperty(required = true, value = "name") String name,
-    @JsonProperty(required = true, value = "prompt") String prompt
+          @JsonProperty(required = true, value = "name") String name,
+          @JsonProperty(required = true, value = "prompt") String prompt
   ) {
     this.name = name;
     this.prompt = prompt;
@@ -46,7 +43,7 @@ public class AlertCreateRequest   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Cancelled journeys without announcements", required = true, value = "")
   @JsonProperty(required = true, value = "name")
   @NotNull  @Size(min=1,max=120)public String getName() {
@@ -65,10 +62,10 @@ public class AlertCreateRequest   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("description")
-   @Size(max=1000)public String getDescription() {
+  @Size(max=1000)public String getDescription() {
     return description;
   }
 
@@ -85,7 +82,7 @@ public class AlertCreateRequest   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Create a suggestion when a journey is cancelled and no audio message has been broadcast within five minutes.", required = true, value = "Free-text alert rule written by the operator.")
   @JsonProperty(required = true, value = "prompt")
   @NotNull  @Size(min=10,max=8000)public String getPrompt() {
@@ -98,53 +95,35 @@ public class AlertCreateRequest   {
   }
 
   /**
+   * If true, the backend immediately starts AI-assisted verification for the newly created alert. The alert enters &#x60;VERIFYING&#x60; first and can then become &#x60;VERIFIED&#x60;, &#x60;REJECTED&#x60; or &#x60;ERROR&#x60; according to the verification result. If false, the alert is only persisted as &#x60;DRAFT&#x60;; no verification is started and no interpreter metadata is produced until &#x60;POST /v1/alerts/{alertId}/verify&#x60; is called.
    **/
-  public AlertCreateRequest preferredInterpreterType(AlertInterpreterType preferredInterpreterType) {
-    this.preferredInterpreterType = preferredInterpreterType;
+  public AlertCreateRequest verifyImmediately(Boolean verifyImmediately) {
+    this.verifyImmediately = verifyImmediately;
     return this;
   }
 
-  
-  @ApiModelProperty(value = "")
-  @JsonProperty("preferredInterpreterType")
-  public AlertInterpreterType getPreferredInterpreterType() {
-    return preferredInterpreterType;
+
+  @ApiModelProperty(example = "true", value = "If true, the backend immediately starts AI-assisted verification for the newly created alert. The alert enters `VERIFYING` first and can then become `VERIFIED`, `REJECTED` or `ERROR` according to the verification result. If false, the alert is only persisted as `DRAFT`; no verification is started and no interpreter metadata is produced until `POST /v1/alerts/{alertId}/verify` is called.")
+  @JsonProperty("verifyImmediately")
+  public Boolean getVerifyImmediately() {
+    return verifyImmediately;
   }
 
-  @JsonProperty("preferredInterpreterType")
-  public void setPreferredInterpreterType(AlertInterpreterType preferredInterpreterType) {
-    this.preferredInterpreterType = preferredInterpreterType;
-  }
-
-  /**
-   **/
-  public AlertCreateRequest schedule(AlertSchedule schedule) {
-    this.schedule = schedule;
-    return this;
-  }
-
-  
-  @ApiModelProperty(value = "")
-  @JsonProperty("schedule")
-  @Valid public AlertSchedule getSchedule() {
-    return schedule;
-  }
-
-  @JsonProperty("schedule")
-  public void setSchedule(AlertSchedule schedule) {
-    this.schedule = schedule;
+  @JsonProperty("verifyImmediately")
+  public void setVerifyImmediately(Boolean verifyImmediately) {
+    this.verifyImmediately = verifyImmediately;
   }
 
   /**
-   * If true, the alert is enabled automatically only when verification succeeds.
+   * If true, the alert is enabled automatically only when verification succeeds. This flag is meaningful only when &#x60;verifyImmediately&#x60; is true or when a later explicit verification succeeds.
    **/
   public AlertCreateRequest enableAfterVerification(Boolean enableAfterVerification) {
     this.enableAfterVerification = enableAfterVerification;
     return this;
   }
 
-  
-  @ApiModelProperty(value = "If true, the alert is enabled automatically only when verification succeeds.")
+
+  @ApiModelProperty(value = "If true, the alert is enabled automatically only when verification succeeds. This flag is meaningful only when `verifyImmediately` is true or when a later explicit verification succeeds.")
   @JsonProperty("enableAfterVerification")
   public Boolean getEnableAfterVerification() {
     return enableAfterVerification;
@@ -166,28 +145,26 @@ public class AlertCreateRequest   {
     }
     AlertCreateRequest alertCreateRequest = (AlertCreateRequest) o;
     return Objects.equals(this.name, alertCreateRequest.name) &&
-        Objects.equals(this.description, alertCreateRequest.description) &&
-        Objects.equals(this.prompt, alertCreateRequest.prompt) &&
-        Objects.equals(this.preferredInterpreterType, alertCreateRequest.preferredInterpreterType) &&
-        Objects.equals(this.schedule, alertCreateRequest.schedule) &&
-        Objects.equals(this.enableAfterVerification, alertCreateRequest.enableAfterVerification);
+            Objects.equals(this.description, alertCreateRequest.description) &&
+            Objects.equals(this.prompt, alertCreateRequest.prompt) &&
+            Objects.equals(this.verifyImmediately, alertCreateRequest.verifyImmediately) &&
+            Objects.equals(this.enableAfterVerification, alertCreateRequest.enableAfterVerification);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name, description, prompt, preferredInterpreterType, schedule, enableAfterVerification);
+    return Objects.hash(name, description, prompt, verifyImmediately, enableAfterVerification);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class AlertCreateRequest {\n");
-    
+
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
     sb.append("    description: ").append(toIndentedString(description)).append("\n");
     sb.append("    prompt: ").append(toIndentedString(prompt)).append("\n");
-    sb.append("    preferredInterpreterType: ").append(toIndentedString(preferredInterpreterType)).append("\n");
-    sb.append("    schedule: ").append(toIndentedString(schedule)).append("\n");
+    sb.append("    verifyImmediately: ").append(toIndentedString(verifyImmediately)).append("\n");
     sb.append("    enableAfterVerification: ").append(toIndentedString(enableAfterVerification)).append("\n");
     sb.append("}");
     return sb.toString();
