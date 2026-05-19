@@ -17,6 +17,7 @@ public final class AssistantApiInputValidator {
     private static final int ALERT_DESCRIPTION_MAX_LENGTH = 1000;
     private static final int ALERT_PROMPT_MIN_LENGTH = 10;
     private static final int ALERT_PROMPT_MAX_LENGTH = 8000;
+    private static final int TEXT_IMPROVE_INPUT_MAX_LENGTH = 8000;
 
     private AssistantApiInputValidator() {
     }
@@ -66,6 +67,82 @@ public final class AssistantApiInputValidator {
             throw badRequest(AssistantApiErrors.alertCreateInvalidEnableAfterVerification());
         }
         return request;
+    }
+
+    public static String validateTextImproveInput(String inputText) {
+        if (inputText == null) {
+            throw badRequest(AssistantApiErrors.textImproveMissingBody());
+        }
+
+        String normalizedInput = normalizeJsonStringBody(inputText);
+        if (normalizedInput.isEmpty()) {
+            throw badRequest(AssistantApiErrors.textImproveBlankText());
+        }
+        if (normalizedInput.length() > TEXT_IMPROVE_INPUT_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.textImproveTextTooLong());
+        }
+
+        return normalizedInput;
+    }
+
+    private static String normalizeJsonStringBody(String inputText) {
+        String trimmedBody = inputText.trim();
+        if (trimmedBody.isEmpty()) {
+            return trimmedBody;
+        }
+
+        if (trimmedBody.startsWith("\"")) {
+            if (!trimmedBody.endsWith("\"") || trimmedBody.length() < 2) {
+                throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+            }
+            return unescapeJsonString(trimmedBody.substring(1, trimmedBody.length() - 1)).trim();
+        }
+
+        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+    }
+
+    private static String unescapeJsonString(String value) {
+        StringBuilder result = new StringBuilder(value.length());
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (current != '\\') {
+                if (current == '"') {
+                    throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+                }
+                result.append(current);
+                continue;
+            }
+
+            if (++index >= value.length()) {
+                throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+            }
+
+            char escaped = value.charAt(index);
+            switch (escaped) {
+                case '"' -> result.append('"');
+                case '\\' -> result.append('\\');
+                case '/' -> result.append('/');
+                case 'b' -> result.append('\b');
+                case 'f' -> result.append('\f');
+                case 'n' -> result.append('\n');
+                case 'r' -> result.append('\r');
+                case 't' -> result.append('\t');
+                case 'u' -> {
+                    if (index + 4 >= value.length()) {
+                        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+                    }
+                    String hex = value.substring(index + 1, index + 5);
+                    try {
+                        result.append((char) Integer.parseInt(hex, 16));
+                    } catch (NumberFormatException ex) {
+                        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+                    }
+                    index += 4;
+                }
+                default -> throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
+            }
+        }
+        return result.toString();
     }
 
     private static AlertStatus parseAlertStatus(String status) {

@@ -25,7 +25,7 @@ public class TextImproveUseCase {
     @Inject
     LlmGateway llmGateway;
 
-    public String improve(String inputText, String profile) {
+    public String improve(String inputText) {
         String normalizedInput = validator.validateAndNormalizeInput(inputText);
         System.out.println("[IIA-AI-TEST] TextImproveUseCase validated input");
         LlmRequest request = new LlmRequest(
@@ -35,8 +35,7 @@ public class TextImproveUseCase {
                 null,
                 0.1,
                 1200,
-                UUID.randomUUID().toString(),
-                profile);
+                UUID.randomUUID().toString());
 
         LlmResponse response = llmGateway.generateText(request);
         return validator.validateAndNormalizeOutput(response == null ? null : response.text());

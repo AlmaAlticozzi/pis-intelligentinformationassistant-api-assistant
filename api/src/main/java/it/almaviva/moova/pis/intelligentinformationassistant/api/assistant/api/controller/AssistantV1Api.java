@@ -428,9 +428,9 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
-    public String improveText(@Valid @NotNull String body) {
+    public String improveText(String body) {
         System.out.println("[IIA-AI-TEST] improveText endpoint invoked");
-        return textImproveUseCase.improve(body, "profilo di prova da cancellare");
+        return textImproveUseCase.improve(body);
     }
 
 }

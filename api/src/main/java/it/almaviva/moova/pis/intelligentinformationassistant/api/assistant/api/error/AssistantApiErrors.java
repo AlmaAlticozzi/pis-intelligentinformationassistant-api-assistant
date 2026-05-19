@@ -150,6 +150,48 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while creating the alert definition.");
     }
 
+    public static Error textImproveMissingBody() {
+        return invalidParameter(
+                "IIA-UTL-TXI-400-001",
+                "body",
+                "The request body is missing.");
+    }
+
+    public static Error textImproveBodyNotJsonString() {
+        return invalidParameter(
+                "IIA-UTL-TXI-400-002",
+                "body",
+                "The request body is not a JSON string.");
+    }
+
+    public static Error textImproveBlankText() {
+        return invalidParameter(
+                "IIA-UTL-TXI-400-003",
+                "body",
+                "The text is empty or contains only whitespace characters.");
+    }
+
+    public static Error textImproveTextTooLong() {
+        return invalidParameter(
+                "IIA-UTL-TXI-400-004",
+                "body",
+                "The text exceeds 8000 characters.");
+    }
+
+    public static Error textImproveUnexpectedError() {
+        return new Error()
+                .code("IIA-UTL-TXI-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while improving the text.");
+    }
+
+    public static Error textImproveLlmProviderUnavailable() {
+        return new Error()
+                .code("IIA-UTL-TXI-503-001")
+                .title("LLM provider unavailable")
+                .detail("The LLM provider is temporarily unavailable.");
+    }
+
     private static Error invalidParameter(String code, String source, String detail) {
         return new Error()
                 .code(code)

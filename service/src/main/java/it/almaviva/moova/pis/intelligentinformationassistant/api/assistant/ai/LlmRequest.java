@@ -10,7 +10,6 @@ public record LlmRequest(
         String model,
         Double temperature,
         Integer maxOutputTokens,
-        String correlationId,
-        String profile
+        String correlationId
 ) {
 }

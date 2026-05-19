@@ -1,7 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utility;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation.AssistantApiInputValidator;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.InternalServerErrorException;
 
 import java.util.regex.Pattern;
@@ -12,28 +12,12 @@ import java.util.regex.Pattern;
 @ApplicationScoped
 public class TextImproveValidator {
 
-    private static final int INPUT_MAX_LENGTH = 8000;
-    private static final String INPUT_NULL_ERROR = "IIA-UTL-TXI-400-001";
-    private static final String INPUT_BLANK_ERROR = "IIA-UTL-TXI-400-003";
-    private static final String INPUT_TOO_LONG_ERROR = "IIA-UTL-TXI-400-004";
     private static final String EMPTY_OUTPUT_ERROR = "IIA-UTL-TXI-500-001";
     private static final Pattern OUTPUT_PREFIX_PATTERN = Pattern.compile(
             "^(?i)\\s*(ecco\\s+il\\s+testo\\s+corretto|testo\\s+migliorato)\\s*:\\s*");
 
     public String validateAndNormalizeInput(String inputText) {
-        if (inputText == null) {
-            throw new BadRequestException(INPUT_NULL_ERROR);
-        }
-
-        String normalizedInput = inputText.trim();
-        if (normalizedInput.isEmpty()) {
-            throw new BadRequestException(INPUT_BLANK_ERROR);
-        }
-        if (normalizedInput.length() > INPUT_MAX_LENGTH) {
-            throw new BadRequestException(INPUT_TOO_LONG_ERROR);
-        }
-
-        return normalizedInput;
+        return AssistantApiInputValidator.validateTextImproveInput(inputText);
     }
 
     public String validateAndNormalizeOutput(String outputText) {
