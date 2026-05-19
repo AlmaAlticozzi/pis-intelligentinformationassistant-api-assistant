@@ -6,6 +6,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.v
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utility.TextImproveUseCase;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -23,6 +24,9 @@ public class AssistantV1Api implements IAssistantV1Api {
 
     @Inject
     AlertService alertService;
+
+    @Inject
+    TextImproveUseCase textImproveUseCase;
 
     @POST
     @Path("/agent-definitions/{agentDefinitionId}/activate")
@@ -425,7 +429,8 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public String improveText(@Valid @NotNull String body) {
-        return "TEST";
+        System.out.println("[IIA-AI-TEST] improveText endpoint invoked");
+        return textImproveUseCase.improve(body, "profilo di prova da cancellare");
     }
 
 }

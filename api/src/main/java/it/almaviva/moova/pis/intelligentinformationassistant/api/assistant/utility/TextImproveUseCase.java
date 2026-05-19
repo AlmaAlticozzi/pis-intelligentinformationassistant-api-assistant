@@ -27,6 +27,7 @@ public class TextImproveUseCase {
 
     public String improve(String inputText, String profile) {
         String normalizedInput = validator.validateAndNormalizeInput(inputText);
+        System.out.println("[IIA-AI-TEST] TextImproveUseCase validated input");
         LlmRequest request = new LlmRequest(
                 AiUseCase.TEXT_IMPROVE,
                 promptBuilder.systemPrompt(),
