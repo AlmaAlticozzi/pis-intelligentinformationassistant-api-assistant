@@ -4,11 +4,13 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import jakarta.enterprise.context.ApplicationScoped;
+import io.quarkus.arc.lookup.LookupIfProperty;
 
 /**
  * Temporary LLM gateway used until a real provider integration is available.
  */
 @ApplicationScoped
+@LookupIfProperty(name = "iia.ai.provider", stringValue = "fake")
 public class FakeLlmGateway implements LlmGateway {
 
     @Override
