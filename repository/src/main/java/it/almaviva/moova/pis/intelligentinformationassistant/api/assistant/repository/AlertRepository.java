@@ -130,14 +130,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDscVerificationsummary(outcome.summary());
         alert.setDscRejectedreason(outcome.rejectedReason());
         alert.setNumVerificationconfidence(outcome.confidence() == null ? null : BigDecimal.valueOf(outcome.confidence()));
-        alert.setSglInterpretertype(outcome.interpreterType() == null ? null : entityManager.getReference(
-                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType.class,
-                outcome.interpreterType()));
-        alert.setDscInputmodel(outcome.inputModel());
-        alert.setDscOutputmodel(outcome.outputModel());
-        alert.setDscImplementationsummary(outcome.decision() == AlertVerificationDecision.VERIFIED
-                ? "Mock event interpreter for service data events."
-                : null);
+        applyVerifiedInterpreterMetadata(alert, outcome);
         alert.setDscLlmprovider(outcome.provider());
         alert.setDscLlmmodel(outcome.model());
         alert.setDscPromptversion(outcome.promptVersion());
@@ -145,17 +138,47 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setJsnInterpretedeventnames(outcome.interpretedEventNames());
         alert.setJsnVerificationwarnings(outcome.warnings());
         alert.setJsnSafetychecks(outcome.safetyChecks());
-        alert.setJsnTechnicalspecification(outcome.technicalSpecification());
-        alert.setJsnAgentblueprintpreview(outcome.agentBlueprintPreview());
         alert.setDtUpdatedat(now);
 
         replaceInterpretedTargetTypes(alert, outcome.interpretedTargetTypes());
-        persistAlertVersionHistorySnapshot(alert, outcome.technicalSpecification(), outcome.agentBlueprintPreview(), now);
+        persistAlertVersionHistorySnapshot(
+                alert,
+                alert.getJsnTechnicalspecification() instanceof Map<?, ?> technicalSpecification
+                        ? (Map<String, Object>) technicalSpecification
+                        : null,
+                alert.getJsnAgentblueprintpreview() instanceof Map<?, ?> agentBlueprintPreview
+                        ? (Map<String, Object>) agentBlueprintPreview
+                        : null,
+                now);
         flush();
 
         System.out.println("[IIA][ALERT_VERIFY] Verification persisted for alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=" + outcome.decision());
         return Optional.of(toAlertDetailForVerification(alert));
+    }
+
+    void applyVerifiedInterpreterMetadata(Alert alert, AlertVerificationOutcome outcome) {
+        if (outcome.decision() != AlertVerificationDecision.VERIFIED) {
+            alert.setSglInterpretertype(null);
+            alert.setDscInputmodel(null);
+            alert.setDscOutputmodel(null);
+            alert.setDscImplementationsummary(null);
+            alert.setDscInterpreterclassname(null);
+            alert.setDscContractversion(null);
+            alert.setCodCoderef(null);
+            alert.setJsnTechnicalspecification(null);
+            alert.setJsnAgentblueprintpreview(null);
+            return;
+        }
+
+        alert.setSglInterpretertype(outcome.interpreterType() == null ? null : entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType.class,
+                outcome.interpreterType()));
+        alert.setDscInputmodel(outcome.inputModel());
+        alert.setDscOutputmodel(outcome.outputModel());
+        alert.setDscImplementationsummary("MVP ServiceData event interpreter for stateless alert verification.");
+        alert.setJsnTechnicalspecification(outcome.technicalSpecification());
+        alert.setJsnAgentblueprintpreview(outcome.agentBlueprintPreview());
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {
