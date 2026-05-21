@@ -2,12 +2,14 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @ApplicationScoped
 public class AlertVerificationOutcomeValidator {
@@ -19,6 +21,11 @@ public class AlertVerificationOutcomeValidator {
     private static final String INPUT_MODEL = "ServiceDataV2";
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_REJECTED_REASON = "The alert cannot be verified with the current MVP constraints.";
+    private static final Set<String> LEGACY_CONDITION_TYPES = Set.of(
+            "JOURNEY_CANCELLED",
+            "JOURNEY_DELAYED",
+            "PLATFORM_EVENT",
+            "GENERIC_SERVICE_DATA_EVENT");
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome) {
         if (outcome == null) {
@@ -130,6 +137,11 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
 
+        validateTechnicalCondition(context, outcome.technicalSpecification());
+        if (context.failureReason != null) {
+            return;
+        }
+
         context.normalizedTargetTypes = normalizeTargetTypes(outcome.interpretedTargetTypes(), requiredSources, outcome.triggerType(), outcome.evaluationMode());
         if (context.normalizedTargetTypes == null) {
             context.fail("Verified alert uses unsupported target types for the current MVP.");
@@ -150,6 +162,177 @@ public class AlertVerificationOutcomeValidator {
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CHECK] agentBlueprintPreview present=" + (outcome.agentBlueprintPreview() != null));
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CHECK] agentBlueprintPreview null=" + (outcome.agentBlueprintPreview() == null));
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CHECK] agentBlueprintPreview empty=" + (outcome.agentBlueprintPreview() != null && outcome.agentBlueprintPreview().isEmpty()));
+    }
+
+    private void validateTechnicalCondition(ValidationContext context, Map<String, Object> technicalSpecification) {
+        Object condition = technicalSpecification.get("condition");
+        if (!(condition instanceof Map<?, ?> conditionMap)) {
+            context.fail("Verified alert technicalSpecification.condition is missing or invalid.");
+            return;
+        }
+
+        Object type = conditionMap.get("type");
+        if (!"SERVICE_DATA_FIELD_MATCH".equals(type) && !LEGACY_CONDITION_TYPES.contains(String.valueOf(type))) {
+            context.fail("Verified alert uses an unsupported technicalSpecification.condition.type.");
+            return;
+        }
+
+        if (LEGACY_CONDITION_TYPES.contains(String.valueOf(type))) {
+            return;
+        }
+
+        validateConditionNode(context, conditionMap, "technicalSpecification.condition");
+    }
+
+    private void validateConditionNode(ValidationContext context, Map<?, ?> conditionNode, String path) {
+        Object all = conditionNode.get("all");
+        Object any = conditionNode.get("any");
+        boolean hasComposite = false;
+
+        if (all != null) {
+            hasComposite = true;
+            validateConditionArray(context, all, path + ".all");
+            if (context.failureReason != null) {
+                return;
+            }
+        }
+        if (any != null) {
+            hasComposite = true;
+            validateConditionArray(context, any, path + ".any");
+            if (context.failureReason != null) {
+                return;
+            }
+        }
+
+        if (conditionNode.containsKey("field") || conditionNode.containsKey("operator")) {
+            validateConditionLeaf(context, conditionNode, path);
+            return;
+        }
+
+        if (!hasComposite) {
+            context.fail("Verified alert condition must contain all/any or a field/operator leaf.");
+        }
+    }
+
+    private void validateConditionArray(ValidationContext context, Object nodes, String path) {
+        if (!(nodes instanceof List<?> list) || list.isEmpty()) {
+            context.fail("Verified alert condition " + path + " must be a non-empty array.");
+            return;
+        }
+        for (int index = 0; index < list.size(); index++) {
+            Object child = list.get(index);
+            if (!(child instanceof Map<?, ?> childMap)) {
+                context.fail("Verified alert condition " + path + "[" + index + "] must be an object.");
+                return;
+            }
+            validateConditionNode(context, childMap, path + "[" + index + "]");
+            if (context.failureReason != null) {
+                return;
+            }
+        }
+    }
+
+    private void validateConditionLeaf(ValidationContext context, Map<?, ?> leaf, String path) {
+        String field = stringValue(leaf.get("field"));
+        String operator = stringValue(leaf.get("operator"));
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CATALOG] validating field=" + field + " operator=" + operator);
+
+        if (field == null || field.isBlank()) {
+            rejectCatalogField(context, field, "field is missing.");
+            return;
+        }
+        if (ServiceDataCapabilityCatalog.isSuspiciousFieldName(field)) {
+            rejectCatalogField(context, field, "field contains suspicious content.");
+            return;
+        }
+
+        ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
+                .orElse(null);
+        if (capability == null) {
+            rejectCatalogField(context, field, "field is not allowed by the ServiceData capability catalog.");
+            return;
+        }
+        if (!capability.supportsOperator(operator)) {
+            rejectCatalogField(context, field, "operator is not allowed for this field.");
+            return;
+        }
+
+        validateConditionValue(context, capability, operator, leaf, field);
+    }
+
+    private void validateConditionValue(
+            ValidationContext context,
+            ServiceDataCapabilityCatalog.FieldCapability capability,
+            String operator,
+            Map<?, ?> leaf,
+            String field) {
+        Object value = leaf.get("value");
+        Object values = leaf.get("values");
+
+        if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)) {
+            return;
+        }
+        if (List.of("IN", "CONTAINS_ANY").contains(operator)) {
+            if (!(values instanceof List<?> valueList) || valueList.isEmpty()) {
+                rejectCatalogField(context, field, "operator " + operator + " requires a non-empty values array.");
+                return;
+            }
+            validateTypedValues(context, capability, operator, valueList, field);
+            return;
+        }
+
+        if (value == null) {
+            rejectCatalogField(context, field, "operator " + operator + " requires value.");
+            return;
+        }
+        validateTypedValues(context, capability, operator, List.of(value), field);
+    }
+
+    private void validateTypedValues(
+            ValidationContext context,
+            ServiceDataCapabilityCatalog.FieldCapability capability,
+            String operator,
+            List<?> values,
+            String field) {
+        switch (capability.type()) {
+            case NUMBER -> {
+                if (!values.stream().allMatch(Number.class::isInstance)) {
+                    rejectCatalogField(context, field, "numeric operator " + operator + " requires numeric value.");
+                }
+            }
+            case BOOLEAN -> {
+                if (!values.stream().allMatch(Boolean.class::isInstance)) {
+                    rejectCatalogField(context, field, "boolean field requires boolean value.");
+                }
+            }
+            case ENUM, ENUM_ARRAY -> {
+                List<String> normalizedValues = capability.normalizeEnumValues(values);
+                if (!capability.enumValues().containsAll(normalizedValues)) {
+                    rejectCatalogField(context, field, "enum value is not allowed for this field.");
+                }
+            }
+            case ARRAY -> {
+                if (operator.startsWith("SIZE_") && !values.stream().allMatch(Number.class::isInstance)) {
+                    rejectCatalogField(context, field, "array size operator requires numeric value.");
+                }
+            }
+            case STRING, OBJECT -> {
+                // No extra type checks are needed beyond operator allow-list for the current MVP.
+            }
+        }
+    }
+
+    private void rejectCatalogField(ValidationContext context, String field, String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CATALOG] rejected field=" + field + " reason=" + reason);
+        context.fail("Verified alert condition is not supported by the ServiceData capability catalog: " + reason);
+    }
+
+    private String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 
     private AlertVerificationOutcome ensureRejectedReason(AlertVerificationOutcome outcome) {

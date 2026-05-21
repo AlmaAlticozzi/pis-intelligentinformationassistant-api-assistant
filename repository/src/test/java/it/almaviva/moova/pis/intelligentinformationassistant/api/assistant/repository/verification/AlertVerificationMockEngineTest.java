@@ -54,4 +54,46 @@ class AlertVerificationMockEngineTest {
         assertThat(outcome.rejectedReason())
                 .isEqualTo("The request requires stateful or time-window evaluation, which is not supported by the current stateless ServiceData interpreter.");
     }
+
+    @Test
+    void manualVerifyAcceptsTransitPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando un treno e in transito a Genova P.P. (non si ferma)");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.interpretedEventNames()).contains("JOURNEY_TRANSIT");
+        assertThat(outcome.technicalSpecification().toString()).contains("passingType", "TRANSIT");
+    }
+
+    @Test
+    void manualVerifyAcceptsReplacementPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando una corsa ha un replacement valorizzato");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.interpretedEventNames()).contains("JOURNEY_REPLACEMENT");
+        assertThat(outcome.technicalSpecification().toString()).contains("replacement", "EXISTS");
+    }
+
+    @Test
+    void manualVerifyAcceptsOriginWithAtLeastTwoTransitsPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando una corsa parte dall'origine e fara almeno due transiti");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString()).contains("passingType", "ORIGIN", "nextTransitCalls", "SIZE_GREATER_OR_EQUAL");
+    }
+
+    @Test
+    void manualVerifyAcceptsRouteAndPlatformPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando una corsa e in partenza da Firenze dal binario 1 e passa da Siena");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString()).contains("Firenze", "Siena", "actualDeparturePlatform", "1");
+    }
 }

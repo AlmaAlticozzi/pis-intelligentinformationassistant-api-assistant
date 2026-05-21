@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repo
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -31,12 +32,12 @@ public class AlertVerificationMockEngine {
                 outcome = rejected("The request is not an operational PIS alert.");
             } else if (containsAny(normalizedPrompt, "piove", "rain", "weather", "meteo")) {
                 outcome = rejected("The request is outside the supported PIS domain.");
-            } else if (containsAny(normalizedPrompt, "video", "dispositivo", "device", "display", "audio", "annuncio", "announcement")) {
+            } else if (containsAny(normalizedPrompt, "video", "dispositivo", "device", "display", "audio")) {
                 outcome = rejected("The request belongs to the PIS domain but requires a data source not available in the current MVP.");
             } else if (containsAny(normalizedPrompt, "non ci sono corse", "nessuna corsa", "no journeys", "no departures", "assenza di", "non arriva nessun")) {
                 outcome = rejected("The request requires stateful or time-window evaluation, which is not supported by the current stateless ServiceData interpreter.");
             } else if (isServiceDataPrompt(normalizedPrompt)) {
-                outcome = verified(alertId, prompt, deriveConditionType(normalizedPrompt));
+                outcome = verified(deriveCondition(normalizedPrompt));
             } else {
                 outcome = rejected("The request is not an operational PIS alert.");
             }
@@ -47,20 +48,18 @@ public class AlertVerificationMockEngine {
         return outcome;
     }
 
-    private AlertVerificationOutcome verified(String alertId, String prompt, String conditionType) {
+    private AlertVerificationOutcome verified(MockCondition condition) {
         List<String> requiredSources = List.of("SERVICE_DATA");
-        List<String> interpretedEventNames = List.of(conditionType);
         List<String> interpretedTargetTypes = List.of("SERVICE_DATA_JOURNEY");
         Map<String, Object> technicalSpecification = Map.of(
-                "schemaVersion", "iia.alert.technical-specification/v1",
+                "schemaVersion", "iia.alert.technical-specification/v2",
                 "source", "SERVICE_DATA",
                 "inputModel", INPUT_MODEL,
                 "outputModel", OUTPUT_MODEL,
                 "triggerType", TRIGGER_TYPE,
                 "evaluationMode", EVALUATION_MODE,
-                "condition", Map.of(
-                        "type", conditionType),
-                "deduplicationKeyTemplate", "MOCK:${alertId}:${eventId}");
+                "condition", condition.condition(),
+                "deduplicationKeyTemplate", "SERVICE_DATA:${journeyId}:${stopPointId}:${conditionHash}");
         Map<String, Object> agentBlueprintPreview = Map.of(
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "agentName", "MockVerifiedAlertAgent",
@@ -68,6 +67,9 @@ public class AlertVerificationMockEngine {
                 "requiredSources", requiredSources,
                 "evaluationMode", EVALUATION_MODE,
                 "targetTypes", interpretedTargetTypes,
+                "parameters", Map.of(
+                        "conditionType", "SERVICE_DATA_FIELD_MATCH",
+                        "condition", condition.condition()),
                 "stateRequirements", Map.of(
                         "requiresState", false),
                 "output", Map.of(
@@ -87,7 +89,7 @@ public class AlertVerificationMockEngine {
                 OUTPUT_MODEL,
                 TRIGGER_TYPE,
                 EVALUATION_MODE,
-                interpretedEventNames,
+                List.of(condition.eventName()),
                 interpretedTargetTypes,
                 technicalSpecification,
                 agentBlueprintPreview,
@@ -124,17 +126,80 @@ public class AlertVerificationMockEngine {
                 safetyChecks());
     }
 
-    private String deriveConditionType(String normalizedPrompt) {
+    private MockCondition deriveCondition(String normalizedPrompt) {
+        List<Map<String, Object>> checks = new ArrayList<>();
+        String eventName = "SERVICE_DATA_FIELD_MATCH";
+
         if (containsAny(normalizedPrompt, "cancelled", "cancellata", "cancellato", "soppressa", "soppresso", "suppression")) {
-            return "JOURNEY_CANCELLED";
+            eventName = "JOURNEY_CANCELLED";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"));
         }
         if (containsAny(normalizedPrompt, "ritardo", "delayed", "delay")) {
-            return "JOURNEY_DELAYED";
+            eventName = "JOURNEY_DELAYED";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay", "EXISTS", null));
         }
         if (containsAny(normalizedPrompt, "binario", "platform")) {
-            return "PLATFORM_EVENT";
+            eventName = "PLATFORM_EVENT";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id", "EQUALS_NORMALIZED", platformValue(normalizedPrompt)));
         }
-        return "GENERIC_SERVICE_DATA_EVENT";
+        if (containsAny(normalizedPrompt, "transito", "transit", "non si ferma", "passing through")) {
+            eventName = "JOURNEY_TRANSIT";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].passingType", "EQUALS", "TRANSIT"));
+        }
+        if (containsAny(normalizedPrompt, "replacement", "sostituzione")) {
+            eventName = "JOURNEY_REPLACEMENT";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].replacement", "EXISTS", null));
+        }
+        if (containsAny(normalizedPrompt, "origine", "origin")) {
+            eventName = "JOURNEY_ORIGIN";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].passingType", "EQUALS", "ORIGIN"));
+        }
+        if (containsAny(normalizedPrompt, "almeno due transiti", "at least two transits")) {
+            eventName = "JOURNEY_ROUTE_MATCH";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls", "SIZE_GREATER_OR_EQUAL", 2));
+        }
+        if (containsAny(normalizedPrompt, "passa da siena", "via siena", "transita da siena")) {
+            eventName = "JOURNEY_ROUTE_MATCH";
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong", "CONTAINS_NORMALIZED", "Siena"));
+        }
+        if (containsAny(normalizedPrompt, "firenze")) {
+            checks.add(leaf("payload.stopPointJourney.stopPoint.nameLong", "CONTAINS_NORMALIZED", "Firenze"));
+        }
+        if (containsAny(normalizedPrompt, "genova p.p", "genova pp", "genova p p")) {
+            checks.add(leaf("payload.stopPointJourney.stopPoint.nameLong", "CONTAINS_NORMALIZED", "Genova P.P."));
+        }
+        if (checks.isEmpty() && containsAny(normalizedPrompt, "annunciata", "announced", "was announced")) {
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].deliveryData.wasAnnounced", "EQUALS", true));
+        }
+        if (checks.isEmpty() && containsAny(normalizedPrompt, "treno", "train")) {
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].transportMode.dsc", "CONTAINS_NORMALIZED", "train"));
+        }
+        if (checks.isEmpty()) {
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].monitored", "EQUALS", true));
+        }
+
+        return new MockCondition(eventName, Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", checks));
+    }
+
+    private Map<String, Object> leaf(String field, String operator, Object value) {
+        if (value == null) {
+            return Map.of(
+                    "field", field,
+                    "operator", operator);
+        }
+        return Map.of(
+                "field", field,
+                "operator", operator,
+                "value", value);
+    }
+
+    private String platformValue(String normalizedPrompt) {
+        if (containsAny(normalizedPrompt, "binario 1", "platform 1")) {
+            return "1";
+        }
+        return "platform";
     }
 
     private boolean isNonOperationalEncyclopedicPrompt(String normalizedPrompt) {
@@ -159,7 +224,17 @@ public class AlertVerificationMockEngine {
                 "corsa",
                 "journey",
                 "treno",
-                "train");
+                "train",
+                "transito",
+                "transit",
+                "non si ferma",
+                "replacement",
+                "sostituzione",
+                "origine",
+                "origin",
+                "passa da",
+                "annunciata",
+                "announced");
     }
 
     private List<String> safetyChecks() {
@@ -182,5 +257,8 @@ public class AlertVerificationMockEngine {
         String withoutAccents = Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "");
         return withoutAccents.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private record MockCondition(String eventName, Map<String, Object> condition) {
     }
 }

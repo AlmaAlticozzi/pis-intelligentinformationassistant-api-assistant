@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -58,6 +59,12 @@ public class AlertVerificationPromptBuilder {
                 - Time windows are not supported.
                 - Absence of events is not supported.
                 - Audio, video, device, display, broadcast, and content sources are not supported.
+                - The MVP accepts any alert that can be expressed as a stateless boolean condition over the allowed ServiceData fields listed in the ServiceData Capability Catalog.
+                - You must only use fields and operators listed in the ServiceData Capability Catalog.
+                - If the user asks for a condition that can be mapped to one or more allowed fields/operators, decision must be VERIFIED.
+                - If the user asks for absence of events over time, historical memory, external data, audio/video/device/display/broadcast/content, or free DB/API access, decision must be REJECTED.
+                - Do not reject a request just because it contains words like "non" or "does not"; reject only if the negation requires absence of events or historical/time-window reasoning.
+                - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
 
                 If decision is VERIFIED:
                 - technicalSpecification is mandatory and must not be empty.
@@ -65,10 +72,14 @@ public class AlertVerificationPromptBuilder {
                 - technicalSpecification must contain at least: schemaVersion, source, inputModel, outputModel, triggerType, evaluationMode, condition, deduplicationKeyTemplate.
                 - agentBlueprintPreview must contain at least: schemaVersion, agentName, triggerType, requiredSources, evaluationMode, targetTypes, stateRequirements, output.
                 - Do not return empty objects for technicalSpecification or agentBlueprintPreview.
+                - technicalSpecification.condition.type must be SERVICE_DATA_FIELD_MATCH unless using a legacy event name for backward compatibility.
+                - Prefer SERVICE_DATA_FIELD_MATCH for all newly generated results.
                 """;
     }
 
     private String userPrompt(AlertVerificationPromptData alert) {
+        String catalog = ServiceDataCapabilityCatalog.compactPromptCatalog();
+        System.out.println("[IIA][ALERT_VERIFY][CATALOG] allowedFields=" + ServiceDataCapabilityCatalog.allowedFieldCount());
         return """
                 Alert to verify:
                 - alertId: %s
@@ -76,27 +87,41 @@ public class AlertVerificationPromptBuilder {
                 - description: %s
                 - originalPrompt: %s
 
+                ServiceData Capability Catalog:
+                %s
+
                 Valid MVP cases:
-                - ServiceData journey cancellation or suppression events.
-                - ServiceData journey delay events.
-                - ServiceData platform/binario events.
-                - Generic ServiceData journey or train operational events.
+                - Any alert that can be represented as a stateless boolean condition over the catalog fields.
+                - Current stop point, journey identity, line/service/operator/mode, passing type, platforms, delays, statuses, route/next calls, replacement, info, exclusion, delivery, and monitoring checks are valid if they use catalog fields/operators.
+                - "non si ferma" / "passing through" is valid when represented with passingType = TRANSIT.
 
                 Cases to reject:
                 - Empty or too short prompt.
                 - Encyclopedic or non-operational questions.
                 - Weather/meteo requests.
-                - Requests requiring audio, announcement, video, device, display, broadcast, content, or other unsupported sources.
+                - Requests requiring audio, video, device, display, broadcast, content, or other unsupported sources.
+                - Requests about whether ServiceData says a journey was already announced are allowed only if represented with deliveryData.wasAnnounced.
                 - Requests requiring internal state, time-window evaluation, or absence of events.
                 - Requests that require creating Agent Definition, Agent Run, Suggestion, executable code, or Agent Profile.
 
-                For this MVP, if the user prompt is about a cancelled journey:
-                - interpretedEventNames must contain JOURNEY_CANCELLED.
-                - technicalSpecification.condition.type must be JOURNEY_CANCELLED.
+                Condition rules:
+                - Use technicalSpecification.condition.type = SERVICE_DATA_FIELD_MATCH for catalog-driven matches.
+                - Conditions can contain "all" for AND, "any" for OR, or leaf checks with field/operator/value or field/operator/values.
+                - For EXISTS, NOT_NULL, NOT_EMPTY no value is required.
+                - For SIZE_* operators, value must be numeric.
+                - For enum checks, values must be one of the enumValues listed in the catalog.
+                - For "not stopping" / "non si ferma", use passingType EQUALS TRANSIT.
+                - For cancelled journeys, use an allowed status field with ARRIVAL_CANCELLATION or DEPARTURE_CANCELLATION.
+                - For delayed journeys, use a delay field or delay status from the catalog.
                 - requiredSources must be only SERVICE_DATA.
                 - interpreterType must be EVENT_INTERPRETER.
                 - evaluationMode must be STATELESS_EVENT_MATCH.
                 - stateRequirements.requiresState must be false.
+
+                interpretedEventNames:
+                - Use one or more of JOURNEY_CANCELLED, JOURNEY_DELAYED, PLATFORM_EVENT, JOURNEY_TRANSIT, JOURNEY_REPLACEMENT, JOURNEY_ROUTE_MATCH, JOURNEY_ORIGIN, SERVICE_DATA_FIELD_MATCH.
+                - If no specific functional name fits, use SERVICE_DATA_FIELD_MATCH.
+                - Do not base the technical validation on interpretedEventNames; the condition is authoritative.
 
                 Expected JSON schema:
                 {
@@ -111,35 +136,46 @@ public class AlertVerificationPromptBuilder {
                   "inputModel": "ServiceDataV2",
                   "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
                   "targetTypes": ["SERVICE_DATA_JOURNEY"],
-                  "interpretedEventNames": ["JOURNEY_CANCELLED"],
+                  "interpretedEventNames": ["SERVICE_DATA_FIELD_MATCH"],
                   "technicalSpecification": {
-                    "schemaVersion": "iia.alert.technical-specification/v1",
+                    "schemaVersion": "iia.alert.technical-specification/v2",
                     "source": "SERVICE_DATA",
                     "inputModel": "ServiceDataV2",
                     "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
                     "triggerType": "EVENT",
                     "evaluationMode": "STATELESS_EVENT_MATCH",
                     "condition": {
-                      "type": "JOURNEY_CANCELLED",
-                      "description": "Detect a journey cancellation from a realtime ServiceData event.",
-                      "eventNames": ["JOURNEY_CANCELLED"],
-                      "match": {
-                        "stopPointName": "MILANO MALPENSA T1"
-                      }
+                      "type": "SERVICE_DATA_FIELD_MATCH",
+                      "all": [
+                        {
+                          "field": "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
+                          "operator": "EQUALS",
+                          "value": "TRANSIT"
+                        }
+                      ]
                     },
-                    "deduplicationKeyTemplate": "SERVICE_DATA_CANCELLED:${journeyId}:${stopPointId}"
+                    "deduplicationKeyTemplate": "SERVICE_DATA:${journeyId}:${stopPointId}:${conditionHash}"
                   },
                   "agentBlueprintPreview": {
                     "schemaVersion": "iia.agent.blueprint/v1",
-                    "agentName": "CancelledJourneyAtMilanoMalpensaT1Agent",
-                    "description": "Detects cancelled journeys at Milano Malpensa T1 from realtime ServiceData events.",
+                    "agentName": "ServiceDataFieldMatchAlertAgent",
+                    "description": "Detects matching ServiceData events using the verified stateless condition.",
                     "triggerType": "EVENT",
                     "requiredSources": ["SERVICE_DATA"],
                     "evaluationMode": "STATELESS_EVENT_MATCH",
                     "targetTypes": ["SERVICE_DATA_JOURNEY"],
                     "parameters": {
-                      "stopPointName": "MILANO MALPENSA T1",
-                      "condition": "JOURNEY_CANCELLED"
+                      "conditionType": "SERVICE_DATA_FIELD_MATCH",
+                      "condition": {
+                        "type": "SERVICE_DATA_FIELD_MATCH",
+                        "all": [
+                          {
+                            "field": "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
+                            "operator": "EQUALS",
+                            "value": "TRANSIT"
+                          }
+                        ]
+                      }
                     },
                     "stateRequirements": {
                       "requiresState": false
@@ -162,7 +198,8 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.alertId()),
                 nullToEmpty(alert.name()),
                 nullToEmpty(alert.description()),
-                nullToEmpty(alert.prompt()));
+                nullToEmpty(alert.prompt()),
+                catalog);
     }
 
     private String nullToEmpty(String value) {
