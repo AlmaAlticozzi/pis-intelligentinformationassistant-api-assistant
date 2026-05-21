@@ -65,6 +65,10 @@ public class AlertService {
         return alertRepository.getAlert(alertId);
     }
 
+    public boolean existsDeletedAlert(String alertId) {
+        return alertRepository.existsDeletedAlert(alertId);
+    }
+
     @Transactional
     public AlertDetail createDraftAlert(AlertCreateRequest request) {
         System.out.println("AlertService.createDraftAlert: request=" + request);

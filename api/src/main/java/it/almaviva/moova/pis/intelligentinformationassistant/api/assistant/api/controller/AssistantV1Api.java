@@ -416,6 +416,11 @@ public class AssistantV1Api implements IAssistantV1Api {
     public AlertDetail verifyAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AlertVerificationRequest alertVerificationRequest) {
         try {
             String validatedAlertId = AssistantApiInputValidator.validateAlertIdForVerify(alertId);
+            if (alertService.existsDeletedAlert(validatedAlertId)) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertVerifyDeletedAlert())
+                        .build());
+            }
             return alertService.verifyAlert(validatedAlertId, alertVerificationRequest)
                     .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
                             .entity(AssistantApiErrors.alertVerifyNotFound())

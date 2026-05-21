@@ -16,6 +16,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummary;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.SuggestionTargetType;
@@ -102,6 +103,13 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                         alert.getDscName(),
                         alert.getDscDescription(),
                         alert.getDscPrompt()));
+    }
+
+    public boolean existsDeletedAlert(String alertId) {
+        return count("""
+                codAlert = ?1
+                and (dtDeletedat is not null or sglStatus.sglStatus = 'DELETED')
+                """, alertId) > 0;
     }
 
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request, AlertVerificationOutcome outcome) {
@@ -244,6 +252,27 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         }
         if (view.getConfidence() != null) {
             summary.confidence(view.getConfidence().doubleValue());
+        }
+        summary.lastVerification(toAlertVerificationSummary(view));
+
+        return summary;
+    }
+
+    private AlertVerificationSummary toAlertVerificationSummary(AlertSummaryView view) {
+        if (view.getVerificationStatus() == null
+                && view.getRejectedReason() == null
+                && view.getConfidence() == null
+                && view.getVerifiedAt() == null) {
+            return null;
+        }
+
+        AlertVerificationSummary summary = new AlertVerificationSummary()
+                .rejectedReason(view.getRejectedReason())
+                .confidence(toDouble(view.getConfidence()))
+                .verifiedAt(view.getVerifiedAt());
+
+        if (view.getVerificationStatus() != null) {
+            summary.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus.fromString(view.getVerificationStatus()));
         }
 
         return summary;

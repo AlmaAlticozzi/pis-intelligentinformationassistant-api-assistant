@@ -29,6 +29,15 @@ public interface AlertSummaryView {
     @Mapping("numVerificationconfidence")
     BigDecimal getConfidence();
 
+    @Mapping("sglVerificationstatus.sglVerificationstatus")
+    String getVerificationStatus();
+
+    @Mapping("dscRejectedreason")
+    String getRejectedReason();
+
+    @Mapping("dtVerifiedat")
+    OffsetDateTime getVerifiedAt();
+
     @Mapping("dtCreatedat")
     OffsetDateTime getCreatedAt();
 

@@ -172,6 +172,14 @@ public final class AssistantApiErrors {
                 .source("alertId");
     }
 
+    public static Error alertVerifyDeletedAlert() {
+        return new Error()
+                .code("IIA-ALT-VER-409-001")
+                .title("Alert deleted")
+                .detail("The alert has been deleted and cannot be verified.")
+                .source("alertId");
+    }
+
     public static Error alertVerifyUnexpectedError() {
         return new Error()
                 .code("IIA-ALT-VER-500-001")

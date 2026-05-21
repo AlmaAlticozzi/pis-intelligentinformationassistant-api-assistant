@@ -1,13 +1,17 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreter;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.lang.reflect.Method;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +63,31 @@ class AlertRepositoryTest {
                 .isEqualTo(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType.EVENT_INTERPRETER);
         assertThat(interpreter.getInputModel()).isEqualTo("ServiceDataV2");
         assertThat(interpreter.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+    }
+
+    @Test
+    void alertSummaryIncludesLastVerification() throws Exception {
+        AlertRepository repository = new AlertRepository();
+        AlertSummaryView view = mock(AlertSummaryView.class);
+        OffsetDateTime verifiedAt = OffsetDateTime.parse("2026-05-21T10:15:30Z");
+        when(view.getId()).thenReturn("ALRT1");
+        when(view.getName()).thenReturn("Rejected weather alert");
+        when(view.getEnabled()).thenReturn(false);
+        when(view.getStatus()).thenReturn("REJECTED");
+        when(view.getVerificationStatus()).thenReturn("REJECTED");
+        when(view.getRejectedReason()).thenReturn("The request is outside the supported PIS domain.");
+        when(view.getConfidence()).thenReturn(BigDecimal.valueOf(0.0));
+        when(view.getVerifiedAt()).thenReturn(verifiedAt);
+
+        AlertSummary summary = toAlertSummary(repository, view);
+
+        assertThat(summary.getLastVerification()).isNotNull();
+        assertThat(summary.getLastVerification().getStatus())
+                .isEqualTo(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus.REJECTED);
+        assertThat(summary.getLastVerification().getRejectedReason())
+                .isEqualTo("The request is outside the supported PIS domain.");
+        assertThat(summary.getLastVerification().getConfidence()).isEqualTo(0.0);
+        assertThat(summary.getLastVerification().getVerifiedAt()).isEqualTo(verifiedAt);
     }
 
     private Alert alertWithExistingInterpreterMetadata() {
@@ -128,5 +157,11 @@ class AlertRepositoryTest {
         Method method = AlertRepository.class.getDeclaredMethod("toAlertInterpreter", Alert.class);
         method.setAccessible(true);
         return (AlertInterpreter) method.invoke(repository, alert);
+    }
+
+    private AlertSummary toAlertSummary(AlertRepository repository, AlertSummaryView view) throws Exception {
+        Method method = AlertRepository.class.getDeclaredMethod("toAlertSummary", AlertSummaryView.class);
+        method.setAccessible(true);
+        return (AlertSummary) method.invoke(repository, view);
     }
 }
