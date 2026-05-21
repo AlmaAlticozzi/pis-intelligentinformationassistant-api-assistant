@@ -202,6 +202,14 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
     }
 
     public AlertDetail createDraftAlert(AlertCreateRequest request) {
+        return createAlertWithInitialStatus(request, "DRAFT");
+    }
+
+    public AlertDetail createVerifyingAlert(AlertCreateRequest request) {
+        return createAlertWithInitialStatus(request, "VERIFYING");
+    }
+
+    private AlertDetail createAlertWithInitialStatus(AlertCreateRequest request, String status) {
         OffsetDateTime now = OffsetDateTime.now();
 
         Alert alert = new Alert();
@@ -213,7 +221,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setNumExecutioncount(0L);
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
-                "DRAFT"));
+                status));
         alert.setSglVerificationstatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
                 "PENDING"));
@@ -222,7 +230,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
         persist(alert);
         flush();
-        return toAlertDetail(alert);
+        return toAlertDetailForVerification(alert);
     }
 
     public Optional<AlertDetail> updateAlertEnabledAfterCreateVerification(String alertId, boolean enabled) {
@@ -234,6 +242,59 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         Alert alert = maybeAlert.get();
         alert.setFlgEnabled(enabled);
         alert.setDtUpdatedat(OffsetDateTime.now());
+        flush();
+        return Optional.of(toAlertDetailForVerification(alert));
+    }
+
+    public Optional<AlertDetail> markAlertVerificationTechnicalError(String alertId, String warning, String provider, String model) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+        Alert alert = maybeAlert.get();
+        alert.setSglStatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
+                "ERROR"));
+        alert.setSglVerificationstatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
+                "ERROR"));
+        alert.setFlgEnabled(false);
+        alert.setDscVerificationsummary("Alert verification failed because the AI provider did not respond successfully.");
+        alert.setDscRejectedreason(null);
+        alert.setNumVerificationconfidence(BigDecimal.ZERO);
+        alert.setDscLlmprovider(provider);
+        alert.setDscLlmmodel(model);
+        alert.setDscPromptversion("alert-verify-mvp-v1");
+        alert.setDtVerifiedat(now);
+        alert.setJsnVerificationwarnings(List.of(warning));
+        alert.setJsnInterpretedeventnames(List.of());
+        alert.setJsnSafetychecks(List.of(
+                "No executable code generated.",
+                "No Agent Definition created.",
+                "No Suggestion created."));
+        alert.setDtUpdatedat(now);
+        applyVerifiedInterpreterMetadata(alert, new AlertVerificationOutcome(
+                AlertVerificationDecision.ERROR,
+                alert.getDscVerificationsummary(),
+                null,
+                0.0,
+                provider,
+                model,
+                "alert-verify-mvp-v1",
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                List.of(warning),
+                toStringList(alert.getJsnSafetychecks())));
         flush();
         return Optional.of(toAlertDetailForVerification(alert));
     }

@@ -31,6 +31,10 @@ public class LangChain4jOpenAiGateway implements LlmGateway {
     @Override
     public LlmResponse generateText(LlmRequest request) {
         System.out.println("[IIA-AI-TEST] Real OpenAI gateway invoked");
+        if (request != null && request.useCase() == it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase.ALERT_VERIFY) {
+            System.out.println("[IIA][ALERT_VERIFY][OPENAI_GATEWAY_CONTEXT] requestContextActive="
+                    + io.quarkus.arc.Arc.container().requestContext().isActive());
+        }
         try {
             ChatResponse response = chatModel.chat(List.of(
                     SystemMessage.from(request.systemPrompt()),
