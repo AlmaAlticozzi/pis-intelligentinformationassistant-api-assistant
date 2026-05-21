@@ -420,8 +420,20 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertDetail verifyAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AlertVerificationRequest alertVerificationRequest) {
-        System.out.println("verifyAlert: " + "alertId=" + alertId + ", " + "alertVerificationRequest=" + alertVerificationRequest);
-        return new AlertDetail();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForVerify(alertId);
+            return alertService.verifyAlert(validatedAlertId, alertVerificationRequest)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertVerifyNotFound())
+                            .build()));
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertVerifyUnexpectedError())
+                    .build());
+        }
     }
     @POST
     @Path("/utilities/text/improve")

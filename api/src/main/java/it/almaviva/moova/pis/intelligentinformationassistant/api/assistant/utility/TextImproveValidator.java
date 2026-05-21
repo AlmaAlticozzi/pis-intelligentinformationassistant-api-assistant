@@ -21,6 +21,7 @@ public class TextImproveValidator {
     }
 
     public String validateAndNormalizeOutput(String outputText) {
+        System.out.println("PRIMA " + outputText);
         if (outputText == null) {
             throw new InternalServerErrorException(EMPTY_OUTPUT_ERROR);
         }
@@ -29,7 +30,7 @@ public class TextImproveValidator {
         if (normalizedOutput.isEmpty()) {
             throw new InternalServerErrorException(EMPTY_OUTPUT_ERROR);
         }
-
+        System.out.println("DOPO " + normalizedOutput);
         return normalizedOutput;
     }
 }

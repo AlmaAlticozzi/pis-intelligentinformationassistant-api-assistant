@@ -150,6 +150,35 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while creating the alert definition.");
     }
 
+    public static Error alertVerifyBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-VER-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertVerifyAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-VER-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertVerifyNotFound() {
+        return new Error()
+                .code("IIA-ALT-VER-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertVerifyUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-VER-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while verifying the alert definition.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",

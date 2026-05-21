@@ -17,6 +17,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.SuggestionTargetType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.ToolReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
@@ -85,6 +86,66 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
     public Optional<AlertDetail> getAlert(String alertId) {
         Optional<Alert> alert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         return alert.map(this::toAlertDetail);
+    }
+
+    public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        OffsetDateTime now = OffsetDateTime.now();
+
+        System.out.println("[IIA][ALERT_VERIFY] Starting verification for alertId=" + alertId);
+
+        alert.setSglStatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
+                "VERIFYING"));
+        alert.setDtUpdatedat(now);
+        flush();
+
+        alert.setSglStatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
+                "VERIFIED"));
+        alert.setSglVerificationstatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
+                "VERIFIED"));
+        alert.setDscVerificationsummary("Mock alert verification completed successfully.");
+        alert.setDscRejectedreason(null);
+        alert.setNumVerificationconfidence(BigDecimal.valueOf(0.80));
+        alert.setSglInterpretertype(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType.class,
+                "EVENT_INTERPRETER"));
+        alert.setDscInputmodel("ServiceDataV2");
+        alert.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
+        alert.setDscLlmprovider("mock");
+        alert.setDscLlmmodel("mock-alert-verify");
+        alert.setDscPromptversion("alert-verify-mvp-v1");
+        alert.setDtVerifiedat(now);
+        alert.setJsnInterpretedeventnames(List.of("MOCK_SERVICE_DATA_EVENT"));
+        alert.setJsnVerificationwarnings(List.of());
+        alert.setJsnSafetychecks(List.of(
+                "No executable code generated.",
+                "No Agent Definition created.",
+                "No Suggestion created."));
+        alert.setJsnTechnicalspecification(Map.of(
+                "type", "mock-alert-verification",
+                "version", "alert-verify-mvp-v1",
+                "prompt", alert.getDscPrompt(),
+                "decision", "VERIFIED"));
+        alert.setJsnAgentblueprintpreview(Map.of(
+                "agentName", alert.getDscName(),
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "targetTypes", List.of(),
+                "parameters", Map.of("mock", true)));
+        alert.setDtUpdatedat(now);
+
+        flush();
+
+        System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=VERIFIED");
+        return Optional.of(toAlertDetailForVerification(alert));
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {
@@ -160,6 +221,32 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 .schedule(toAlertSchedule(alert))
                 .runtime(toAlertRuntimeMetadata(alert))
                 .agentDefinitions(findAgentDefinitions(alert));
+
+        if (alert.getSglStatus() != null) {
+            detail.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus.fromString(alert.getSglStatus().getSglStatus()));
+        }
+
+        return detail;
+    }
+
+    private AlertDetail toAlertDetailForVerification(Alert alert) {
+        AlertDetail detail = new AlertDetail()
+                .id(alert.getCodAlert())
+                .name(alert.getDscName())
+                .description(alert.getDscDescription())
+                .prompt(alert.getDscPrompt())
+                .enabled(alert.getFlgEnabled())
+                .createdBy(alert.getCodCreatedby())
+                .createdAt(alert.getDtCreatedat())
+                .updatedAt(alert.getDtUpdatedat())
+                .deletedAt(alert.getDtDeletedat())
+                .version(alert.getNumVersion())
+                .verification(toAlertVerificationResult(alert))
+                .interpreter(toAlertInterpreter(alert))
+                .requiredData(findRequiredData(alert.getCodAlert()))
+                .schedule(toAlertSchedule(alert))
+                .runtime(toAlertRuntimeMetadata(alert))
+                .agentDefinitions(List.of());
 
         if (alert.getSglStatus() != null) {
             detail.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus.fromString(alert.getSglStatus().getSglStatus()));

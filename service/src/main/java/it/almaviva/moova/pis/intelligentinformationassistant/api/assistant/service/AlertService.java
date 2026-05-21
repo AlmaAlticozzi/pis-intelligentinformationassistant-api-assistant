@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,6 +33,11 @@ public class AlertService {
     public AlertDetail createDraftAlert(AlertCreateRequest request) {
         System.out.println("AlertService.createDraftAlert: request=" + request);
         return alertRepository.createDraftAlert(request);
+    }
+
+    @Transactional
+    public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
+        return alertRepository.verifyAlert(alertId, request);
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {

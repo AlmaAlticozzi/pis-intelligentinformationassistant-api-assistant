@@ -1,5 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.error.AssistantApiErrors;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
@@ -18,6 +20,7 @@ public final class AssistantApiInputValidator {
     private static final int ALERT_PROMPT_MIN_LENGTH = 10;
     private static final int ALERT_PROMPT_MAX_LENGTH = 8000;
     private static final int TEXT_IMPROVE_INPUT_MAX_LENGTH = 8000;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private AssistantApiInputValidator() {
     }
@@ -36,6 +39,16 @@ public final class AssistantApiInputValidator {
         }
         if (alertId.length() > ALERT_ID_MAX_LENGTH) {
             throw badRequest(AssistantApiErrors.alertGetAlertIdTooLong());
+        }
+        return alertId;
+    }
+
+    public static String validateAlertIdForVerify(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertVerifyBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertVerifyAlertIdTooLong());
         }
         return alertId;
     }
@@ -92,57 +105,14 @@ public final class AssistantApiInputValidator {
         }
 
         if (trimmedBody.startsWith("\"")) {
-            if (!trimmedBody.endsWith("\"") || trimmedBody.length() < 2) {
+            try {
+                return OBJECT_MAPPER.readValue(trimmedBody, String.class).trim();
+            } catch (JsonProcessingException ex) {
                 throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
             }
-            return unescapeJsonString(trimmedBody.substring(1, trimmedBody.length() - 1)).trim();
         }
 
-        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-    }
-
-    private static String unescapeJsonString(String value) {
-        StringBuilder result = new StringBuilder(value.length());
-        for (int index = 0; index < value.length(); index++) {
-            char current = value.charAt(index);
-            if (current != '\\') {
-                if (current == '"') {
-                    throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-                }
-                result.append(current);
-                continue;
-            }
-
-            if (++index >= value.length()) {
-                throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-            }
-
-            char escaped = value.charAt(index);
-            switch (escaped) {
-                case '"' -> result.append('"');
-                case '\\' -> result.append('\\');
-                case '/' -> result.append('/');
-                case 'b' -> result.append('\b');
-                case 'f' -> result.append('\f');
-                case 'n' -> result.append('\n');
-                case 'r' -> result.append('\r');
-                case 't' -> result.append('\t');
-                case 'u' -> {
-                    if (index + 4 >= value.length()) {
-                        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-                    }
-                    String hex = value.substring(index + 1, index + 5);
-                    try {
-                        result.append((char) Integer.parseInt(hex, 16));
-                    } catch (NumberFormatException ex) {
-                        throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-                    }
-                    index += 4;
-                }
-                default -> throw badRequest(AssistantApiErrors.textImproveBodyNotJsonString());
-            }
-        }
-        return result.toString();
+        return trimmedBody;
     }
 
     private static AlertStatus parseAlertStatus(String status) {
