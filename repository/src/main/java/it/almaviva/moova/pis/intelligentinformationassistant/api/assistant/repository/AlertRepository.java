@@ -25,6 +25,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertRequiredDatum;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertRequiredTool;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertTargetTypeRel;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistory;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistoryId;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -119,6 +121,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 "EVENT_INTERPRETER"));
         alert.setDscInputmodel("ServiceDataV2");
         alert.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
+        alert.setDscImplementationsummary("Mock event interpreter for service data events.");
         alert.setDscLlmprovider("mock");
         alert.setDscLlmmodel("mock-alert-verify");
         alert.setDscPromptversion("alert-verify-mvp-v1");
@@ -129,21 +132,37 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 "No executable code generated.",
                 "No Agent Definition created.",
                 "No Suggestion created."));
-        alert.setJsnTechnicalspecification(Map.of(
-                "type", "mock-alert-verification",
-                "version", "alert-verify-mvp-v1",
-                "prompt", alert.getDscPrompt(),
-                "decision", "VERIFIED"));
-        alert.setJsnAgentblueprintpreview(Map.of(
-                "agentName", alert.getDscName(),
+
+        Map<String, Object> technicalSpecification = Map.of(
+                "schemaVersion", "iia.alert.technical-specification/v1",
+                "source", "SERVICE_DATA",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of(
+                        "type", "MOCK_SERVICE_DATA_EVENT"),
+                "deduplicationKeyTemplate", "MOCK:${alertId}:${eventId}");
+        Map<String, Object> agentBlueprintPreview = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "MockVerifiedAlertAgent",
                 "triggerType", "EVENT",
                 "requiredSources", List.of("SERVICE_DATA"),
-                "targetTypes", List.of(),
-                "parameters", Map.of("mock", true)));
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "targetTypes", List.of("SERVICE_DATA_JOURNEY"),
+                "stateRequirements", Map.of(
+                        "requiresState", false),
+                "output", Map.of(
+                        "type", "CANDIDATE_SUGGESTION"));
+
+        alert.setJsnTechnicalspecification(technicalSpecification);
+        alert.setJsnAgentblueprintpreview(agentBlueprintPreview);
         alert.setDtUpdatedat(now);
 
+        persistAlertVersionHistorySnapshot(alert, technicalSpecification, agentBlueprintPreview, now);
         flush();
 
+        System.out.println("[IIA][ALERT_VERIFY] Verification persisted for alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=VERIFIED");
         return Optional.of(toAlertDetailForVerification(alert));
     }
@@ -253,6 +272,38 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         }
 
         return detail;
+    }
+
+    private void persistAlertVersionHistorySnapshot(
+            Alert alert,
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> agentBlueprintPreview,
+            OffsetDateTime now) {
+        AlertVersionHistoryId id = new AlertVersionHistoryId();
+        id.setCodAlert(alert.getCodAlert());
+        id.setNumVersion(alert.getNumVersion());
+
+        AlertVersionHistory history = entityManager.find(AlertVersionHistory.class, id);
+        boolean isNewSnapshot = false;
+        if (history == null) {
+            history = new AlertVersionHistory();
+            history.setId(id);
+            history.setCodAlert(alert);
+            history.setDtCreatedat(now);
+            isNewSnapshot = true;
+        }
+
+        history.setDscName(alert.getDscName());
+        history.setDscDescription(alert.getDscDescription());
+        history.setDscPrompt(alert.getDscPrompt());
+        history.setSglVerificationstatus(alert.getSglVerificationstatus());
+        history.setJsnTechnicalspecification(technicalSpecification);
+        history.setJsnAgentblueprintpreview(agentBlueprintPreview);
+        history.setCodCreatedby(alert.getCodCreatedby());
+
+        if (isNewSnapshot) {
+            entityManager.persist(history);
+        }
     }
 
     private AlertVerificationResult toAlertVerificationResult(Alert alert) {
