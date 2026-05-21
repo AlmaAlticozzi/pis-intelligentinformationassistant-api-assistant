@@ -25,8 +25,12 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertRequiredDatum;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertRequiredTool;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertTargetTypeRel;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertTargetTypeRelId;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistory;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistoryId;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -52,6 +56,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
     @Inject
     EntityViewManager entityViewManager;
+
+    @Inject
+    AlertVerificationMockEngine alertVerificationMockEngine;
 
     public List<AlertSummary> searchAlerts(AlertSearchCriteria criteria) {
         CriteriaBuilder<Alert> query = criteriaBuilderFactory.create(entityManager, Alert.class, "alert");
@@ -107,63 +114,42 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDtUpdatedat(now);
         flush();
 
+        AlertVerificationOutcome outcome = alertVerificationMockEngine.verify(alertId, alert.getDscPrompt());
+
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
-                "VERIFIED"));
+                outcome.decision().name()));
         alert.setSglVerificationstatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
-                "VERIFIED"));
-        alert.setDscVerificationsummary("Mock alert verification completed successfully.");
-        alert.setDscRejectedreason(null);
-        alert.setNumVerificationconfidence(BigDecimal.valueOf(0.80));
-        alert.setSglInterpretertype(entityManager.getReference(
+                outcome.decision().name()));
+        alert.setDscVerificationsummary(outcome.summary());
+        alert.setDscRejectedreason(outcome.rejectedReason());
+        alert.setNumVerificationconfidence(outcome.confidence() == null ? null : BigDecimal.valueOf(outcome.confidence()));
+        alert.setSglInterpretertype(outcome.interpreterType() == null ? null : entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType.class,
-                "EVENT_INTERPRETER"));
-        alert.setDscInputmodel("ServiceDataV2");
-        alert.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
-        alert.setDscImplementationsummary("Mock event interpreter for service data events.");
-        alert.setDscLlmprovider("mock");
-        alert.setDscLlmmodel("mock-alert-verify");
-        alert.setDscPromptversion("alert-verify-mvp-v1");
+                outcome.interpreterType()));
+        alert.setDscInputmodel(outcome.inputModel());
+        alert.setDscOutputmodel(outcome.outputModel());
+        alert.setDscImplementationsummary(outcome.decision() == AlertVerificationDecision.VERIFIED
+                ? "Mock event interpreter for service data events."
+                : null);
+        alert.setDscLlmprovider(outcome.provider());
+        alert.setDscLlmmodel(outcome.model());
+        alert.setDscPromptversion(outcome.promptVersion());
         alert.setDtVerifiedat(now);
-        alert.setJsnInterpretedeventnames(List.of("MOCK_SERVICE_DATA_EVENT"));
-        alert.setJsnVerificationwarnings(List.of());
-        alert.setJsnSafetychecks(List.of(
-                "No executable code generated.",
-                "No Agent Definition created.",
-                "No Suggestion created."));
-
-        Map<String, Object> technicalSpecification = Map.of(
-                "schemaVersion", "iia.alert.technical-specification/v1",
-                "source", "SERVICE_DATA",
-                "inputModel", "ServiceDataV2",
-                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
-                "triggerType", "EVENT",
-                "evaluationMode", "STATELESS_EVENT_MATCH",
-                "condition", Map.of(
-                        "type", "MOCK_SERVICE_DATA_EVENT"),
-                "deduplicationKeyTemplate", "MOCK:${alertId}:${eventId}");
-        Map<String, Object> agentBlueprintPreview = Map.of(
-                "schemaVersion", "iia.agent.blueprint/v1",
-                "agentName", "MockVerifiedAlertAgent",
-                "triggerType", "EVENT",
-                "requiredSources", List.of("SERVICE_DATA"),
-                "evaluationMode", "STATELESS_EVENT_MATCH",
-                "targetTypes", List.of("SERVICE_DATA_JOURNEY"),
-                "stateRequirements", Map.of(
-                        "requiresState", false),
-                "output", Map.of(
-                        "type", "CANDIDATE_SUGGESTION"));
-
-        alert.setJsnTechnicalspecification(technicalSpecification);
-        alert.setJsnAgentblueprintpreview(agentBlueprintPreview);
+        alert.setJsnInterpretedeventnames(outcome.interpretedEventNames());
+        alert.setJsnVerificationwarnings(outcome.warnings());
+        alert.setJsnSafetychecks(outcome.safetyChecks());
+        alert.setJsnTechnicalspecification(outcome.technicalSpecification());
+        alert.setJsnAgentblueprintpreview(outcome.agentBlueprintPreview());
         alert.setDtUpdatedat(now);
 
-        persistAlertVersionHistorySnapshot(alert, technicalSpecification, agentBlueprintPreview, now);
+        replaceInterpretedTargetTypes(alert, outcome.interpretedTargetTypes());
+        persistAlertVersionHistorySnapshot(alert, outcome.technicalSpecification(), outcome.agentBlueprintPreview(), now);
         flush();
 
         System.out.println("[IIA][ALERT_VERIFY] Verification persisted for alertId=" + alertId);
-        System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=VERIFIED");
+        System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=" + outcome.decision());
         return Optional.of(toAlertDetailForVerification(alert));
     }
 
@@ -272,6 +258,46 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         }
 
         return detail;
+    }
+
+    private void replaceInterpretedTargetTypes(Alert alert, List<String> interpretedTargetTypes) {
+        entityManager.createQuery("""
+                        delete from AlertTargetTypeRel targetType
+                        where targetType.id.codAlert = :alertId
+                        """)
+                .setParameter("alertId", alert.getCodAlert())
+                .executeUpdate();
+
+        for (String interpretedTargetType : interpretedTargetTypes) {
+            String dbTargetType = toDbTargetType(interpretedTargetType);
+            AlertTargetTypeRelId id = new AlertTargetTypeRelId();
+            id.setCodAlert(alert.getCodAlert());
+            id.setSglTargettype(dbTargetType);
+
+            AlertTargetTypeRel targetTypeRel = new AlertTargetTypeRel();
+            targetTypeRel.setId(id);
+            targetTypeRel.setCodAlert(alert);
+            targetTypeRel.setSglTargettype(entityManager.getReference(
+                    it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.SuggestionTargetType.class,
+                    dbTargetType));
+            entityManager.persist(targetTypeRel);
+        }
+    }
+
+    private String toDbTargetType(String interpretedTargetType) {
+        if ("SERVICE_DATA_JOURNEY".equals(interpretedTargetType)) {
+            return "JOURNEY";
+        }
+        if ("SERVICE_DATA_JOURNEY_AGGREGATE".equals(interpretedTargetType)) {
+            return "JOURNEY_GROUP";
+        }
+        if ("MONITORED_AUDIO_MESSAGE".equals(interpretedTargetType)) {
+            return "AUDIO_MESSAGE";
+        }
+        if ("MONITORED_AUDIO_MESSAGE_AGGREGATE".equals(interpretedTargetType)) {
+            return "AUDIO_MESSAGE_GROUP";
+        }
+        return interpretedTargetType;
     }
 
     private void persistAlertVersionHistorySnapshot(
