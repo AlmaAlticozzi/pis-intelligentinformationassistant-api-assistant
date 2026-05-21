@@ -12,7 +12,7 @@ public class AlertVerificationPromptBuilder {
                 systemPrompt(),
                 userPrompt(alert),
                 "mock-alert-verify",
-                0.0,
+                0.1,
                 2000,
                 alert.alertId());
     }

@@ -29,7 +29,6 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistory;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVersionHistoryId;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
@@ -57,9 +56,6 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
     @Inject
     EntityViewManager entityViewManager;
-
-    @Inject
-    AlertVerificationMockEngine alertVerificationMockEngine;
 
     public List<AlertSummary> searchAlerts(AlertSearchCriteria criteria) {
         CriteriaBuilder<Alert> query = criteriaBuilderFactory.create(entityManager, Alert.class, "alert");
@@ -108,7 +104,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                         alert.getDscPrompt()));
     }
 
-    public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
+    public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request, AlertVerificationOutcome outcome) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {
             return Optional.empty();
@@ -124,8 +120,6 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 "VERIFYING"));
         alert.setDtUpdatedat(now);
         flush();
-
-        AlertVerificationOutcome outcome = alertVerificationMockEngine.verify(alertId, alert.getDscPrompt());
 
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,

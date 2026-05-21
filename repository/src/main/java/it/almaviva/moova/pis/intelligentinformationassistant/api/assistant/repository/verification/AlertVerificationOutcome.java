@@ -24,4 +24,28 @@ public record AlertVerificationOutcome(
         List<String> warnings,
         List<String> safetyChecks
 ) {
+    public AlertVerificationOutcome withAdditionalWarning(String warning) {
+        java.util.ArrayList<String> updatedWarnings = new java.util.ArrayList<>(warnings == null ? List.of() : warnings);
+        updatedWarnings.add(warning);
+        return new AlertVerificationOutcome(
+                decision,
+                summary,
+                rejectedReason,
+                confidence,
+                provider,
+                model,
+                promptVersion,
+                requiredSources,
+                interpreterType,
+                inputModel,
+                outputModel,
+                triggerType,
+                evaluationMode,
+                interpretedEventNames,
+                interpretedTargetTypes,
+                technicalSpecification,
+                agentBlueprintPreview,
+                List.copyOf(updatedWarnings),
+                safetyChecks);
+    }
 }
