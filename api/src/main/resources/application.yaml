@@ -44,6 +44,9 @@ quarkus:
 
 
 iia:
+  alert-verification:
+    # Dev/test fallback for invalid but parseable LLM JSON. Production should set this to false.
+    fallback-on-invalid-llm: ${IIA_ALERT_VERIFICATION_FALLBACK_ON_INVALID_LLM:false}
   ai:
     provider: openai
     text-improve:
@@ -52,6 +55,12 @@ iia:
       temperature: 0.1
       max-output-tokens: 1200
       timeout-seconds: 20
+    alert-verify:
+      enabled: true
+      model: ${IIA_ALERT_VERIFY_MODEL:gpt-4.1-mini}
+      temperature: ${IIA_ALERT_VERIFY_TEMPERATURE:0.1}
+      max-output-tokens: ${IIA_ALERT_VERIFY_MAX_OUTPUT_TOKENS:2000}
+      timeout-seconds: ${IIA_ALERT_VERIFY_TIMEOUT_SECONDS:20}
 
 fnd:
   mode: ${FND_CORE_LIB_QUARKUS_MODE:}

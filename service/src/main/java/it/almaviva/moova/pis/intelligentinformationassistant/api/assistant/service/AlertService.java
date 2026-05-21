@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
@@ -19,6 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.List;
 import java.util.Map;
@@ -40,7 +42,16 @@ public class AlertService {
     AlertVerificationMockEngine alertVerificationMockEngine;
 
     @Inject
+    AlertVerificationOutcomeValidator alertVerificationOutcomeValidator;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
+
+    /**
+     * Development safety valve for non-conforming LLM JSON. Production should set this to false.
+     */
+    @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "true")
+    boolean fallbackOnInvalidLlm;
 
     public AlertSummaryListResponse searchAlerts(AlertSearchCriteria criteria) {
         System.out.println("AlertService.searchAlerts: criteria=" + criteria);
@@ -71,17 +82,23 @@ public class AlertService {
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][SYSTEM] " + promptRequest.systemPrompt());
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
 
-        AlertVerificationOutcome outcome = resolveVerificationOutcome(alertId, promptData.get(), promptRequest);
+        AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, promptData.get(), promptRequest);
+        AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(resolution.outcome());
+        if (resolution.parseableLlm() && fallbackOnInvalidLlm && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
+            System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
+            outcome = alertVerificationOutcomeValidator.validate(alertVerificationMockEngine.verify(alertId, promptData.get().prompt())
+                    .withAdditionalWarning("LLM response was invalid for the current MVP contract. Deterministic mock fallback was used."));
+        }
         return alertRepository.verifyAlert(alertId, request, outcome);
     }
 
-    private AlertVerificationOutcome resolveVerificationOutcome(
+    private AlertVerificationResolution resolveVerificationOutcome(
             String alertId,
             AlertVerificationPromptData promptData,
             LlmRequest promptRequest) {
         if (llmGateway.isUnsatisfied()) {
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
-            return alertVerificationMockEngine.verify(alertId, promptData.prompt());
+            return new AlertVerificationResolution(alertVerificationMockEngine.verify(alertId, promptData.prompt()), false);
         }
 
         try {
@@ -90,22 +107,39 @@ public class AlertService {
             String provider = response == null ? null : response.provider();
             String model = response == null ? null : response.model();
             System.out.println("[IIA][ALERT_VERIFY][LLM] LlmGateway response provider=" + provider + " model=" + model);
+            System.out.println("[IIA][ALERT_VERIFY][LLM_RAW] " + (response == null ? null : response.text()));
 
             Optional<AlertVerificationOutcome> parsedOutcome = alertVerificationLlmResponseParser.parse(
                     response == null ? null : response.text(),
                     provider,
                     model);
             if (parsedOutcome.isPresent()) {
-                return parsedOutcome.get();
+                logParsedOutcome(parsedOutcome.get());
+                return new AlertVerificationResolution(parsedOutcome.get(), true);
             }
 
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
-            return alertVerificationMockEngine.verify(alertId, promptData.prompt())
-                    .withAdditionalWarning("LLM response was empty or not parseable. Deterministic mock fallback was used.");
+            return new AlertVerificationResolution(alertVerificationMockEngine.verify(alertId, promptData.prompt())
+                    .withAdditionalWarning("LLM response was empty or not parseable. Deterministic mock fallback was used."), false);
         } catch (Exception ex) {
             System.out.println("[IIA][ALERT_VERIFY][LLM] LlmGateway failed for alertId=" + alertId + " error=" + ex.getMessage());
-            return technicalErrorOutcome(ex);
+            return new AlertVerificationResolution(technicalErrorOutcome(ex), false);
         }
+    }
+
+    private void logParsedOutcome(AlertVerificationOutcome outcome) {
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] decision=" + outcome.decision());
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] technicalSpecification present=" + (outcome.technicalSpecification() != null));
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] agentBlueprintPreview present=" + (outcome.agentBlueprintPreview() != null));
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] requiredSources=" + outcome.requiredSources());
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] interpreterType=" + outcome.interpreterType());
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] interpretedEventNames=" + outcome.interpretedEventNames());
+        System.out.println("[IIA][ALERT_VERIFY][PARSER] targetTypes=" + outcome.interpretedTargetTypes());
+    }
+
+    private boolean shouldFallbackOnInvalidLlm(AlertVerificationOutcome rawOutcome, AlertVerificationOutcome validatedOutcome) {
+        return rawOutcome.decision() == AlertVerificationDecision.VERIFIED
+                && validatedOutcome.decision() == AlertVerificationDecision.REJECTED;
     }
 
     private AlertVerificationOutcome technicalErrorOutcome(Exception ex) {
@@ -143,5 +177,8 @@ public class AlertService {
 
     public boolean existsActiveAlertWithNormalizedName(String name) {
         return alertRepository.existsActiveAlertWithNormalizedName(name);
+    }
+
+    private record AlertVerificationResolution(AlertVerificationOutcome outcome, boolean parseableLlm) {
     }
 }

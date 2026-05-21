@@ -32,6 +32,8 @@ public class AlertVerificationLlmResponseParser {
             if (decision == null) {
                 return Optional.empty();
             }
+            Map<String, Object> technicalSpecification = asMap(payload.get("technicalSpecification"));
+            Map<String, Object> agentBlueprintPreview = asMap(payload.get("agentBlueprintPreview"));
 
             return Optional.of(new AlertVerificationOutcome(
                     decision,
@@ -43,14 +45,14 @@ public class AlertVerificationLlmResponseParser {
                     PROMPT_VERSION,
                     asStringList(payload.get("requiredSources")),
                     asString(payload.get("interpreterType")),
-                    INPUT_MODEL,
-                    OUTPUT_MODEL,
+                    firstString(payload.get("inputModel"), technicalSpecification == null ? null : technicalSpecification.get("inputModel"), INPUT_MODEL),
+                    firstString(payload.get("outputModel"), technicalSpecification == null ? null : technicalSpecification.get("outputModel"), OUTPUT_MODEL),
                     asString(payload.get("triggerType")),
                     asString(payload.get("evaluationMode")),
                     asStringList(payload.get("interpretedEventNames")),
                     asStringList(payload.get("targetTypes")),
-                    asMap(payload.get("technicalSpecification")),
-                    asMap(payload.get("agentBlueprintPreview")),
+                    technicalSpecification,
+                    agentBlueprintPreview,
                     asStringList(payload.get("warnings")),
                     asStringList(payload.get("safetyChecks"))));
         } catch (JsonProcessingException ex) {
@@ -71,6 +73,16 @@ public class AlertVerificationLlmResponseParser {
 
     private String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String firstString(Object... values) {
+        for (Object value : values) {
+            String stringValue = asString(value);
+            if (stringValue != null && !stringValue.isBlank()) {
+                return stringValue;
+            }
+        }
+        return null;
     }
 
     private Double asDouble(Object value) {
@@ -99,6 +111,6 @@ public class AlertVerificationLlmResponseParser {
         if (value instanceof Map<?, ?> map) {
             return (Map<String, Object>) map;
         }
-        return Map.of();
+        return null;
     }
 }
