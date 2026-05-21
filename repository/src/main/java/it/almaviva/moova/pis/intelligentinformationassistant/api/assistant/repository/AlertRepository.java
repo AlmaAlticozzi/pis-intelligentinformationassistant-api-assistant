@@ -31,6 +31,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -95,6 +96,16 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
     public Optional<AlertDetail> getAlert(String alertId) {
         Optional<Alert> alert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         return alert.map(this::toAlertDetail);
+    }
+
+    public Optional<AlertVerificationPromptData> getAlertVerificationPromptData(String alertId) {
+        return find("codAlert = ?1 and dtDeletedat is null", alertId)
+                .firstResultOptional()
+                .map(alert -> new AlertVerificationPromptData(
+                        alert.getCodAlert(),
+                        alert.getDscName(),
+                        alert.getDscDescription(),
+                        alert.getDscPrompt()));
     }
 
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {

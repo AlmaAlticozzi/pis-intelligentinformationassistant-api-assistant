@@ -1,5 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
@@ -17,6 +19,9 @@ public class AlertService {
 
     @Inject
     AlertRepository alertRepository;
+
+    @Inject
+    AlertVerificationPromptBuilder alertVerificationPromptBuilder;
 
     public AlertSummaryListResponse searchAlerts(AlertSearchCriteria criteria) {
         System.out.println("AlertService.searchAlerts: criteria=" + criteria);
@@ -37,6 +42,17 @@ public class AlertService {
 
     @Transactional
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
+        Optional<LlmRequest> llmRequest = alertRepository.getAlertVerificationPromptData(alertId)
+                .map(alertVerificationPromptBuilder::build);
+        if (llmRequest.isEmpty()) {
+            return Optional.empty();
+        }
+
+        LlmRequest promptRequest = llmRequest.get();
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT] Built ALERT_VERIFY prompt for alertId=" + alertId);
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT][SYSTEM] " + promptRequest.systemPrompt());
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
+
         return alertRepository.verifyAlert(alertId, request);
     }
 
