@@ -88,19 +88,13 @@ public class AssistantV1Api implements IAssistantV1Api {
             AlertCreateRequest validatedRequest = AssistantApiInputValidator.validateAlertCreate(alertCreateRequest);
             System.out.println("createAlert: " + "alertCreateRequest=" + validatedRequest);
 
-            if (Boolean.TRUE.equals(validatedRequest.getVerifyImmediately())) {
-                throw new WebApplicationException(Response.status(422)
-                        .entity(AssistantApiErrors.alertCreateVerificationUnsupported())
-                        .build());
-            }
-
             if (alertService.existsActiveAlertWithNormalizedName(validatedRequest.getName())) {
                 throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
                         .entity(AssistantApiErrors.alertCreateDuplicateName())
                         .build());
             }
 
-            return alertService.createDraftAlert(validatedRequest);
+            return alertService.createAlert(validatedRequest);
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {

@@ -8,6 +8,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
@@ -68,6 +69,34 @@ public class AlertService {
     public AlertDetail createDraftAlert(AlertCreateRequest request) {
         System.out.println("AlertService.createDraftAlert: request=" + request);
         return alertRepository.createDraftAlert(request);
+    }
+
+    @Transactional
+    public AlertDetail createAlert(AlertCreateRequest request) {
+        AlertDetail createdAlert = alertRepository.createDraftAlert(request);
+        String alertId = createdAlert.getId();
+
+        if (!Boolean.TRUE.equals(request.getVerifyImmediately())) {
+            System.out.println("[IIA][ALERT_CREATE] Alert created as DRAFT because verifyImmediately=false alertId=" + alertId);
+            return createdAlert;
+        }
+
+        boolean enableAfterVerification = Boolean.TRUE.equals(request.getEnableAfterVerification());
+        System.out.println("[IIA][ALERT_CREATE] verifyImmediately=true, starting verification for alertId=" + alertId);
+        System.out.println("[IIA][ALERT_CREATE] enableAfterVerification requested=" + enableAfterVerification);
+
+        AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
+                .force(Boolean.FALSE);
+        AlertDetail verifiedAlert = verifyAlert(alertId, verificationRequest)
+                .orElseThrow(() -> new IllegalStateException("Created alert not found during immediate verification."));
+
+        AlertStatus status = verifiedAlert.getStatus();
+        boolean enabled = AlertStatus.VERIFIED.equals(status) && enableAfterVerification;
+        AlertDetail finalAlert = alertRepository.updateAlertEnabledAfterCreateVerification(alertId, enabled)
+                .orElse(verifiedAlert);
+
+        System.out.println("[IIA][ALERT_CREATE] finalStatus=" + status + " enabled=" + finalAlert.getEnabled());
+        return finalAlert;
     }
 
     @Transactional

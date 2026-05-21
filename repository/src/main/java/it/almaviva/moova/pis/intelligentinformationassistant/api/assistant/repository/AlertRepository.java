@@ -191,6 +191,19 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return toAlertDetail(alert);
     }
 
+    public Optional<AlertDetail> updateAlertEnabledAfterCreateVerification(String alertId, boolean enabled) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        alert.setFlgEnabled(enabled);
+        alert.setDtUpdatedat(OffsetDateTime.now());
+        flush();
+        return Optional.of(toAlertDetailForVerification(alert));
+    }
+
     private AlertSummary toAlertSummary(AlertSummaryView view) {
         AlertSummary summary = new AlertSummary()
                 .id(view.getId())
