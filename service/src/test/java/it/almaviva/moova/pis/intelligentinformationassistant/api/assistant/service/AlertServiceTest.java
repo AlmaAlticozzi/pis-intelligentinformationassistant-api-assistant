@@ -78,6 +78,24 @@ class AlertServiceTest {
         assertThat(result.getEnabled()).isFalse();
     }
 
+    @Test
+    void createWithVerifyImmediatelyTrueProviderErrorStaysDisabled() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = spy(new AlertService());
+        service.alertRepository = repository;
+        AlertCreateRequest request = createRequest(true, true);
+        AlertDetail draft = new AlertDetail().id("ALRT1").status(AlertStatus.DRAFT).enabled(false);
+        AlertDetail error = new AlertDetail().id("ALRT1").status(AlertStatus.ERROR).enabled(false);
+        when(repository.createDraftAlert(request)).thenReturn(draft);
+        doReturn(Optional.of(error)).when(service).verifyAlert(eq("ALRT1"), any(AlertVerificationRequest.class));
+        when(repository.updateAlertEnabledAfterCreateVerification("ALRT1", false)).thenReturn(Optional.of(error));
+
+        AlertDetail result = service.createAlert(request);
+
+        assertThat(result.getStatus()).isEqualTo(AlertStatus.ERROR);
+        assertThat(result.getEnabled()).isFalse();
+    }
+
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {
         return new AlertCreateRequest()
                 .name("Alert")

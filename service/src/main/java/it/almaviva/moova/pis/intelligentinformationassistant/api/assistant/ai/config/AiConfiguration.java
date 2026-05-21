@@ -42,7 +42,14 @@ public interface AiConfiguration {
         @WithDefault("2000")
         Integer maxOutputTokens();
 
-        @WithDefault("20")
+        /**
+         * Application-level timeout metadata for ALERT_VERIFY. The effective OpenAI HTTP client
+         * timeout is controlled by quarkus.langchain4j.openai.timeout.
+         */
+        @WithDefault("60")
         Integer timeoutSeconds();
+
+        @WithDefault("false")
+        boolean simulateProviderTimeout();
     }
 }

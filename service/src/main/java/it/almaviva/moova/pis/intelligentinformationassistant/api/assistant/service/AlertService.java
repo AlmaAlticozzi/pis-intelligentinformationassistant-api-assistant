@@ -6,6 +6,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
@@ -21,6 +22,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.ProcessingException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.List;
@@ -47,6 +49,9 @@ public class AlertService {
 
     @Inject
     Instance<LlmGateway> llmGateway;
+
+    @Inject
+    AiConfiguration aiConfiguration;
 
     /**
      * Development safety valve for non-conforming LLM JSON. Production should set this to false.
@@ -135,7 +140,12 @@ public class AlertService {
         }
 
         try {
+            if (aiConfiguration.alertVerify().simulateProviderTimeout()) {
+                throw new RuntimeException("Simulated ALERT_VERIFY provider timeout");
+            }
+
             System.out.println("[IIA][ALERT_VERIFY][LLM] Calling LlmGateway with useCase=ALERT_VERIFY alertId=" + alertId);
+            // LangChain4j/OpenAI client may already apply retry. Application-level retry must be introduced later only with idempotency and backoff.
             LlmResponse response = llmGateway.get().generateText(promptRequest);
             String provider = response == null ? null : response.provider();
             String model = response == null ? null : response.model();
@@ -154,9 +164,14 @@ public class AlertService {
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
             return new AlertVerificationResolution(alertVerificationMockEngine.verify(alertId, promptData.prompt())
                     .withAdditionalWarning("LLM response was empty or not parseable. Deterministic mock fallback was used."), false);
-        } catch (Exception ex) {
-            System.out.println("[IIA][ALERT_VERIFY][LLM] LlmGateway failed for alertId=" + alertId + " error=" + ex.getMessage());
-            return new AlertVerificationResolution(technicalErrorOutcome(ex), false);
+        } catch (ProcessingException ex) {
+            String shortMessage = shortTechnicalMessage(ex);
+            System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
+            return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
+        } catch (RuntimeException ex) {
+            String shortMessage = shortTechnicalMessage(ex);
+            System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
+            return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
         }
     }
 
@@ -175,15 +190,15 @@ public class AlertService {
                 && validatedOutcome.decision() == AlertVerificationDecision.REJECTED;
     }
 
-    private AlertVerificationOutcome technicalErrorOutcome(Exception ex) {
-        String reason = "Alert verification failed due to a technical LLM gateway error.";
+    private AlertVerificationOutcome technicalErrorOutcome(String warning, LlmRequest promptRequest) {
+        String summary = "Alert verification failed because the AI provider did not respond successfully.";
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.ERROR,
-                reason,
-                ex.getMessage(),
-                0.0,
-                "llm-gateway",
+                summary,
                 null,
+                0.0,
+                aiConfiguration.provider(),
+                promptRequest.model(),
                 "alert-verify-mvp-v1",
                 List.of(),
                 null,
@@ -196,16 +211,27 @@ public class AlertService {
                 Map.of(
                         "schemaVersion", "iia.alert.technical-specification/v1",
                         "decision", "ERROR",
-                        "error", reason),
+                        "error", summary),
                 Map.of(
                         "schemaVersion", "iia.agent.blueprint/v1",
                         "canGenerate", false,
-                        "error", reason),
-                List.of(reason),
+                        "error", summary),
+                List.of(warning),
                 List.of(
                         "No executable code generated.",
                         "No Agent Definition created.",
                         "No Suggestion created."));
+    }
+
+    private String shortTechnicalMessage(Throwable throwable) {
+        String message = throwable.getMessage();
+        if ((message == null || message.isBlank()) && throwable.getCause() != null) {
+            message = throwable.getCause().getMessage();
+        }
+        if (message == null || message.isBlank()) {
+            message = throwable.getClass().getSimpleName();
+        }
+        return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {

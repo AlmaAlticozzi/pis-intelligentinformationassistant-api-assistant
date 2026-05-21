@@ -138,6 +138,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDscVerificationsummary(outcome.summary());
         alert.setDscRejectedreason(outcome.rejectedReason());
         alert.setNumVerificationconfidence(outcome.confidence() == null ? null : BigDecimal.valueOf(outcome.confidence()));
+        if (outcome.decision() == AlertVerificationDecision.ERROR) {
+            alert.setFlgEnabled(false);
+        }
         applyVerifiedInterpreterMetadata(alert, outcome);
         alert.setDscLlmprovider(outcome.provider());
         alert.setDscLlmmodel(outcome.model());
