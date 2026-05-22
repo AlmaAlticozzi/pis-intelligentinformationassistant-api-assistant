@@ -123,7 +123,7 @@ class AlertServiceTest {
     }
 
     @Test
-    void updateWithChangedPromptLeavesFullPromptUpdateSeparated() {
+    void updateWithChangedPromptAndVerifyImmediatelyFalseResetsToDraft() {
         AlertRepository repository = mock(AlertRepository.class);
         AlertService service = new AlertService();
         service.alertRepository = repository;
@@ -131,13 +131,70 @@ class AlertServiceTest {
                 .id("ALRT1")
                 .status(AlertStatus.VERIFIED)
                 .prompt("Create a suggestion when a journey is cancelled.");
-        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.");
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.")
+                .verifyImmediately(false)
+                .enableAfterVerification(true);
+        AlertDetail updated = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.DRAFT)
+                .prompt(request.getPrompt())
+                .enabled(false)
+                .version(2);
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+        when(repository.updateAlertDraftAfterPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+
+        java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
+
+        assertThat(result).contains(updated);
+        verify(repository).updateAlertDraftAfterPromptChange("ALRT1", request);
+        verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
+    }
+
+    @Test
+    void updateWithChangedPromptAndVerifyImmediatelyNullResetsToDraft() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        AlertDetail current = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt("Create a suggestion when a journey is cancelled.");
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.")
+                .verifyImmediately(null)
+                .enableAfterVerification(true);
+        AlertDetail updated = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.DRAFT)
+                .prompt(request.getPrompt())
+                .enabled(false)
+                .version(2);
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+        when(repository.updateAlertDraftAfterPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+
+        java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
+
+        assertThat(result).contains(updated);
+        verify(repository).updateAlertDraftAfterPromptChange("ALRT1", request);
+    }
+
+    @Test
+    void updateWithChangedPromptAndVerifyImmediatelyTrueLeavesVerificationSeparated() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        AlertDetail current = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt("Create a suggestion when a journey is cancelled.");
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.")
+                .verifyImmediately(true);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(current);
         verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
+        verify(repository, never()).updateAlertDraftAfterPromptChange("ALRT1", request);
     }
 
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {

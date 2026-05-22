@@ -66,6 +66,46 @@ class AlertRepositoryTest {
     }
 
     @Test
+    void clearVerificationArtifactsRemovesPromptDerivedData() {
+        AlertRepository repository = new AlertRepository();
+        Alert alert = alertWithExistingInterpreterMetadata();
+        alert.setDscVerificationsummary("Verified.");
+        alert.setDscRejectedreason("Old reason");
+        alert.setNumVerificationconfidence(BigDecimal.valueOf(0.8));
+        alert.setDtVerifiedat(OffsetDateTime.parse("2026-05-21T10:15:30Z"));
+        alert.setCodPrompt("PROMPT1");
+        alert.setDscPromptversion("alert-verify-mvp-v1");
+        alert.setDscLlmprovider("OPENAI");
+        alert.setDscLlmmodel("gpt-4.1-mini");
+        alert.setJsnVerificationwarnings(List.of("warning"));
+        alert.setJsnInterpretedeventnames(List.of("JOURNEY_CANCELLED"));
+        alert.setJsnSafetychecks(List.of("No Agent Definition created."));
+
+        repository.clearVerificationArtifacts(alert);
+
+        assertThat(alert.getDscVerificationsummary()).isNull();
+        assertThat(alert.getDscRejectedreason()).isNull();
+        assertThat(alert.getNumVerificationconfidence()).isNull();
+        assertThat(alert.getDtVerifiedat()).isNull();
+        assertThat(alert.getCodPrompt()).isNull();
+        assertThat(alert.getDscPromptversion()).isNull();
+        assertThat(alert.getDscLlmprovider()).isNull();
+        assertThat(alert.getDscLlmmodel()).isNull();
+        assertThat(alert.getJsnVerificationwarnings()).isNull();
+        assertThat(alert.getJsnInterpretedeventnames()).isNull();
+        assertThat(alert.getJsnSafetychecks()).isNull();
+        assertThat(alert.getJsnTechnicalspecification()).isNull();
+        assertThat(alert.getJsnAgentblueprintpreview()).isNull();
+        assertThat(alert.getSglInterpretertype()).isNull();
+        assertThat(alert.getDscInterpreterclassname()).isNull();
+        assertThat(alert.getDscContractversion()).isNull();
+        assertThat(alert.getCodCoderef()).isNull();
+        assertThat(alert.getDscImplementationsummary()).isNull();
+        assertThat(alert.getDscInputmodel()).isNull();
+        assertThat(alert.getDscOutputmodel()).isNull();
+    }
+
+    @Test
     void alertSummaryIncludesLastVerification() throws Exception {
         AlertRepository repository = new AlertRepository();
         AlertSummaryView view = mock(AlertSummaryView.class);

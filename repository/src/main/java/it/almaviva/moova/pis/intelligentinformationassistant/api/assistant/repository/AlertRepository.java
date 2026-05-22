@@ -193,6 +193,29 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setJsnAgentblueprintpreview(outcome.agentBlueprintPreview());
     }
 
+    void clearVerificationArtifacts(Alert alert) {
+        alert.setDscVerificationsummary(null);
+        alert.setDscRejectedreason(null);
+        alert.setNumVerificationconfidence(null);
+        alert.setDtVerifiedat(null);
+        alert.setCodPrompt(null);
+        alert.setDscPromptversion(null);
+        alert.setDscLlmprovider(null);
+        alert.setDscLlmmodel(null);
+        alert.setJsnVerificationwarnings(null);
+        alert.setJsnInterpretedeventnames(null);
+        alert.setJsnSafetychecks(null);
+        alert.setJsnTechnicalspecification(null);
+        alert.setJsnAgentblueprintpreview(null);
+        alert.setSglInterpretertype(null);
+        alert.setDscInterpreterclassname(null);
+        alert.setDscContractversion(null);
+        alert.setCodCoderef(null);
+        alert.setDscImplementationsummary(null);
+        alert.setDscInputmodel(null);
+        alert.setDscOutputmodel(null);
+    }
+
     public boolean existsActiveAlertWithNormalizedName(String name) {
         String normalizedName = normalizeName(name);
         return count("""
@@ -222,6 +245,33 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDscName(request.getName().trim());
         alert.setDscDescription(trimToNull(request.getDescription()));
         alert.setDtUpdatedat(OffsetDateTime.now());
+        flush();
+        return Optional.of(toAlertDetail(alert));
+    }
+
+    public Optional<AlertDetail> updateAlertDraftAfterPromptChange(String alertId, AlertUpdateRequest request) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        OffsetDateTime now = OffsetDateTime.now();
+        alert.setDscName(request.getName().trim());
+        alert.setDscDescription(trimToNull(request.getDescription()));
+        alert.setDscPrompt(request.getPrompt().trim());
+        alert.setNumVersion(alert.getNumVersion() == null ? 1 : alert.getNumVersion() + 1);
+        alert.setSglStatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
+                "DRAFT"));
+        alert.setSglVerificationstatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
+                "PENDING"));
+        alert.setFlgEnabled(false);
+        clearVerificationArtifacts(alert);
+        replaceInterpretedTargetTypes(alert, List.of());
+        alert.setDtUpdatedat(now);
+        persistAlertVersionHistorySnapshot(alert, null, null, now);
         flush();
         return Optional.of(toAlertDetail(alert));
     }

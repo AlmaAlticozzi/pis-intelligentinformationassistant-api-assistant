@@ -101,7 +101,7 @@ public class AlertService {
             return updateAlertWithUnchangedPrompt(alertId, request);
         }
 
-        return updateAlertWithChangedPromptDeferred(alert);
+        return updateAlertWithChangedPrompt(alertId, request, alert);
     }
 
     public boolean existsDeletedAlert(String alertId) {
@@ -298,9 +298,18 @@ public class AlertService {
         return updatedAlert;
     }
 
-    private Optional<AlertDetail> updateAlertWithChangedPromptDeferred(AlertDetail currentAlert) {
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed: full prompt update deferred alertId=" + currentAlert.getId());
-        return Optional.of(currentAlert);
+    private Optional<AlertDetail> updateAlertWithChangedPrompt(String alertId, AlertUpdateRequest request, AlertDetail currentAlert) {
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed alertId=" + alertId);
+        if (Boolean.TRUE.equals(request.getVerifyImmediately())) {
+            LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed with verifyImmediately=true deferred alertId=" + alertId);
+            return Optional.of(currentAlert);
+        }
+
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] reset verification to DRAFT/PENDING alertId=" + alertId);
+        Optional<AlertDetail> updatedAlert = alertRepository.updateAlertDraftAfterPromptChange(alertId, request);
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        return updatedAlert;
     }
 
     private boolean isPromptUnchanged(String persistedPrompt, String requestedPrompt) {
