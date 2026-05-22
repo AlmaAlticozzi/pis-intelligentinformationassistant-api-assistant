@@ -250,6 +250,14 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
     }
 
     public Optional<AlertDetail> updateAlertDraftAfterPromptChange(String alertId, AlertUpdateRequest request) {
+        return updateAlertAfterPromptChange(alertId, request, "DRAFT");
+    }
+
+    public Optional<AlertDetail> updateAlertVerifyingAfterPromptChange(String alertId, AlertUpdateRequest request) {
+        return updateAlertAfterPromptChange(alertId, request, "VERIFYING");
+    }
+
+    private Optional<AlertDetail> updateAlertAfterPromptChange(String alertId, AlertUpdateRequest request, String status) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {
             return Optional.empty();
@@ -263,7 +271,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setNumVersion(alert.getNumVersion() == null ? 1 : alert.getNumVersion() + 1);
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
-                "DRAFT"));
+                status));
         alert.setSglVerificationstatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
                 "PENDING"));

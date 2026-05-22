@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -98,7 +99,7 @@ class AlertServiceTest {
     @Test
     void updateWithUnchangedPromptUpdatesOnlyMetadata() {
         AlertRepository repository = mock(AlertRepository.class);
-        AlertService service = new AlertService();
+        AlertService service = spy(new AlertService());
         service.alertRepository = repository;
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -114,18 +115,18 @@ class AlertServiceTest {
                 .enabled(true)
                 .version(3);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
-        when(repository.updateAlertMetadataWithoutPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+        doReturn(java.util.Optional.of(updated)).when(service).updateAlertMetadataWithoutPromptChangeInNewTransaction("ALRT1", request);
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(repository).updateAlertMetadataWithoutPromptChange("ALRT1", request);
+        verify(service).updateAlertMetadataWithoutPromptChangeInNewTransaction("ALRT1", request);
     }
 
     @Test
     void updateWithChangedPromptAndVerifyImmediatelyFalseResetsToDraft() {
         AlertRepository repository = mock(AlertRepository.class);
-        AlertService service = new AlertService();
+        AlertService service = spy(new AlertService());
         service.alertRepository = repository;
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -141,19 +142,19 @@ class AlertServiceTest {
                 .enabled(false)
                 .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
-        when(repository.updateAlertDraftAfterPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+        doReturn(java.util.Optional.of(updated)).when(service).updateAlertDraftAfterPromptChangeInNewTransaction("ALRT1", request);
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(repository).updateAlertDraftAfterPromptChange("ALRT1", request);
+        verify(service).updateAlertDraftAfterPromptChangeInNewTransaction("ALRT1", request);
         verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
     }
 
     @Test
     void updateWithChangedPromptAndVerifyImmediatelyNullResetsToDraft() {
         AlertRepository repository = mock(AlertRepository.class);
-        AlertService service = new AlertService();
+        AlertService service = spy(new AlertService());
         service.alertRepository = repository;
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -169,32 +170,86 @@ class AlertServiceTest {
                 .enabled(false)
                 .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
-        when(repository.updateAlertDraftAfterPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+        doReturn(java.util.Optional.of(updated)).when(service).updateAlertDraftAfterPromptChangeInNewTransaction("ALRT1", request);
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(repository).updateAlertDraftAfterPromptChange("ALRT1", request);
+        verify(service).updateAlertDraftAfterPromptChangeInNewTransaction("ALRT1", request);
     }
 
     @Test
-    void updateWithChangedPromptAndVerifyImmediatelyTrueLeavesVerificationSeparated() {
+    void updateWithChangedPromptAndVerifyImmediatelyTrueSavesVerifyingAndSchedulesAsyncVerification() {
         AlertRepository repository = mock(AlertRepository.class);
-        AlertService service = new AlertService();
+        AlertService service = spy(new AlertService());
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
         service.alertRepository = repository;
+        service.managedExecutor = managedExecutor;
+        service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
                 .status(AlertStatus.VERIFIED)
-                .prompt("Create a suggestion when a journey is cancelled.");
+                .prompt("Create a suggestion when a journey is cancelled.")
+                .enabled(true);
         AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.")
-                .verifyImmediately(true);
+                .verifyImmediately(true)
+                .enableAfterVerification(true);
+        AlertDetail updated = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFYING)
+                .prompt(request.getPrompt())
+                .enabled(false)
+                .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+        doReturn(java.util.Optional.of(updated)).when(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return CompletableFuture.completedFuture(null);
+        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
-        assertThat(result).contains(current);
+        assertThat(result).contains(updated);
+        verify(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
+        verify(managedExecutor).runAsync(any(Runnable.class));
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true);
         verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
         verify(repository, never()).updateAlertDraftAfterPromptChange("ALRT1", request);
+    }
+
+    @Test
+    void updateWithChangedPromptAndVerifyImmediatelyTrueDoesNotEnablePreviouslyDisabledAlert() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = spy(new AlertService());
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
+        service.alertRepository = repository;
+        service.managedExecutor = managedExecutor;
+        service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
+        AlertDetail current = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt("Create a suggestion when a journey is cancelled.")
+                .enabled(false);
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.")
+                .verifyImmediately(true)
+                .enableAfterVerification(true);
+        AlertDetail updated = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFYING)
+                .prompt(request.getPrompt())
+                .enabled(false)
+                .version(2);
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+        doReturn(java.util.Optional.of(updated)).when(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return CompletableFuture.completedFuture(null);
+        }).when(managedExecutor).runAsync(any(Runnable.class));
+
+        java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
+
+        assertThat(result).contains(updated);
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false);
     }
 
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {

@@ -82,7 +82,6 @@ public class AlertService {
         return alertRepository.getAlert(alertId);
     }
 
-    @Transactional
     public Optional<AlertDetail> updateAlert(String alertId, AlertUpdateRequest request) {
         LOGGER.info(() -> "[IIA][ALERT_UPDATE] Loading current alert detail alertId=" + alertId);
         Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
@@ -293,7 +292,7 @@ public class AlertService {
 
     private Optional<AlertDetail> updateAlertWithUnchangedPrompt(String alertId, AlertUpdateRequest request) {
         LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt unchanged: metadata update only alertId=" + alertId);
-        Optional<AlertDetail> updatedAlert = alertRepository.updateAlertMetadataWithoutPromptChange(alertId, request);
+        Optional<AlertDetail> updatedAlert = updateAlertMetadataWithoutPromptChangeInNewTransaction(alertId, request);
         updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
         return updatedAlert;
     }
@@ -301,15 +300,54 @@ public class AlertService {
     private Optional<AlertDetail> updateAlertWithChangedPrompt(String alertId, AlertUpdateRequest request, AlertDetail currentAlert) {
         LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed alertId=" + alertId);
         if (Boolean.TRUE.equals(request.getVerifyImmediately())) {
-            LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed with verifyImmediately=true deferred alertId=" + alertId);
-            return Optional.of(currentAlert);
+            return updateAlertWithChangedPromptAndImmediateVerification(alertId, request, currentAlert);
         }
 
         LOGGER.info(() -> "[IIA][ALERT_UPDATE] reset verification to DRAFT/PENDING alertId=" + alertId);
-        Optional<AlertDetail> updatedAlert = alertRepository.updateAlertDraftAfterPromptChange(alertId, request);
+        Optional<AlertDetail> updatedAlert = updateAlertDraftAfterPromptChangeInNewTransaction(alertId, request);
         updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
         updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
         return updatedAlert;
+    }
+
+    private Optional<AlertDetail> updateAlertWithChangedPromptAndImmediateVerification(String alertId, AlertUpdateRequest request, AlertDetail currentAlert) {
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed: immediate verification requested alertId=" + alertId);
+        boolean previousEnabled = Boolean.TRUE.equals(currentAlert.getEnabled());
+        boolean requestedEnableAfterVerification = Boolean.TRUE.equals(request.getEnableAfterVerification());
+        boolean effectiveEnableAfterVerification = previousEnabled && requestedEnableAfterVerification;
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] previousEnabled="
+                + previousEnabled
+                + ", requestedEnableAfterVerification="
+                + requestedEnableAfterVerification
+                + ", effectiveEnableAfterVerification="
+                + effectiveEnableAfterVerification
+                + " alertId="
+                + alertId);
+
+        Optional<AlertDetail> updatedAlert = updateAlertVerifyingAfterPromptChangeInNewTransaction(alertId, request);
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] alert saved as VERIFYING alertId=" + alertId));
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
+        if (updatedAlert.isPresent()) {
+            scheduleAsyncVerification(alertId, effectiveEnableAfterVerification);
+            LOGGER.info(() -> "[IIA][ALERT_UPDATE] async verification scheduled alertId=" + alertId);
+        }
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        return updatedAlert;
+    }
+
+    protected Optional<AlertDetail> updateAlertMetadataWithoutPromptChangeInNewTransaction(String alertId, AlertUpdateRequest request) {
+        return QuarkusTransaction.requiringNew()
+                .call(() -> alertRepository.updateAlertMetadataWithoutPromptChange(alertId, request));
+    }
+
+    protected Optional<AlertDetail> updateAlertDraftAfterPromptChangeInNewTransaction(String alertId, AlertUpdateRequest request) {
+        return QuarkusTransaction.requiringNew()
+                .call(() -> alertRepository.updateAlertDraftAfterPromptChange(alertId, request));
+    }
+
+    protected Optional<AlertDetail> updateAlertVerifyingAfterPromptChangeInNewTransaction(String alertId, AlertUpdateRequest request) {
+        return QuarkusTransaction.requiringNew()
+                .call(() -> alertRepository.updateAlertVerifyingAfterPromptChange(alertId, request));
     }
 
     private boolean isPromptUnchanged(String persistedPrompt, String requestedPrompt) {
