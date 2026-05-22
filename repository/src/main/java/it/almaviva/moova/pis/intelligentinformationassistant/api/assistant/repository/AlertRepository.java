@@ -323,7 +323,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         }
 
         Alert alert = maybeAlert.get();
-        alert.setFlgEnabled(enabled);
+        alert.setFlgEnabled(enabled && isVerified(alert));
         alert.setDtUpdatedat(OffsetDateTime.now());
         flush();
         return Optional.of(toAlertDetailForVerification(alert));
@@ -810,6 +810,10 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return Normalizer.normalize(name == null ? "" : name, Normalizer.Form.NFKC)
                 .trim()
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isVerified(Alert alert) {
+        return alert.getSglStatus() != null && "VERIFIED".equals(alert.getSglStatus().getSglStatus());
     }
 
     private String trimToNull(String value) {
