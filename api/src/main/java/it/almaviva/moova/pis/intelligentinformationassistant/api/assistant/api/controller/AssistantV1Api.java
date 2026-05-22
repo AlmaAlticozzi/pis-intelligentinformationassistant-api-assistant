@@ -10,6 +10,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utili
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.logging.Logger;
 
 import jakarta.inject.Inject;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -21,6 +22,8 @@ import jakarta.ws.rs.core.Response;
 @ApplicationScoped
 @Path("/v1")
 public class AssistantV1Api implements IAssistantV1Api {
+
+    private static final Logger LOGGER = Logger.getLogger(AssistantV1Api.class.getName());
 
     @Inject
     AlertService alertService;
@@ -318,8 +321,53 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertDetail updateAlert(@PathParam("alertId") @Size(max = 50) String alertId, @Valid @NotNull AlertUpdateRequest alertUpdateRequest) {
-        System.out.println("updateAlert: " + "alertId=" + alertId + ", " + "alertUpdateRequest=" + alertUpdateRequest);
-        return new AlertDetail();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForUpdate(alertId);
+            AlertUpdateRequest validatedRequest = AssistantApiInputValidator.validateAlertUpdate(alertUpdateRequest);
+            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Update requested alertId=" + validatedAlertId);
+
+            if (alertService.existsDeletedAlert(validatedAlertId)) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertUpdateDeletedAlert())
+                        .build());
+            }
+
+            AlertDetail currentAlert = alertService.getAlert(validatedAlertId)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertUpdateNotFound())
+                            .build()));
+            if (AlertStatus.DELETED.equals(currentAlert.getStatus())) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertUpdateDeletedAlert())
+                        .build());
+            }
+            if (AlertStatus.VERIFYING.equals(currentAlert.getStatus())) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertUpdateVerifyingAlert())
+                        .build());
+            }
+
+            if (alertService.existsActiveAlertWithNormalizedNameExcludingAlertId(validatedRequest.getName(), validatedAlertId)) {
+                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                        .entity(AssistantApiErrors.alertUpdateDuplicateName())
+                        .build());
+            }
+
+            AlertDetail updatedAlert = alertService.updateAlert(validatedAlertId, validatedRequest)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertUpdateNotFound())
+                            .build()));
+
+            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Returning alert detail alertId=" + validatedAlertId + " status=" + updatedAlert.getStatus());
+            return updatedAlert;
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            LOGGER.severe(() -> "[IIA][ALERT_UPDATE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertUpdateUnexpectedError())
+                    .build());
+        }
     }
 
     @PATCH

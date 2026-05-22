@@ -9,7 +9,9 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
@@ -29,9 +31,12 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Logger;
 
 @ApplicationScoped
 public class AlertService {
+
+    private static final Logger LOGGER = Logger.getLogger(AlertService.class.getName());
 
     @Inject
     AlertRepository alertRepository;
@@ -75,6 +80,28 @@ public class AlertService {
     public Optional<AlertDetail> getAlert(String alertId) {
         System.out.println("AlertService.getAlert: alertId=" + alertId);
         return alertRepository.getAlert(alertId);
+    }
+
+    @Transactional
+    public Optional<AlertDetail> updateAlert(String alertId, AlertUpdateRequest request) {
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] Loading current alert detail alertId=" + alertId);
+        Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
+        if (currentAlert.isEmpty()) {
+            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Alert not found alertId=" + alertId);
+            return Optional.empty();
+        }
+
+        AlertDetail alert = currentAlert.get();
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] Current alert detail loaded alertId=" + alertId + " status=" + alert.getStatus());
+        if (AlertStatus.DELETED.equals(alert.getStatus()) || AlertStatus.VERIFYING.equals(alert.getStatus())) {
+            return currentAlert;
+        }
+
+        if (isPromptUnchanged(alert.getPrompt(), request.getPrompt())) {
+            return updateAlertWithUnchangedPrompt(alertId, request);
+        }
+
+        return updateAlertWithChangedPromptDeferred(alert);
     }
 
     public boolean existsDeletedAlert(String alertId) {
@@ -258,6 +285,30 @@ public class AlertService {
 
     public boolean existsActiveAlertWithNormalizedName(String name) {
         return alertRepository.existsActiveAlertWithNormalizedName(name);
+    }
+
+    public boolean existsActiveAlertWithNormalizedNameExcludingAlertId(String name, String alertId) {
+        return alertRepository.existsActiveAlertWithNormalizedNameExcludingAlertId(name, alertId);
+    }
+
+    private Optional<AlertDetail> updateAlertWithUnchangedPrompt(String alertId, AlertUpdateRequest request) {
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt unchanged: metadata update only alertId=" + alertId);
+        Optional<AlertDetail> updatedAlert = alertRepository.updateAlertMetadataWithoutPromptChange(alertId, request);
+        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        return updatedAlert;
+    }
+
+    private Optional<AlertDetail> updateAlertWithChangedPromptDeferred(AlertDetail currentAlert) {
+        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed: full prompt update deferred alertId=" + currentAlert.getId());
+        return Optional.of(currentAlert);
+    }
+
+    private boolean isPromptUnchanged(String persistedPrompt, String requestedPrompt) {
+        return trimToEmpty(persistedPrompt).equals(trimToEmpty(requestedPrompt));
+    }
+
+    private String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private record AlertVerificationResolution(AlertVerificationOutcome outcome, boolean parseableLlm) {

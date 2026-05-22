@@ -6,6 +6,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.e
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.Error;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import jakarta.ws.rs.WebApplicationException;
@@ -53,6 +54,16 @@ public final class AssistantApiInputValidator {
         return alertId;
     }
 
+    public static String validateAlertIdForUpdate(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertUpdateBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertUpdateAlertIdTooLong());
+        }
+        return alertId;
+    }
+
     public static AlertCreateRequest validateAlertCreate(AlertCreateRequest request) {
         if (request == null) {
             throw badRequest(AssistantApiErrors.alertCreateMissingBody());
@@ -78,6 +89,29 @@ public final class AssistantApiInputValidator {
         }
         if (request.getEnableAfterVerification() == null) {
             throw badRequest(AssistantApiErrors.alertCreateInvalidEnableAfterVerification());
+        }
+        return request;
+    }
+
+    public static AlertUpdateRequest validateAlertUpdate(AlertUpdateRequest request) {
+        if (request == null) {
+            throw badRequest(AssistantApiErrors.alertUpdateMissingBody());
+        }
+        if (request.getName() == null || request.getName().isBlank()) {
+            throw badRequest(AssistantApiErrors.alertUpdateBlankName());
+        }
+        if (request.getName().length() > ALERT_NAME_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertUpdateNameTooLong());
+        }
+        if (request.getDescription() != null && request.getDescription().length() > ALERT_DESCRIPTION_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertUpdateDescriptionTooLong());
+        }
+        if (request.getPrompt() == null || request.getPrompt().isBlank()) {
+            throw badRequest(AssistantApiErrors.alertUpdatePromptInvalid());
+        }
+        String trimmedPrompt = request.getPrompt().trim();
+        if (trimmedPrompt.length() < ALERT_PROMPT_MIN_LENGTH || trimmedPrompt.length() > ALERT_PROMPT_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertUpdatePromptInvalid());
         }
         return request;
     }

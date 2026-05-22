@@ -16,6 +16,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummary;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
@@ -199,6 +200,30 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 and dtDeletedat is null
                 and sglStatus.sglStatus <> 'DELETED'
                 """, normalizedName) > 0;
+    }
+
+    public boolean existsActiveAlertWithNormalizedNameExcludingAlertId(String name, String alertId) {
+        String normalizedName = normalizeName(name);
+        return count("""
+                lower(trim(dscName)) = ?1
+                and codAlert <> ?2
+                and dtDeletedat is null
+                and sglStatus.sglStatus <> 'DELETED'
+                """, normalizedName, alertId) > 0;
+    }
+
+    public Optional<AlertDetail> updateAlertMetadataWithoutPromptChange(String alertId, AlertUpdateRequest request) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        alert.setDscName(request.getName().trim());
+        alert.setDscDescription(trimToNull(request.getDescription()));
+        alert.setDtUpdatedat(OffsetDateTime.now());
+        flush();
+        return Optional.of(toAlertDetail(alert));
     }
 
     public AlertDetail createDraftAlert(AlertCreateRequest request) {

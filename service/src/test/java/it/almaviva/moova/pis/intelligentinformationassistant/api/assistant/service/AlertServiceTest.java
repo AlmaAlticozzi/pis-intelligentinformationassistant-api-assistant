@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class AlertServiceTest {
@@ -93,11 +95,65 @@ class AlertServiceTest {
         verify(managedExecutor).runAsync(any(Runnable.class));
     }
 
+    @Test
+    void updateWithUnchangedPromptUpdatesOnlyMetadata() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        AlertDetail current = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt("  Create a suggestion when a journey is cancelled.  ")
+                .enabled(true)
+                .version(3);
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is cancelled.");
+        AlertDetail updated = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt(current.getPrompt())
+                .enabled(true)
+                .version(3);
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+        when(repository.updateAlertMetadataWithoutPromptChange("ALRT1", request)).thenReturn(java.util.Optional.of(updated));
+
+        java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
+
+        assertThat(result).contains(updated);
+        verify(repository).updateAlertMetadataWithoutPromptChange("ALRT1", request);
+    }
+
+    @Test
+    void updateWithChangedPromptLeavesFullPromptUpdateSeparated() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        AlertDetail current = new AlertDetail()
+                .id("ALRT1")
+                .status(AlertStatus.VERIFIED)
+                .prompt("Create a suggestion when a journey is cancelled.");
+        AlertUpdateRequest request = updateRequest("Create a suggestion when a journey is delayed.");
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
+
+        java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
+
+        assertThat(result).contains(current);
+        verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
+    }
+
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {
         return new AlertCreateRequest()
                 .name("Alert")
                 .prompt("Create a suggestion when a journey is cancelled at Milano Malpensa T1.")
                 .verifyImmediately(verifyImmediately)
                 .enableAfterVerification(enableAfterVerification);
+    }
+
+    private AlertUpdateRequest updateRequest(String prompt) {
+        return new AlertUpdateRequest()
+                .name("Updated alert")
+                .description("Updated description")
+                .prompt(prompt)
+                .verifyImmediately(true)
+                .enableAfterVerification(true);
     }
 }

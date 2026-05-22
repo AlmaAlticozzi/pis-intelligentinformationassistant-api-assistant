@@ -187,6 +187,94 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while verifying the alert definition.");
     }
 
+    public static Error alertUpdateBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertUpdateAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertUpdateMissingBody() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-003",
+                "body",
+                "The request body is missing.");
+    }
+
+    public static Error alertUpdateBlankName() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-005",
+                "name",
+                "The name field is missing, empty or contains only whitespace characters.");
+    }
+
+    public static Error alertUpdateNameTooLong() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-006",
+                "name",
+                "The name field exceeds 120 characters.");
+    }
+
+    public static Error alertUpdateDescriptionTooLong() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-007",
+                "description",
+                "The description field exceeds 1000 characters.");
+    }
+
+    public static Error alertUpdatePromptInvalid() {
+        return invalidParameter(
+                "IIA-ALT-UPD-400-008",
+                "prompt",
+                "The prompt field is missing, empty, contains fewer than 10 characters or exceeds 8000 characters.");
+    }
+
+    public static Error alertUpdateNotFound() {
+        return new Error()
+                .code("IIA-ALT-UPD-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertUpdateDeletedAlert() {
+        return new Error()
+                .code("IIA-ALT-UPD-409-001")
+                .title("Alert deleted")
+                .detail("The alert has been deleted and cannot be updated.")
+                .source("alertId");
+    }
+
+    public static Error alertUpdateDuplicateName() {
+        return new Error()
+                .code("IIA-ALT-UPD-409-002")
+                .title("Alert already exists")
+                .detail("An active alert with the same normalized name already exists.")
+                .source("name");
+    }
+
+    public static Error alertUpdateVerifyingAlert() {
+        return new Error()
+                .code("IIA-ALT-UPD-409-003")
+                .title("Alert verifying")
+                .detail("The alert is currently verifying and cannot be updated.")
+                .source("alertId");
+    }
+
+    public static Error alertUpdateUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-UPD-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while updating the alert definition.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
