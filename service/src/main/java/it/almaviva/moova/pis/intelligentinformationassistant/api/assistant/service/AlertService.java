@@ -235,6 +235,9 @@ public class AlertService {
                         "schemaVersion", "iia.agent.blueprint/v1",
                         "canGenerate", false,
                         "error", summary),
+                Map.of(
+                        "requirements", List.of(),
+                        "allRequiredRequirementsMapped", false),
                 List.of(warning),
                 List.of(
                         "No executable code generated.",

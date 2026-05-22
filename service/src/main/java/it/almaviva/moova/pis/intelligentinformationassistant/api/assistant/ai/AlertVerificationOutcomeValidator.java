@@ -142,6 +142,11 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
 
+        validateRequirementCoverage(context, outcome.requirementCoverage());
+        if (context.failureReason != null) {
+            return;
+        }
+
         context.normalizedTargetTypes = normalizeTargetTypes(outcome.interpretedTargetTypes(), requiredSources, outcome.triggerType(), outcome.evaluationMode());
         if (context.normalizedTargetTypes == null) {
             context.fail("Verified alert uses unsupported target types for the current MVP.");
@@ -257,7 +262,71 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
 
+        context.conditionFields.add(field);
         validateConditionValue(context, capability, operator, leaf, field);
+    }
+
+    private void validateRequirementCoverage(ValidationContext context, Map<String, Object> requirementCoverage) {
+        if (requirementCoverage == null || requirementCoverage.isEmpty()) {
+            context.fail("Verified alert is missing requirementCoverage.");
+            return;
+        }
+
+        Object allMapped = requirementCoverage.get("allRequiredRequirementsMapped");
+        System.out.println("[IIA][ALERT_VERIFY][COVERAGE] allRequiredRequirementsMapped=" + allMapped);
+        if (!Boolean.TRUE.equals(allMapped)) {
+            context.fail("Verified alert requirementCoverage indicates not all required requirements are mapped.");
+            return;
+        }
+
+        Object requirements = requirementCoverage.get("requirements");
+        if (!(requirements instanceof List<?> requirementList) || requirementList.isEmpty()) {
+            context.fail("Verified alert requirementCoverage.requirements must be a non-empty array.");
+            return;
+        }
+
+        for (Object item : requirementList) {
+            if (!(item instanceof Map<?, ?> requirement)) {
+                context.fail("Verified alert requirementCoverage contains an invalid requirement.");
+                return;
+            }
+
+            String text = stringValue(requirement.get("text"));
+            boolean required = !Boolean.FALSE.equals(requirement.get("required"));
+            boolean mappable = Boolean.TRUE.equals(requirement.get("mappable"));
+            List<String> mappedBy = stringList(requirement.get("mappedBy"));
+            System.out.println("[IIA][ALERT_VERIFY][COVERAGE] requirement=" + text
+                    + " required=" + required
+                    + " mappable=" + mappable
+                    + " mappedBy=" + mappedBy);
+
+            if (!required) {
+                continue;
+            }
+            if (!mappable) {
+                System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected unmapped requirement=" + text);
+                context.fail("Verified alert contains a required user constraint that is not mappable to the ServiceData capability catalog.");
+                return;
+            }
+            if (mappedBy.isEmpty()) {
+                System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected unmapped requirement=" + text);
+                context.fail("Verified alert requirementCoverage has a mappable required requirement without mappedBy fields.");
+                return;
+            }
+            for (String field : mappedBy) {
+                if (!ServiceDataCapabilityCatalog.isAllowedMappedBy(field)) {
+                    System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected unmapped requirement=" + text);
+                    context.fail("Verified alert requirementCoverage mappedBy contains a field outside the ServiceData capability catalog.");
+                    return;
+                }
+            }
+            boolean covered = mappedBy.stream().anyMatch(context.conditionFields::contains);
+            if (!covered) {
+                System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected uncovered requirement=" + text);
+                context.fail("Verified alert technicalSpecification does not cover every mapped required requirement.");
+                return;
+            }
+        }
     }
 
     private void validateConditionValue(
@@ -335,11 +404,29 @@ public class AlertVerificationOutcomeValidator {
         return text.isEmpty() ? null : text;
     }
 
+    private List<String> stringList(Object value) {
+        if (value instanceof Collection<?> collection) {
+            return collection.stream()
+                    .map(this::stringValue)
+                    .filter(item -> item != null && !item.isBlank())
+                    .toList();
+        }
+        return List.of();
+    }
+
     private AlertVerificationOutcome ensureRejectedReason(AlertVerificationOutcome outcome) {
-        if (outcome.rejectedReason() != null && !outcome.rejectedReason().isBlank()) {
+        if (outcome.rejectedReason() != null && !outcome.rejectedReason().isBlank()
+                && outcome.interpreterType() == null
+                && outcome.inputModel() == null
+                && outcome.outputModel() == null
+                && outcome.technicalSpecification() == null
+                && outcome.agentBlueprintPreview() == null) {
             return outcome;
         }
-        return rejected(outcome, DEFAULT_REJECTED_REASON);
+        String reason = outcome.rejectedReason() == null || outcome.rejectedReason().isBlank()
+                ? DEFAULT_REJECTED_REASON
+                : outcome.rejectedReason();
+        return rejected(outcome, reason);
     }
 
     private AlertVerificationOutcome fail(AlertVerificationOutcome outcome, String reason) {
@@ -364,14 +451,9 @@ public class AlertVerificationOutcomeValidator {
                 null,
                 List.of(),
                 List.of(),
-                Map.of(
-                        "schemaVersion", "iia.alert.technical-specification/v1",
-                        "decision", "REJECTED",
-                        "rejectedReason", reason),
-                Map.of(
-                        "schemaVersion", "iia.agent.blueprint/v1",
-                        "canGenerate", false,
-                        "rejectedReason", reason),
+                null,
+                null,
+                outcome == null ? null : outcome.requirementCoverage(),
                 List.of(reason),
                 safetyChecks(outcome));
     }
@@ -399,6 +481,7 @@ public class AlertVerificationOutcomeValidator {
                 targetTypes,
                 outcome.technicalSpecification(),
                 outcome.agentBlueprintPreview(),
+                outcome.requirementCoverage(),
                 List.copyOf(warnings),
                 safeList(outcome.safetyChecks()));
     }
@@ -493,10 +576,12 @@ public class AlertVerificationOutcomeValidator {
         private String failureReason;
         private Double confidence;
         private List<String> normalizedTargetTypes;
+        private final List<String> conditionFields;
 
         private ValidationContext(AlertVerificationOutcome outcome) {
             this.outcome = outcome;
             this.warnings = new ArrayList<>(outcome.warnings() == null ? List.of() : outcome.warnings());
+            this.conditionFields = new ArrayList<>();
         }
 
         private void warn(String warning) {

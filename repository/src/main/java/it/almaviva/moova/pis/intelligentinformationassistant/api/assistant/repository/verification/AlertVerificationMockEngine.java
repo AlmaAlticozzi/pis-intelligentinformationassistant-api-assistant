@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,6 +37,8 @@ public class AlertVerificationMockEngine {
                 outcome = rejected("The request belongs to the PIS domain but requires a data source not available in the current MVP.");
             } else if (containsAny(normalizedPrompt, "non ci sono corse", "nessuna corsa", "no journeys", "no departures", "assenza di", "non arriva nessun")) {
                 outcome = rejected("The request requires stateful or time-window evaluation, which is not supported by the current stateless ServiceData interpreter.");
+            } else if (containsAny(normalizedPrompt, "passeggeri", "passengers", "colore", "color", "rosso", "wi-fi", "wifi")) {
+                outcome = rejected("The request contains a required constraint that is not available in the ServiceData capability catalog.");
             } else if (isServiceDataPrompt(normalizedPrompt)) {
                 outcome = verified(deriveCondition(normalizedPrompt));
             } else {
@@ -93,6 +96,7 @@ public class AlertVerificationMockEngine {
                 interpretedTargetTypes,
                 technicalSpecification,
                 agentBlueprintPreview,
+                requirementCoverage(condition),
                 List.of(),
                 safetyChecks());
     }
@@ -122,8 +126,32 @@ public class AlertVerificationMockEngine {
                         "schemaVersion", "iia.agent.blueprint/v1",
                         "canGenerate", false,
                         "rejectedReason", reason),
+                Map.of(
+                        "requirements", List.of(Map.of(
+                                "text", reason,
+                                "required", true,
+                                "mappable", false,
+                                "mappedBy", List.of(),
+                                "reason", reason)),
+                        "allRequiredRequirementsMapped", false),
                 List.of(reason),
                 safetyChecks());
+    }
+
+    private Map<String, Object> requirementCoverage(MockCondition condition) {
+        return Map.of(
+                "requirements", condition.fields().stream()
+                        .map(field -> {
+                            Map<String, Object> requirement = new LinkedHashMap<>();
+                            requirement.put("text", "Mapped ServiceData condition on " + field);
+                            requirement.put("required", true);
+                            requirement.put("mappable", true);
+                            requirement.put("mappedBy", List.of(field));
+                            requirement.put("reason", null);
+                            return requirement;
+                        })
+                        .toList(),
+                "allRequiredRequirementsMapped", true);
     }
 
     private MockCondition deriveCondition(String normalizedPrompt) {
@@ -178,9 +206,12 @@ public class AlertVerificationMockEngine {
             checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].monitored", "EQUALS", true));
         }
 
+        List<String> fields = checks.stream()
+                .map(check -> String.valueOf(check.get("field")))
+                .toList();
         return new MockCondition(eventName, Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
-                "all", checks));
+                "all", checks), fields);
     }
 
     private Map<String, Object> leaf(String field, String operator, Object value) {
@@ -259,6 +290,6 @@ public class AlertVerificationMockEngine {
         return withoutAccents.toLowerCase(Locale.ROOT).trim();
     }
 
-    private record MockCondition(String eventName, Map<String, Object> condition) {
+    private record MockCondition(String eventName, Map<String, Object> condition, List<String> fields) {
     }
 }

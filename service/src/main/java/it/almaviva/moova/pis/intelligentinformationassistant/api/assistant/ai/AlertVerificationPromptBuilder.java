@@ -63,6 +63,13 @@ public class AlertVerificationPromptBuilder {
                 - You must only use fields and operators listed in the ServiceData Capability Catalog.
                 - If the user asks for a condition that can be mapped to one or more allowed fields/operators, decision must be VERIFIED.
                 - If the user asks for absence of events over time, historical memory, external data, audio/video/device/display/broadcast/content, or free DB/API access, decision must be REJECTED.
+                - You must first decompose the user prompt into all required operational constraints.
+                - Every required constraint must be listed in requirementCoverage.requirements.
+                - The alert can be VERIFIED only if every required constraint is mappable to one or more fields in the ServiceData Capability Catalog.
+                - If any required constraint cannot be mapped to the catalog, decision must be REJECTED.
+                - Do not silently ignore unsupported constraints.
+                - Do not verify only a subset of the request.
+                - Do not invent ServiceData fields that are not listed in the catalog.
                 - Do not reject a request just because it contains words like "non" or "does not"; reject only if the negation requires absence of events or historical/time-window reasoning.
                 - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
 
@@ -123,6 +130,41 @@ public class AlertVerificationPromptBuilder {
                 - If no specific functional name fits, use SERVICE_DATA_FIELD_MATCH.
                 - Do not base the technical validation on interpretedEventNames; the condition is authoritative.
 
+                Requirement coverage:
+                - requirementCoverage is mandatory for every response.
+                - requirements must contain every binding condition requested by the user.
+                - required=true for every constraint that is part of the Alert.
+                - mappable=true only when the constraint is representable with one or more catalog fields.
+                - mappedBy must contain only field paths present in the ServiceData Capability Catalog.
+                - reason must explain why a required constraint is not mappable.
+                - allRequiredRequirementsMapped=false when at least one required requirement has mappable=false.
+                - If allRequiredRequirementsMapped=false, decision must be REJECTED.
+                - If decision=VERIFIED, allRequiredRequirementsMapped must be true.
+
+                Valid example:
+                Prompt: "Avvisami quando una corsa parte da Firenze dal binario 1 e passa da Siena"
+                Requirement coverage:
+                - partenza da Firenze -> mappable using stopPoint / passingType ORIGIN or departure context.
+                - binario 1 -> mappable using platform fields.
+                - passa da Siena -> mappable using nextCalls or nextTransitCalls.
+                Decision: VERIFIED
+
+                Rejected example:
+                Prompt: "Avvisami quando il treno 1253 parte da Genova e ha almeno 10 passeggeri"
+                Requirement coverage:
+                - treno 1253 -> mappable using vehicleJourneyName.
+                - parte da Genova -> mappable using stopPoint / origin context.
+                - almeno 10 passeggeri -> not mappable because no passenger count field exists in the catalog.
+                Decision: REJECTED
+
+                Rejected example:
+                Prompt: "Avvisami quando il treno 1253 parte da Genova ed è rosso"
+                Requirement coverage:
+                - treno 1253 -> mappable using vehicleJourneyName.
+                - parte da Genova -> mappable using stopPoint / origin context.
+                - è rosso -> not mappable because no train color field exists in the catalog.
+                Decision: REJECTED
+
                 Expected JSON schema:
                 {
                   "decision": "VERIFIED",
@@ -137,6 +179,20 @@ public class AlertVerificationPromptBuilder {
                   "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
                   "targetTypes": ["SERVICE_DATA_JOURNEY"],
                   "interpretedEventNames": ["SERVICE_DATA_FIELD_MATCH"],
+                  "requirementCoverage": {
+                    "requirements": [
+                      {
+                        "text": "the train is passing through and does not stop",
+                        "required": true,
+                        "mappable": true,
+                        "mappedBy": [
+                          "payload.stopPointJourney.stopPointsJourneyDetails[].passingType"
+                        ],
+                        "reason": null
+                      }
+                    ],
+                    "allRequiredRequirementsMapped": true
+                  },
                   "technicalSpecification": {
                     "schemaVersion": "iia.alert.technical-specification/v2",
                     "source": "SERVICE_DATA",

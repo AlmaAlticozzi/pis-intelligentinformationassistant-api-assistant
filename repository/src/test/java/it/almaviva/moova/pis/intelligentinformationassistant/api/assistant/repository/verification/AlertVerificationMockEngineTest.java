@@ -96,4 +96,34 @@ class AlertVerificationMockEngineTest {
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.technicalSpecification().toString()).contains("Firenze", "Siena", "actualDeparturePlatform", "1");
     }
+
+    @Test
+    void manualVerifyRejectsUnsupportedPassengerCountPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando il treno 1253 parte da Genova e ha almeno 10 passeggeri");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("ServiceData capability catalog");
+    }
+
+    @Test
+    void manualVerifyRejectsUnsupportedTrainColorPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando il treno 1253 parte da Genova ed e di colore rosso");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("ServiceData capability catalog");
+    }
+
+    @Test
+    void manualVerifyRejectsUnsupportedWifiPrompt() {
+        AlertVerificationOutcome outcome = engine.verify(
+                "ALRT1",
+                "Avvisami quando il treno 1253 parte da Genova e ha il Wi-Fi");
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("ServiceData capability catalog");
+    }
 }

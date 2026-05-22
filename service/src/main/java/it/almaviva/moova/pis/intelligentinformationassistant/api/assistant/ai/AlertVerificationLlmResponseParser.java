@@ -34,6 +34,7 @@ public class AlertVerificationLlmResponseParser {
             }
             Map<String, Object> technicalSpecification = asMap(payload.get("technicalSpecification"));
             Map<String, Object> agentBlueprintPreview = asMap(payload.get("agentBlueprintPreview"));
+            Map<String, Object> requirementCoverage = asMap(payload.get("requirementCoverage"));
 
             return Optional.of(new AlertVerificationOutcome(
                     decision,
@@ -53,6 +54,7 @@ public class AlertVerificationLlmResponseParser {
                     asStringList(payload.get("targetTypes")),
                     technicalSpecification,
                     agentBlueprintPreview,
+                    requirementCoverage,
                     asStringList(payload.get("warnings")),
                     asStringList(payload.get("safetyChecks"))));
         } catch (JsonProcessingException ex) {

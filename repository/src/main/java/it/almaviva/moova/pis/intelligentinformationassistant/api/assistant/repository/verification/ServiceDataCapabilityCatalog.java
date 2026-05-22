@@ -134,6 +134,27 @@ public final class ServiceDataCapabilityCatalog {
         return Optional.ofNullable(FIELD_BY_NAME.get(field));
     }
 
+    public static boolean isAllowedField(String field) {
+        return FIELD_BY_NAME.containsKey(field);
+    }
+
+    public static boolean isAllowedMappedBy(String field) {
+        return isAllowedField(field) && !isSuspiciousFieldName(field);
+    }
+
+    public static boolean isAllowedOperator(String field, String operator) {
+        return findField(field)
+                .map(capability -> capability.supportsOperator(operator))
+                .orElse(false);
+    }
+
+    public static boolean isAllowedEnumValue(String field, Object value) {
+        return findField(field)
+                .filter(FieldCapability::isEnumLike)
+                .map(capability -> capability.enumValues().contains(String.valueOf(value).trim().toUpperCase(Locale.ROOT)))
+                .orElse(false);
+    }
+
     public static int allowedFieldCount() {
         return FIELDS.size();
     }

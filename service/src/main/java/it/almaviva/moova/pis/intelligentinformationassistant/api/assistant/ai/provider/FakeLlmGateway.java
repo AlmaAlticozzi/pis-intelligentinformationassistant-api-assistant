@@ -33,18 +33,38 @@ public class FakeLlmGateway implements LlmGateway {
                       "evaluationMode": "STATELESS_EVENT_MATCH",
                       "targetTypes": ["SERVICE_DATA_JOURNEY"],
                       "interpretedEventNames": ["JOURNEY_CANCELLED"],
+                      "requirementCoverage": {
+                        "requirements": [
+                          {
+                            "text": "journey is cancelled",
+                            "required": true,
+                            "mappable": true,
+                            "mappedBy": [
+                              "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status"
+                            ],
+                            "reason": null
+                          }
+                        ],
+                        "allRequiredRequirementsMapped": true
+                      },
                       "technicalSpecification": {
-                        "schemaVersion": "iia.alert.technical-specification/v1",
+                        "schemaVersion": "iia.alert.technical-specification/v2",
                         "source": "SERVICE_DATA",
                         "inputModel": "ServiceDataV2",
                         "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
                         "triggerType": "EVENT",
                         "evaluationMode": "STATELESS_EVENT_MATCH",
                         "condition": {
-                          "type": "JOURNEY_CANCELLED",
-                          "description": "Journey cancellation detected from realtime ServiceData event."
+                          "type": "SERVICE_DATA_FIELD_MATCH",
+                          "all": [
+                            {
+                              "field": "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                              "operator": "CONTAINS",
+                              "value": "DEPARTURE_CANCELLATION"
+                            }
+                          ]
                         },
-                        "deduplicationKeyTemplate": "SERVICE_DATA_CANCELLED:${journeyId}:${stopPointId}"
+                        "deduplicationKeyTemplate": "SERVICE_DATA:${journeyId}:${stopPointId}:${conditionHash}"
                       },
                       "agentBlueprintPreview": {
                         "schemaVersion": "iia.agent.blueprint/v1",
@@ -55,7 +75,17 @@ public class FakeLlmGateway implements LlmGateway {
                         "evaluationMode": "STATELESS_EVENT_MATCH",
                         "targetTypes": ["SERVICE_DATA_JOURNEY"],
                         "parameters": {
-                          "condition": "JOURNEY_CANCELLED"
+                          "conditionType": "SERVICE_DATA_FIELD_MATCH",
+                          "condition": {
+                            "type": "SERVICE_DATA_FIELD_MATCH",
+                            "all": [
+                              {
+                                "field": "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                                "operator": "CONTAINS",
+                                "value": "DEPARTURE_CANCELLATION"
+                              }
+                            ]
+                          }
                         },
                         "stateRequirements": {
                           "requiresState": false

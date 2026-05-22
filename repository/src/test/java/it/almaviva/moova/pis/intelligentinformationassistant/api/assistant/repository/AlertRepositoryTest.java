@@ -126,6 +126,7 @@ class AlertRepositoryTest {
                 List.of(),
                 Map.of("decision", "REJECTED"),
                 Map.of("canGenerate", false),
+                null,
                 List.of("The request is outside the supported PIS domain."),
                 List.of("No Agent Definition created."));
     }
@@ -149,6 +150,7 @@ class AlertRepositoryTest {
                 List.of("SERVICE_DATA_JOURNEY"),
                 Map.of("source", "SERVICE_DATA"),
                 Map.of("agentName", "CancelledJourneyServiceDataAgent"),
+                null,
                 List.of(),
                 List.of("No Agent Definition created."));
     }

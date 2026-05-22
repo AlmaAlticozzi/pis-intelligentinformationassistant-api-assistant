@@ -21,6 +21,7 @@ public record AlertVerificationOutcome(
         List<String> interpretedTargetTypes,
         Map<String, Object> technicalSpecification,
         Map<String, Object> agentBlueprintPreview,
+        Map<String, Object> requirementCoverage,
         List<String> warnings,
         List<String> safetyChecks
 ) {
@@ -45,6 +46,7 @@ public record AlertVerificationOutcome(
                 interpretedTargetTypes,
                 technicalSpecification,
                 agentBlueprintPreview,
+                requirementCoverage,
                 List.copyOf(updatedWarnings),
                 safetyChecks);
     }

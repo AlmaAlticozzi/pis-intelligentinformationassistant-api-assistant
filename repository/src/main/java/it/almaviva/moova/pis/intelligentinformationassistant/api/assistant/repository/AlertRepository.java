@@ -293,6 +293,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 List.of(),
                 null,
                 null,
+                Map.of(
+                        "requirements", List.of(),
+                        "allRequiredRequirementsMapped", false),
                 List.of(warning),
                 toStringList(alert.getJsnSafetychecks())));
         flush();

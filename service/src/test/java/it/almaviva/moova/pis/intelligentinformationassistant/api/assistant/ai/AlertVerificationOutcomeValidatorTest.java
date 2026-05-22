@@ -52,7 +52,115 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(validated.rejectedReason()).contains("operator is not allowed");
     }
 
+    @Test
+    void rejectsVerifiedOutcomeWithoutRequirementCoverage() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                        "operator", "CONTAINS_NORMALIZED",
+                        "value", "1253"))), null));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("requirementCoverage");
+    }
+
+    @Test
+    void rejectsUnmappedRequiredRequirement() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                                "operator", "CONTAINS_NORMALIZED",
+                                "value", "1253"))),
+                Map.of(
+                        "requirements", List.of(
+                                Map.of(
+                                        "text", "treno 1253",
+                                        "required", true,
+                                        "mappable", true,
+                                        "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"),
+                                        "reason", ""),
+                                Map.of(
+                                        "text", "almeno 10 passeggeri",
+                                        "required", true,
+                                        "mappable", false,
+                                        "mappedBy", List.of(),
+                                        "reason", "Passenger count is not available in the ServiceData catalog.")),
+                        "allRequiredRequirementsMapped", false)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("not all required requirements");
+    }
+
+    @Test
+    void rejectsMappedByOutsideCatalog() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                                "operator", "CONTAINS_NORMALIZED",
+                                "value", "1253"))),
+                Map.of(
+                        "requirements", List.of(Map.of(
+                                "text", "almeno 10 passeggeri",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.train.passengerCount"),
+                                "reason", "")),
+                        "allRequiredRequirementsMapped", true)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("mappedBy");
+    }
+
+    @Test
+    void rejectsRequirementNotCoveredByTechnicalSpecification() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                                "operator", "CONTAINS_NORMALIZED",
+                                "value", "1253"))),
+                Map.of(
+                        "requirements", List.of(
+                                Map.of(
+                                        "text", "treno 1253",
+                                        "required", true,
+                                        "mappable", true,
+                                        "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"),
+                                        "reason", ""),
+                                Map.of(
+                                        "text", "parte da Genova",
+                                        "required", true,
+                                        "mappable", true,
+                                        "mappedBy", List.of("payload.stopPointJourney.stopPoint.nameLong"),
+                                        "reason", "")),
+                        "allRequiredRequirementsMapped", true)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("does not cover");
+    }
+
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
+        return outcomeWithConditionAndCoverage(
+                condition,
+                Map.of(
+                        "requirements", List.of(Map.of(
+                                "text", "passing type transit",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].passingType"),
+                                "reason", "")),
+                        "allRequiredRequirementsMapped", true));
+    }
+
+    private AlertVerificationOutcome outcomeWithConditionAndCoverage(
+            Map<String, Object> condition,
+            Map<String, Object> requirementCoverage) {
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.VERIFIED,
                 "The alert can be evaluated on realtime ServiceData events.",
@@ -87,6 +195,7 @@ class AlertVerificationOutcomeValidatorTest {
                         "targetTypes", List.of("SERVICE_DATA_JOURNEY"),
                         "stateRequirements", Map.of("requiresState", false),
                         "output", Map.of("type", "CANDIDATE_SUGGESTION")),
+                requirementCoverage,
                 List.of(),
                 List.of(
                         "No executable code generated.",

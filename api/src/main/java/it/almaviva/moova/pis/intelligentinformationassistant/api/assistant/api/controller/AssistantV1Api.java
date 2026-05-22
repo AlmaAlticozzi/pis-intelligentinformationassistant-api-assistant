@@ -317,8 +317,8 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
-    public AlertDetail patchAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid @NotNull AlertPatchRequest alertPatchRequest) {
-        System.out.println("patchAlert: " + "alertId=" + alertId + ", " + "alertPatchRequest=" + alertPatchRequest);
+    public AlertDetail updateAlert(@PathParam("alertId") @Size(max = 50) String alertId, @Valid @NotNull AlertUpdateRequest alertUpdateRequest) {
+        System.out.println("updateAlert: " + "alertId=" + alertId + ", " + "alertUpdateRequest=" + alertUpdateRequest);
         return new AlertDetail();
     }
 
