@@ -6,11 +6,11 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.v
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertUpdateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utility.TextImproveUseCase;
 
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.logging.Logger;
 
 import jakarta.inject.Inject;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -22,8 +22,6 @@ import jakarta.ws.rs.core.Response;
 @ApplicationScoped
 @Path("/v1")
 public class AssistantV1Api implements IAssistantV1Api {
-
-    private static final Logger LOGGER = Logger.getLogger(AssistantV1Api.class.getName());
 
     @Inject
     AlertService alertService;
@@ -89,7 +87,7 @@ public class AssistantV1Api implements IAssistantV1Api {
     public AlertDetail createAlert(AlertCreateRequest alertCreateRequest) {
         try {
             AlertCreateRequest validatedRequest = AssistantApiInputValidator.validateAlertCreate(alertCreateRequest);
-            System.out.println("createAlert: " + "alertCreateRequest=" + validatedRequest);
+            System.out.println("[IIA][ALERT_CREATE] Create requested");
 
             if (alertService.existsActiveAlertWithNormalizedName(validatedRequest.getName())) {
                 throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
@@ -101,7 +99,7 @@ public class AssistantV1Api implements IAssistantV1Api {
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {
-            ex.printStackTrace();
+            System.out.println("[IIA][ALERT_CREATE] Unexpected error error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.alertCreateUnexpectedError())
                     .build());
@@ -244,7 +242,7 @@ public class AssistantV1Api implements IAssistantV1Api {
     public AlertDetail getAlert(@PathParam("alertId") @Size(max=50) String alertId) {
         try {
             String validatedAlertId = AssistantApiInputValidator.validateAlertIdForGet(alertId);
-            System.out.println("getAlert: " + "alertId=" + validatedAlertId);
+            System.out.println("[IIA][ALERT_GET] Get requested alertId=" + validatedAlertId);
             return alertService.getAlert(validatedAlertId)
                     .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
                             .entity(AssistantApiErrors.alertGetNotFound())
@@ -252,7 +250,7 @@ public class AssistantV1Api implements IAssistantV1Api {
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {
-            ex.printStackTrace();
+            System.out.println("[IIA][ALERT_GET] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.alertGetUnexpectedError())
                     .build());
@@ -324,50 +322,39 @@ public class AssistantV1Api implements IAssistantV1Api {
         try {
             String validatedAlertId = AssistantApiInputValidator.validateAlertIdForUpdate(alertId);
             AlertUpdateRequest validatedRequest = AssistantApiInputValidator.validateAlertUpdate(alertUpdateRequest);
-            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Update requested alertId=" + validatedAlertId);
-
-            if (alertService.existsDeletedAlert(validatedAlertId)) {
-                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
-                        .entity(AssistantApiErrors.alertUpdateDeletedAlert())
-                        .build());
-            }
-
-            AlertDetail currentAlert = alertService.getAlert(validatedAlertId)
-                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
-                            .entity(AssistantApiErrors.alertUpdateNotFound())
-                            .build()));
-            if (AlertStatus.DELETED.equals(currentAlert.getStatus())) {
-                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
-                        .entity(AssistantApiErrors.alertUpdateDeletedAlert())
-                        .build());
-            }
-            if (AlertStatus.VERIFYING.equals(currentAlert.getStatus())) {
-                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
-                        .entity(AssistantApiErrors.alertUpdateVerifyingAlert())
-                        .build());
-            }
-
-            if (alertService.existsActiveAlertWithNormalizedNameExcludingAlertId(validatedRequest.getName(), validatedAlertId)) {
-                throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
-                        .entity(AssistantApiErrors.alertUpdateDuplicateName())
-                        .build());
-            }
+            System.out.println("[IIA][ALERT_UPDATE] Update requested alertId=" + validatedAlertId);
 
             AlertDetail updatedAlert = alertService.updateAlert(validatedAlertId, validatedRequest)
                     .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
                             .entity(AssistantApiErrors.alertUpdateNotFound())
                             .build()));
 
-            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Returning alert detail alertId=" + validatedAlertId + " status=" + updatedAlert.getStatus());
+            System.out.println("[IIA][ALERT_UPDATE] Returning alert detail alertId=" + validatedAlertId + " status=" + updatedAlert.getStatus());
             return updatedAlert;
+        } catch (AlertUpdateRejectedException ex) {
+            throw alertUpdateRejected(ex);
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {
-            LOGGER.severe(() -> "[IIA][ALERT_UPDATE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            System.out.println("[IIA][ALERT_UPDATE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.alertUpdateUnexpectedError())
                     .build());
         }
+    }
+
+    private WebApplicationException alertUpdateRejected(AlertUpdateRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.alertUpdateDeletedAlert())
+                    .build());
+            case VERIFYING -> new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.alertUpdateVerifyingAlert())
+                    .build());
+            case DUPLICATE_NAME -> new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.alertUpdateDuplicateName())
+                    .build());
+        };
     }
 
     @PATCH
@@ -435,12 +422,12 @@ public class AssistantV1Api implements IAssistantV1Api {
     public AlertSummaryListResponse searchAlerts(@QueryParam("status") String status, @QueryParam("enabled") String enabled, @QueryParam("interpreterType") String interpreterType, @QueryParam("text") String text) {
         try {
             AlertSearchCriteria criteria = AssistantApiInputValidator.validateAlertSearch(status, enabled, interpreterType, text);
-            System.out.println("searchAlerts: " + "criteria=" + criteria);
+            System.out.println("[IIA][ALERT_SEARCH] Search requested criteria=" + criteria);
             return alertService.searchAlerts(criteria);
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {
-            ex.printStackTrace();
+            System.out.println("[IIA][ALERT_SEARCH] Unexpected error error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.alertSearchUnexpectedError())
                     .build());
@@ -476,7 +463,7 @@ public class AssistantV1Api implements IAssistantV1Api {
         } catch (WebApplicationException ex) {
             throw ex;
         } catch (Exception ex) {
-            ex.printStackTrace();
+            System.out.println("[IIA][ALERT_VERIFY] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.alertVerifyUnexpectedError())
                     .build());

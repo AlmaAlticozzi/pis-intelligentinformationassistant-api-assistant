@@ -31,12 +31,9 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Logger;
 
 @ApplicationScoped
 public class AlertService {
-
-    private static final Logger LOGGER = Logger.getLogger(AlertService.class.getName());
 
     @Inject
     AlertRepository alertRepository;
@@ -72,28 +69,38 @@ public class AlertService {
     boolean fallbackOnInvalidLlm;
 
     public AlertSummaryListResponse searchAlerts(AlertSearchCriteria criteria) {
-        System.out.println("AlertService.searchAlerts: criteria=" + criteria);
+        System.out.println("[IIA][ALERT_SEARCH] criteria=" + criteria);
         return new AlertSummaryListResponse()
                 .items(alertRepository.searchAlerts(criteria));
     }
 
     public Optional<AlertDetail> getAlert(String alertId) {
-        System.out.println("AlertService.getAlert: alertId=" + alertId);
+        System.out.println("[IIA][ALERT_GET] alertId=" + alertId);
         return alertRepository.getAlert(alertId);
     }
 
     public Optional<AlertDetail> updateAlert(String alertId, AlertUpdateRequest request) {
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] Loading current alert detail alertId=" + alertId);
+        System.out.println("[IIA][ALERT_UPDATE] Loading current alert detail alertId=" + alertId);
+        if (existsDeletedAlert(alertId)) {
+            throw new AlertUpdateRejectedException(AlertUpdateRejectedException.Reason.DELETED);
+        }
+
         Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
         if (currentAlert.isEmpty()) {
-            LOGGER.info(() -> "[IIA][ALERT_UPDATE] Alert not found alertId=" + alertId);
+            System.out.println("[IIA][ALERT_UPDATE] Alert not found alertId=" + alertId);
             return Optional.empty();
         }
 
         AlertDetail alert = currentAlert.get();
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] Current alert detail loaded alertId=" + alertId + " status=" + alert.getStatus());
-        if (AlertStatus.DELETED.equals(alert.getStatus()) || AlertStatus.VERIFYING.equals(alert.getStatus())) {
-            return currentAlert;
+        System.out.println("[IIA][ALERT_UPDATE] Current alert detail loaded alertId=" + alertId + " status=" + alert.getStatus());
+        if (AlertStatus.DELETED.equals(alert.getStatus())) {
+            throw new AlertUpdateRejectedException(AlertUpdateRejectedException.Reason.DELETED);
+        }
+        if (AlertStatus.VERIFYING.equals(alert.getStatus())) {
+            throw new AlertUpdateRejectedException(AlertUpdateRejectedException.Reason.VERIFYING);
+        }
+        if (existsActiveAlertWithNormalizedNameExcludingAlertId(request.getName(), alertId)) {
+            throw new AlertUpdateRejectedException(AlertUpdateRejectedException.Reason.DUPLICATE_NAME);
         }
 
         if (isPromptUnchanged(alert.getPrompt(), request.getPrompt())) {
@@ -109,7 +116,7 @@ public class AlertService {
 
     @Transactional
     public AlertDetail createDraftAlert(AlertCreateRequest request) {
-        System.out.println("AlertService.createDraftAlert: request=" + request);
+        System.out.println("[IIA][ALERT_CREATE] Creating draft alert");
         return alertRepository.createDraftAlert(request);
     }
 
@@ -291,31 +298,31 @@ public class AlertService {
     }
 
     private Optional<AlertDetail> updateAlertWithUnchangedPrompt(String alertId, AlertUpdateRequest request) {
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt unchanged: metadata update only alertId=" + alertId);
+        System.out.println("[IIA][ALERT_UPDATE] prompt unchanged: metadata update only alertId=" + alertId);
         Optional<AlertDetail> updatedAlert = updateAlertMetadataWithoutPromptChangeInNewTransaction(alertId, request);
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
         return updatedAlert;
     }
 
     private Optional<AlertDetail> updateAlertWithChangedPrompt(String alertId, AlertUpdateRequest request, AlertDetail currentAlert) {
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed alertId=" + alertId);
+        System.out.println("[IIA][ALERT_UPDATE] prompt changed alertId=" + alertId);
         if (Boolean.TRUE.equals(request.getVerifyImmediately())) {
             return updateAlertWithChangedPromptAndImmediateVerification(alertId, request, currentAlert);
         }
 
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] reset verification to DRAFT/PENDING alertId=" + alertId);
+        System.out.println("[IIA][ALERT_UPDATE] reset verification to DRAFT/PENDING alertId=" + alertId);
         Optional<AlertDetail> updatedAlert = updateAlertDraftAfterPromptChangeInNewTransaction(alertId, request);
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
         return updatedAlert;
     }
 
     private Optional<AlertDetail> updateAlertWithChangedPromptAndImmediateVerification(String alertId, AlertUpdateRequest request, AlertDetail currentAlert) {
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] prompt changed: immediate verification requested alertId=" + alertId);
+        System.out.println("[IIA][ALERT_UPDATE] prompt changed: immediate verification requested alertId=" + alertId);
         boolean previousEnabled = Boolean.TRUE.equals(currentAlert.getEnabled());
         boolean requestedEnableAfterVerification = Boolean.TRUE.equals(request.getEnableAfterVerification());
         boolean effectiveEnableAfterVerification = previousEnabled && requestedEnableAfterVerification;
-        LOGGER.info(() -> "[IIA][ALERT_UPDATE] previousEnabled="
+        System.out.println("[IIA][ALERT_UPDATE] previousEnabled="
                 + previousEnabled
                 + ", requestedEnableAfterVerification="
                 + requestedEnableAfterVerification
@@ -325,13 +332,13 @@ public class AlertService {
                 + alertId);
 
         Optional<AlertDetail> updatedAlert = updateAlertVerifyingAfterPromptChangeInNewTransaction(alertId, request);
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] alert saved as VERIFYING alertId=" + alertId));
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] alert saved as VERIFYING alertId=" + alertId));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] verification artifacts cleared alertId=" + alertId));
         if (updatedAlert.isPresent()) {
             scheduleAsyncVerification(alertId, effectiveEnableAfterVerification);
-            LOGGER.info(() -> "[IIA][ALERT_UPDATE] async verification scheduled alertId=" + alertId);
+            System.out.println("[IIA][ALERT_UPDATE] async verification scheduled alertId=" + alertId);
         }
-        updatedAlert.ifPresent(alert -> LOGGER.info(() -> "[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
+        updatedAlert.ifPresent(alert -> System.out.println("[IIA][ALERT_UPDATE] update completed alertId=" + alertId + " status=" + alert.getStatus()));
         return updatedAlert;
     }
 
