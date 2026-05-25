@@ -9,6 +9,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
@@ -78,6 +79,37 @@ public class AlertService {
     public Optional<AlertDetail> getAlert(String alertId) {
         System.out.println("[IIA][ALERT_GET] alertId=" + alertId);
         return alertRepository.getAlert(alertId);
+    }
+
+    @Transactional
+    public boolean deleteAlert(String alertId) {
+        if (existsDeletedAlert(alertId)) {
+            System.out.println("[IIA][ALERT_DELETE] Delete rejected because alert is already deleted alertId=" + alertId);
+            throw new AlertDeleteRejectedException(AlertDeleteRejectedException.Reason.DELETED);
+        }
+
+        Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
+        if (currentAlert.isEmpty()) {
+            System.out.println("[IIA][ALERT_DELETE] Alert not found alertId=" + alertId);
+            return false;
+        }
+
+        AlertDetail alert = currentAlert.get();
+        if (AlertStatus.VERIFYING.equals(alert.getStatus())) {
+            System.out.println("[IIA][ALERT_DELETE] Delete rejected because alert is VERIFYING alertId=" + alertId);
+            throw new AlertDeleteRejectedException(AlertDeleteRejectedException.Reason.VERIFYING);
+        }
+        if (alert.getRuntime() != null
+                && AlertRuntimeMetadata.DeploymentStatusEnum.DEPLOYING.equals(alert.getRuntime().getDeploymentStatus())) {
+            System.out.println("[IIA][ALERT_DELETE] Delete rejected because alert deployment is DEPLOYING alertId=" + alertId);
+            throw new AlertDeleteRejectedException(AlertDeleteRejectedException.Reason.DEPLOYING);
+        }
+
+        boolean deleted = alertRepository.softDeleteAlert(alertId);
+        if (deleted) {
+            System.out.println("[IIA][ALERT_DELETE] Alert soft-deleted alertId=" + alertId);
+        }
+        return deleted;
     }
 
     @Transactional

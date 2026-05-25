@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
@@ -410,6 +411,80 @@ class AlertServiceTest {
                 .isInstanceOf(AlertRuntimeStateChangeRejectedException.class)
                 .extracting(ex -> ((AlertRuntimeStateChangeRejectedException) ex).reason())
                 .isEqualTo(AlertRuntimeStateChangeRejectedException.Reason.ALREADY_DISABLED);
+    }
+
+    @Test
+    void deleteSoftDeletesAllowedLifecycleState() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(verifiedAlert(true)));
+        when(repository.softDeleteAlert("ALRT1")).thenReturn(true);
+
+        boolean result = service.deleteAlert("ALRT1");
+
+        assertThat(result).isTrue();
+        verify(repository).softDeleteAlert("ALRT1");
+    }
+
+    @Test
+    void deleteReturnsFalseWhenAlertDoesNotExist() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.empty());
+
+        boolean result = service.deleteAlert("ALRT1");
+
+        assertThat(result).isFalse();
+        verify(repository, never()).softDeleteAlert("ALRT1");
+    }
+
+    @Test
+    void deleteRejectsAlreadyDeletedAlert() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.existsDeletedAlert("ALRT1")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.deleteAlert("ALRT1"))
+                .isInstanceOf(AlertDeleteRejectedException.class)
+                .extracting(ex -> ((AlertDeleteRejectedException) ex).reason())
+                .isEqualTo(AlertDeleteRejectedException.Reason.DELETED);
+
+        verify(repository, never()).softDeleteAlert("ALRT1");
+    }
+
+    @Test
+    void deleteRejectsVerifyingAlert() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(verifiedAlert(false).status(AlertStatus.VERIFYING)));
+
+        assertThatThrownBy(() -> service.deleteAlert("ALRT1"))
+                .isInstanceOf(AlertDeleteRejectedException.class)
+                .extracting(ex -> ((AlertDeleteRejectedException) ex).reason())
+                .isEqualTo(AlertDeleteRejectedException.Reason.VERIFYING);
+
+        verify(repository, never()).softDeleteAlert("ALRT1");
+    }
+
+    @Test
+    void deleteRejectsDeployingAlert() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        AlertDetail deploying = verifiedAlert(false)
+                .runtime(new AlertRuntimeMetadata().deploymentStatus(AlertRuntimeMetadata.DeploymentStatusEnum.DEPLOYING));
+        when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(deploying));
+
+        assertThatThrownBy(() -> service.deleteAlert("ALRT1"))
+                .isInstanceOf(AlertDeleteRejectedException.class)
+                .extracting(ex -> ((AlertDeleteRejectedException) ex).reason())
+                .isEqualTo(AlertDeleteRejectedException.Reason.DEPLOYING);
+
+        verify(repository, never()).softDeleteAlert("ALRT1");
     }
 
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {

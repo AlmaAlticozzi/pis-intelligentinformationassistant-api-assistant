@@ -365,6 +365,43 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while disabling the alert.");
     }
 
+    public static Error alertDeleteBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-DEL-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertDeleteAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-DEL-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertDeleteNotFound() {
+        return new Error()
+                .code("IIA-ALT-DEL-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertDeleteDeletedAlert() {
+        return conflict("IIA-ALT-DEL-409-001", "Alert deleted", "The alert has already been deleted.");
+    }
+
+    public static Error alertDeleteTransitionInProgress() {
+        return conflict("IIA-ALT-DEL-409-002", "Alert transition in progress", "The alert is currently verifying or deploying and cannot be deleted safely.");
+    }
+
+    public static Error alertDeleteUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-DEL-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while deleting the alert definition.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",

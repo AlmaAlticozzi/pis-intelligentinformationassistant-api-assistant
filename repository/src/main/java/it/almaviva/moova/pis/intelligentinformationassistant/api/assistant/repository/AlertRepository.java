@@ -113,6 +113,24 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 """, alertId) > 0;
     }
 
+    public boolean softDeleteAlert(String alertId) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return false;
+        }
+
+        Alert alert = maybeAlert.get();
+        OffsetDateTime now = OffsetDateTime.now();
+        alert.setSglStatus(entityManager.getReference(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
+                "DELETED"));
+        alert.setFlgEnabled(false);
+        alert.setDtDeletedat(now);
+        alert.setDtUpdatedat(now);
+        flush();
+        return true;
+    }
+
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request, AlertVerificationOutcome outcome) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {

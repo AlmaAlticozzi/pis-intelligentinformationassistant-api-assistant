@@ -84,6 +84,16 @@ public final class AssistantApiInputValidator {
         return alertId;
     }
 
+    public static String validateAlertIdForDelete(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertDeleteBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertDeleteAlertIdTooLong());
+        }
+        return alertId;
+    }
+
     public static AlertCreateRequest validateAlertCreate(AlertCreateRequest request) {
         if (request == null) {
             throw badRequest(AssistantApiErrors.alertCreateMissingBody());

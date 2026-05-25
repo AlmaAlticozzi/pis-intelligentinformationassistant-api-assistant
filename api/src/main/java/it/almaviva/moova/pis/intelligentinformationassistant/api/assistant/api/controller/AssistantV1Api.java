@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.i
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation.AssistantApiInputValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertUpdateRejectedException;
@@ -122,7 +123,24 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public void deleteAlert(@PathParam("alertId") @Size(max=50) String alertId) {
-        System.out.println("deleteAlert: " + "alertId=" + alertId);
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForDelete(alertId);
+            System.out.println("[IIA][ALERT_DELETE] Delete requested for alertId=" + validatedAlertId);
+            if (!alertService.deleteAlert(validatedAlertId)) {
+                throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                        .entity(AssistantApiErrors.alertDeleteNotFound())
+                        .build());
+            }
+        } catch (AlertDeleteRejectedException ex) {
+            throw alertDeleteRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][ALERT_DELETE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertDeleteUnexpectedError())
+                    .build());
+        }
     }
 
     @POST
@@ -404,6 +422,13 @@ public class AssistantV1Api implements IAssistantV1Api {
             case ALREADY_DISABLED -> conflict(AssistantApiErrors.alertDisableAlreadyDisabled());
             case STATUS_NOT_VERIFIED, VERIFICATION_NOT_VERIFIED, ALREADY_ENABLED, MISSING_OPERATIONAL_METADATA ->
                     throw new IllegalStateException("Unexpected disable rejection reason: " + ex.reason());
+        };
+    }
+
+    private WebApplicationException alertDeleteRejected(AlertDeleteRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> conflict(AssistantApiErrors.alertDeleteDeletedAlert());
+            case VERIFYING, DEPLOYING -> conflict(AssistantApiErrors.alertDeleteTransitionInProgress());
         };
     }
 
