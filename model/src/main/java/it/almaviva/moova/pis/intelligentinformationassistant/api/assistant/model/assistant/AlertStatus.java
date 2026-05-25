@@ -21,8 +21,6 @@ public enum AlertStatus {
 
   REJECTED("REJECTED"),
 
-  DISABLED("DISABLED"),
-
   ERROR("ERROR"),
 
   DELETED("DELETED");

@@ -139,22 +139,22 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
-    public AlertDetail disableAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AlertDisableRequest alertDisableRequest) {
-        System.out.println("disableAlert: " + "alertId=" + alertId + ", " + "alertDisableRequest=" + alertDisableRequest);
+    public AlertDetail disableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
+        System.out.println("disableAlert: " + "alertId=" + alertId);
         return new AlertDetail();
     }
 
-    @POST
+    @PATCH
     @Path("/alerts/{alertId}/enable")
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
-    public AlertDetail enableAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AlertEnableRequest alertEnableRequest) {
-        System.out.println("enableAlert: " + "alertId=" + alertId + ", " + "alertEnableRequest=" + alertEnableRequest);
+    public AlertDetail enableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
+        System.out.println("enableAlert: " + "alertId=" + alertId);
         return new AlertDetail();
     }
 
-    @GET
+    @PATCH
     @Path("/agent-definitions/{agentDefinitionId}/compilation")
     @Produces({ "application/json" })
     @Override
