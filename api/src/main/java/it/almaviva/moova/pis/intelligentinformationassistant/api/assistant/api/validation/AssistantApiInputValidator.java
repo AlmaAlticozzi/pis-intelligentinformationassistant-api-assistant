@@ -64,6 +64,26 @@ public final class AssistantApiInputValidator {
         return alertId;
     }
 
+    public static String validateAlertIdForEnable(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertEnableBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertEnableAlertIdTooLong());
+        }
+        return alertId;
+    }
+
+    public static String validateAlertIdForDisable(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertDisableBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertDisableAlertIdTooLong());
+        }
+        return alertId;
+    }
+
     public static AlertCreateRequest validateAlertCreate(AlertCreateRequest request) {
         if (request == null) {
             throw badRequest(AssistantApiErrors.alertCreateMissingBody());

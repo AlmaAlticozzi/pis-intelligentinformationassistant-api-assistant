@@ -13,6 +13,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
@@ -77,6 +78,70 @@ public class AlertService {
     public Optional<AlertDetail> getAlert(String alertId) {
         System.out.println("[IIA][ALERT_GET] alertId=" + alertId);
         return alertRepository.getAlert(alertId);
+    }
+
+    @Transactional
+    public Optional<AlertDetail> enableAlert(String alertId) {
+        if (existsDeletedAlert(alertId)) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.DELETED);
+        }
+
+        Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
+        if (currentAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        AlertDetail alert = currentAlert.get();
+        AlertVerificationStatus verificationStatus = verificationStatus(alert);
+        System.out.println("[IIA][ALERT_ENABLE] loaded status=" + alert.getStatus()
+                + ", verificationStatus=" + verificationStatus
+                + ", enabled=" + alert.getEnabled());
+
+        if (!AlertStatus.VERIFIED.equals(alert.getStatus())) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.STATUS_NOT_VERIFIED);
+        }
+        if (!AlertVerificationStatus.VERIFIED.equals(verificationStatus)) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.VERIFICATION_NOT_VERIFIED);
+        }
+        if (Boolean.TRUE.equals(alert.getEnabled())) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.ALREADY_ENABLED);
+        }
+        if (!alertRepository.hasOperationalVerificationMetadata(alertId)) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.MISSING_OPERATIONAL_METADATA);
+        }
+
+        Optional<AlertDetail> enabledAlert = alertRepository.updateAlertEnabled(alertId, true);
+        enabledAlert.ifPresent(updated -> System.out.println("[IIA][ALERT_ENABLE] enabled alertId=" + alertId));
+        return enabledAlert;
+    }
+
+    @Transactional
+    public Optional<AlertDetail> disableAlert(String alertId) {
+        if (existsDeletedAlert(alertId)) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.DELETED);
+        }
+
+        Optional<AlertDetail> currentAlert = alertRepository.getAlert(alertId);
+        if (currentAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        AlertDetail alert = currentAlert.get();
+        AlertVerificationStatus verificationStatus = verificationStatus(alert);
+        System.out.println("[IIA][ALERT_DISABLE] loaded status=" + alert.getStatus()
+                + ", verificationStatus=" + verificationStatus
+                + ", enabled=" + alert.getEnabled());
+
+        if (AlertStatus.VERIFYING.equals(alert.getStatus())) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.VERIFYING);
+        }
+        if (!Boolean.TRUE.equals(alert.getEnabled())) {
+            throw new AlertRuntimeStateChangeRejectedException(AlertRuntimeStateChangeRejectedException.Reason.ALREADY_DISABLED);
+        }
+
+        Optional<AlertDetail> disabledAlert = alertRepository.updateAlertEnabled(alertId, false);
+        disabledAlert.ifPresent(updated -> System.out.println("[IIA][ALERT_DISABLE] disabled alertId=" + alertId));
+        return disabledAlert;
     }
 
     public Optional<AlertDetail> updateAlert(String alertId, AlertUpdateRequest request) {
@@ -363,6 +428,10 @@ public class AlertService {
 
     private String trimToEmpty(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private AlertVerificationStatus verificationStatus(AlertDetail alert) {
+        return alert.getVerification() == null ? null : alert.getVerification().getStatus();
     }
 
     private record AlertVerificationResolution(AlertVerificationOutcome outcome, boolean parseableLlm) {

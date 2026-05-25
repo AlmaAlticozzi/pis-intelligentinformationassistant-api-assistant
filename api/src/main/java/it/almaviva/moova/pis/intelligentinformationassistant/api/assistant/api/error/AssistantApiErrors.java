@@ -275,6 +275,96 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while updating the alert definition.");
     }
 
+    public static Error alertEnableBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-ENA-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertEnableAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-ENA-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertEnableNotFound() {
+        return new Error()
+                .code("IIA-ALT-ENA-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertEnableDeletedAlert() {
+        return conflict("IIA-ALT-ENA-409-001", "Alert deleted", "The alert has been deleted and cannot be enabled.");
+    }
+
+    public static Error alertEnableInvalidStatus() {
+        return conflict("IIA-ALT-ENA-409-001", "Alert not verified", "Only an alert in VERIFIED status can be enabled.");
+    }
+
+    public static Error alertEnableInvalidVerificationStatus() {
+        return conflict("IIA-ALT-ENA-409-001", "Alert verification incomplete", "Only an alert with VERIFIED verification status can be enabled.");
+    }
+
+    public static Error alertEnableMissingOperationalMetadata() {
+        return conflict("IIA-ALT-ENA-409-002", "Alert interpreter unavailable", "The alert does not have the verified interpreter metadata required for runtime execution.");
+    }
+
+    public static Error alertEnableAlreadyEnabled() {
+        return conflict("IIA-ALT-ENA-409-003", "Alert already enabled", "The alert is already enabled.");
+    }
+
+    public static Error alertEnableUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-ENA-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while enabling the alert.");
+    }
+
+    public static Error alertDisableBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-DIS-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertDisableAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-DIS-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertDisableNotFound() {
+        return new Error()
+                .code("IIA-ALT-DIS-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertDisableDeletedAlert() {
+        return conflict("IIA-ALT-DIS-409-001", "Alert deleted", "The alert has been deleted and cannot be disabled.");
+    }
+
+    public static Error alertDisableAlreadyDisabled() {
+        return conflict("IIA-ALT-DIS-409-002", "Alert already disabled", "The alert runtime execution is already disabled.");
+    }
+
+    public static Error alertDisableVerifyingAlert() {
+        return conflict("IIA-ALT-DIS-409-003", "Alert verifying", "The alert is currently verifying and cannot be disabled.");
+    }
+
+    public static Error alertDisableUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-DIS-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while disabling the alert.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
@@ -323,5 +413,13 @@ public final class AssistantApiErrors {
                 .title("Invalid request")
                 .detail(detail)
                 .source(source);
+    }
+
+    private static Error conflict(String code, String title, String detail) {
+        return new Error()
+                .code(code)
+                .title(title)
+                .detail(detail)
+                .source("alertId");
     }
 }

@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.i
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation.AssistantApiInputValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertUpdateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utility.TextImproveUseCase;
@@ -139,8 +140,23 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertDetail disableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
-        System.out.println("disableAlert: " + "alertId=" + alertId);
-        return new AlertDetail();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForDisable(alertId);
+            System.out.println("[IIA][ALERT_DISABLE] requested alertId=" + validatedAlertId);
+            return alertService.disableAlert(validatedAlertId)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertDisableNotFound())
+                            .build()));
+        } catch (AlertRuntimeStateChangeRejectedException ex) {
+            throw alertDisableRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][ALERT_DISABLE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertDisableUnexpectedError())
+                    .build());
+        }
     }
 
     @PATCH
@@ -148,8 +164,23 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertDetail enableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
-        System.out.println("enableAlert: " + "alertId=" + alertId);
-        return new AlertDetail();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForEnable(alertId);
+            System.out.println("[IIA][ALERT_ENABLE] requested alertId=" + validatedAlertId);
+            return alertService.enableAlert(validatedAlertId)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertEnableNotFound())
+                            .build()));
+        } catch (AlertRuntimeStateChangeRejectedException ex) {
+            throw alertEnableRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][ALERT_ENABLE] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertEnableUnexpectedError())
+                    .build());
+        }
     }
 
     @PATCH
@@ -353,6 +384,33 @@ public class AssistantV1Api implements IAssistantV1Api {
                     .entity(AssistantApiErrors.alertUpdateDuplicateName())
                     .build());
         };
+    }
+
+    private WebApplicationException alertEnableRejected(AlertRuntimeStateChangeRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> conflict(AssistantApiErrors.alertEnableDeletedAlert());
+            case STATUS_NOT_VERIFIED -> conflict(AssistantApiErrors.alertEnableInvalidStatus());
+            case VERIFICATION_NOT_VERIFIED -> conflict(AssistantApiErrors.alertEnableInvalidVerificationStatus());
+            case ALREADY_ENABLED -> conflict(AssistantApiErrors.alertEnableAlreadyEnabled());
+            case MISSING_OPERATIONAL_METADATA -> conflict(AssistantApiErrors.alertEnableMissingOperationalMetadata());
+            case VERIFYING, ALREADY_DISABLED -> throw new IllegalStateException("Unexpected enable rejection reason: " + ex.reason());
+        };
+    }
+
+    private WebApplicationException alertDisableRejected(AlertRuntimeStateChangeRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> conflict(AssistantApiErrors.alertDisableDeletedAlert());
+            case VERIFYING -> conflict(AssistantApiErrors.alertDisableVerifyingAlert());
+            case ALREADY_DISABLED -> conflict(AssistantApiErrors.alertDisableAlreadyDisabled());
+            case STATUS_NOT_VERIFIED, VERIFICATION_NOT_VERIFIED, ALREADY_ENABLED, MISSING_OPERATIONAL_METADATA ->
+                    throw new IllegalStateException("Unexpected disable rejection reason: " + ex.reason());
+        };
+    }
+
+    private WebApplicationException conflict(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.Error error) {
+        return new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                .entity(error)
+                .build());
     }
 
     @PATCH
