@@ -17,6 +17,7 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedSource("UNKNOWN_SOURCE")).isFalse();
         assertThat(catalog.permissionForSource("SERVICE_DATA")).isEqualTo("READ_SERVICE_DATA");
         assertThat(catalog.isSupportedDslOperator("CONTAINS")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("CONTAINS_ANY")).isTrue();
         assertThat(catalog.isSupportedDslOperator("EQUALS_NORMALIZED")).isTrue();
         assertThat(catalog.isSupportedDslOperator("RANDOM_OPERATOR")).isFalse();
         assertThat(catalog.isPreviewOnlyGenerationMode("JAVA_TEMPLATE")).isTrue();

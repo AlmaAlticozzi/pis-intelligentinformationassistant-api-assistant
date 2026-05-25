@@ -10,20 +10,12 @@ import java.util.Map;
 
 class AgentDslPreviewBuilder {
 
-    private final AgentGenerationCapabilityCatalog capabilityCatalog;
-
-    AgentDslPreviewBuilder(AgentGenerationCapabilityCatalog capabilityCatalog) {
-        this.capabilityCatalog = capabilityCatalog;
-    }
-
     BuildResult build(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
             AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
-            String requestedGenerationMode,
-            String recommendedGenerationMode,
             List<String> sources,
-            List<String> permissions) {
+            AgentBlueprintValidationResult validationResult) {
         String triggerType = firstString(
                 enumValue(blueprint.getTriggerType()),
                 data.technicalSpecification().get("triggerType"),
@@ -43,22 +35,6 @@ class AgentDslPreviewBuilder {
         List<String> targetTypes = blueprint.getTargetTypes() == null
                 ? List.of()
                 : blueprint.getTargetTypes().stream().map(String::valueOf).toList();
-        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
-                sources,
-                permissions,
-                triggerType,
-                evaluationMode,
-                inputModel,
-                outputType,
-                targetTypes,
-                conditionSummary.dslOperators(),
-                explicitlyStateless,
-                requestedGenerationMode,
-                recommendedGenerationMode);
-        AgentGenerationCapabilityCatalog.RuntimeSupportEvaluation runtimeSupport =
-                capabilityCatalog.evaluateRuntimeSupport(snapshot);
-        boolean supportedByRuntime = runtimeSupport.supported();
-
         StringBuilder dsl = new StringBuilder()
                 .append("schemaVersion: iia.agent.dsl/v1\n")
                 .append("agent:\n")
@@ -79,6 +55,10 @@ class AgentDslPreviewBuilder {
         } else {
             partial |= !renderRootCondition(dsl, conditionSummary.condition());
         }
+        boolean supportedByRuntime = validationResult.valid()
+                && validationResult.runtimeSupported()
+                && !partial
+                && validationResult.unsupportedCapabilities().isEmpty();
 
         dsl.append("output:\n")
                 .append("  type: ").append(yamlOutputType).append("\n");
@@ -99,7 +79,7 @@ class AgentDslPreviewBuilder {
                         .supportedByRuntime(supportedByRuntime),
                 partial,
                 supportedByRuntime,
-                runtimeSupport.unsupportedCapabilities());
+                new java.util.LinkedHashSet<>(validationResult.unsupportedCapabilities()));
     }
 
     private boolean renderRootCondition(StringBuilder output, Map<String, Object> condition) {
@@ -146,7 +126,13 @@ class AgentDslPreviewBuilder {
     private void renderLeaf(StringBuilder output, Map<String, Object> leaf, int indent, boolean listItem) {
         appendLine(output, indent, (listItem ? "- " : "") + "field: " + leaf.get("field"));
         appendLine(output, indent + (listItem ? 2 : 0), "operator: " + leaf.get("operator"));
-        appendLine(output, indent + (listItem ? 2 : 0), "value: " + leaf.get("value"));
+        int propertyIndent = indent + (listItem ? 2 : 0);
+        if (leaf.containsKey("value")) {
+            appendLine(output, propertyIndent, "value: " + leaf.get("value"));
+        } else if (leaf.get("values") instanceof List<?> values) {
+            appendLine(output, propertyIndent, "values:");
+            values.forEach(value -> appendLine(output, propertyIndent + 2, "- " + value));
+        }
     }
 
     private void appendEvents(StringBuilder output, List<String> events) {
@@ -170,7 +156,10 @@ class AgentDslPreviewBuilder {
     }
 
     private boolean isLeaf(Map<String, Object> node) {
-        return node.containsKey("field") && node.containsKey("operator") && node.containsKey("value");
+        return node.containsKey("field")
+                && node.containsKey("operator")
+                && (node.get("value") != null
+                || (node.get("values") instanceof List<?> values && !values.isEmpty()));
     }
 
     private String enumValue(Object value) {

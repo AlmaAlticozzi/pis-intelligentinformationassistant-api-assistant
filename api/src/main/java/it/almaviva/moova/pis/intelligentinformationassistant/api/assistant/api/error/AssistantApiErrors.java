@@ -429,6 +429,14 @@ public final class AssistantApiErrors {
                 .source("alertId");
     }
 
+    public static Error alertAgentGenerationPreviewInvalidBlueprint() {
+        return new Error()
+                .code("IIA-ALT-AGP-422-001")
+                .title("Agent preview unavailable")
+                .detail("The verified alert cannot be transformed into an Agent Blueprint supported by the current runtime capabilities.")
+                .source("alertId");
+    }
+
     public static Error alertAgentGenerationPreviewUnexpectedError() {
         return new Error()
                 .code("IIA-ALT-AGP-500-001")

@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 
 class AgentPreviewConditionExtractor {
 
-    private static final Set<String> LEAF_FIELDS = Set.of("field", "operator", "value");
+    private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values");
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
 
     ConditionSummary extract(AlertAgentGenerationPreviewData data) {
@@ -32,6 +32,11 @@ class AgentPreviewConditionExtractor {
                 .map(ConditionLeaf::value)
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
+                .or(() -> leaves.stream()
+                        .filter(leaf -> leaf.field() != null && leaf.field().contains("stopPoint.nameShort"))
+                        .map(ConditionLeaf::value)
+                        .filter(value -> value != null && !value.isBlank())
+                        .findFirst())
                 .orElse(null);
         List<ConditionLeaf> cancellationLeaves = leaves.stream()
                 .filter(this::isCancellationLeaf)
@@ -56,7 +61,7 @@ class AgentPreviewConditionExtractor {
             leaves.add(new ConditionLeaf(
                     stringValue(node.get("field")),
                     stringValue(node.get("operator")),
-                    stringValue(node.get("value"))));
+                    values(node)));
             return LEAF_FIELDS.containsAll(node.keySet());
         }
         boolean supported = GROUP_FIELDS.containsAll(node.keySet());
@@ -78,12 +83,26 @@ class AgentPreviewConditionExtractor {
     }
 
     private boolean isLeaf(Map<String, Object> node) {
-        return node.containsKey("field") && node.containsKey("operator") && node.containsKey("value");
+        return node.containsKey("field")
+                && node.containsKey("operator")
+                && (node.get("value") != null
+                || (node.get("values") instanceof List<?> values && !values.isEmpty()));
     }
 
     private boolean isCancellationLeaf(ConditionLeaf leaf) {
-        String value = leaf.value() == null ? "" : leaf.value().toUpperCase();
-        return value.contains("CANCELLATION") || value.contains("CANCELLED");
+        return leaf.values().stream()
+                .map(String::toUpperCase)
+                .anyMatch(value -> value.contains("CANCELLATION") || value.contains("CANCELLED"));
+    }
+
+    private List<String> values(Map<String, Object> node) {
+        if (node.get("value") != null) {
+            return List.of(String.valueOf(node.get("value")));
+        }
+        if (node.get("values") instanceof List<?> list) {
+            return list.stream().map(String::valueOf).toList();
+        }
+        return List.of();
     }
 
     private Map<String, Object> mapValue(Object value) {
@@ -109,7 +128,10 @@ class AgentPreviewConditionExtractor {
         return value == null ? null : String.valueOf(value);
     }
 
-    record ConditionLeaf(String field, String operator, String value) {
+    record ConditionLeaf(String field, String operator, List<String> values) {
+        String value() {
+            return values.isEmpty() ? null : values.getFirst();
+        }
     }
 
     record ConditionSummary(

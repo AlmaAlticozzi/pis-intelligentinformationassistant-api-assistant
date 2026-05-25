@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentGenerationPreviewMapperTest {
 
@@ -28,12 +29,11 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getRequiredPermissions()).containsExactly("READ_SERVICE_DATA");
         assertThat(response.getBlueprint().getAgentName()).isEqualTo("CancelledJourneyServiceDataAgent");
         assertThat(response.getBlueprint().getTargetTypes()).containsExactly(SuggestionTargetType.SERVICE_DATA_JOURNEY);
-        assertThat(response.getDslPreview().getDsl()).contains("JOURNEY_CANCELLED", "STATELESS_EVENT_MATCH");
+        assertThat(response.getDslPreview().getDsl()).contains("EQUALS", "STATELESS_EVENT_MATCH");
         assertThat(response.getValidationPlan().getPositiveExamples()).hasSize(1);
         assertThat(response.getWarnings()).contains(
                 "Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.",
-                "DSL preview is diagnostic and has not been compiled or executed.",
-                "The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
+                "DSL preview is diagnostic and has not been compiled or executed.");
     }
 
     @Test
@@ -79,38 +79,60 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
-    void unsupportedConditionNodeReturnsPartialDslWithWarning() {
+    void unsupportedConditionNodeIsRejectedAsUnprocessableBlueprint() {
         Map<String, Object> technicalSpecification = new LinkedHashMap<>(previewData().technicalSpecification());
         technicalSpecification.put("condition", Map.of("unsupportedExpression", "custom"));
+        Map<String, Object> blueprint = new LinkedHashMap<>(previewData().agentBlueprintPreview());
+        blueprint.put("parameters", Map.of(
+                "conditionType", "SERVICE_DATA_FIELD_MATCH",
+                "condition", Map.of("unsupportedExpression", "custom")));
         AlertAgentGenerationPreviewData data = dataWithArtifacts(
                 technicalSpecification,
-                previewData().agentBlueprintPreview());
+                blueprint);
 
-        AgentGenerationPreviewResponse response = mapper.toResponse(data, null);
-
-        assertThat(response.getWarnings()).contains(
-                "DSL preview is partial because some condition nodes are not supported by the deterministic renderer.");
-        assertThat(response.getDslPreview().getDsl()).contains("schemaVersion: iia.agent.dsl/v1");
+        assertThatThrownBy(() -> mapper.toResponse(data, null))
+                .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class)
+                .extracting(ex -> ((AlertAgentGenerationPreviewRejectedException) ex).reason())
+                .isEqualTo(AlertAgentGenerationPreviewRejectedException.Reason.INVALID_BLUEPRINT);
     }
 
     @Test
-    void unsupportedArtifactSourceIsDisplayedWithCatalogWarning() {
+    void unsupportedArtifactSourceIsRejectedAsUnprocessableBlueprint() {
         Map<String, Object> blueprint = new LinkedHashMap<>(cancellationPreviewData().agentBlueprintPreview());
         blueprint.put("requiredSources", List.of("MONITORED_AUDIO_MESSAGE"));
 
-        AgentGenerationPreviewResponse response = mapper.toResponse(
+        assertThatThrownBy(() -> mapper.toResponse(
                 dataWithArtifacts(cancellationPreviewData().technicalSpecification(), blueprint),
-                null);
+                null))
+                .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class)
+                .extracting(ex -> ((AlertAgentGenerationPreviewRejectedException) ex).reason())
+                .isEqualTo(AlertAgentGenerationPreviewRejectedException.Reason.INVALID_BLUEPRINT);
+    }
 
-        assertThat(response.getRequiredSources()).containsExactly(AgentDataSource.MONITORED_AUDIO_MESSAGE);
-        assertThat(response.getRequiredPermissions()).isEmpty();
-        assertThat(response.getDslPreview().getSupportedByRuntime()).isFalse();
-        assertThat(response.getWarnings()).contains(
-                "Capability 'MONITORED_AUDIO_MESSAGE' is not supported by the current Agent Generation MVP.",
-                "The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
+    @Test
+    void containsAnyValuesProduceCompleteRuntimeSupportedDslAndSpecificNaming() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(genovaContainsAnyPreviewData(), null);
+
+        assertThat(response.getBlueprint().getAgentName()).isEqualTo("JourneyCancellationGenovaPiazzaPrincipeAgent");
+        assertThat(response.getBlueprint().getDescription())
+                .isEqualTo("Detects cancelled journeys at Genova Piazza Principe from realtime ServiceData events.");
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("    - any:\n        - field: payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status")
+                .contains("          operator: CONTAINS_ANY\n          values:\n            - ARRIVAL_CANCELLATION")
+                .contains("    - any:\n        - field: payload.stopPointJourney.stopPoint.nameLong")
+                .doesNotContain("    - any:\n    - any:");
+        assertThat(response.getValidationPlan().getPositiveExamples()).hasSize(2);
+        assertThat(response.getWarnings())
+                .doesNotContain("DSL preview is partial because some condition nodes are not supported by the deterministic renderer.");
     }
 
     private AlertAgentGenerationPreviewData previewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "field", "payload.stopPointJourney.stopPoint.nameLong",
+                "operator", "EQUALS",
+                "value", "Milano Malpensa T1");
         return new AlertAgentGenerationPreviewData(
                 "ALRT1",
                 "Cancelled journeys",
@@ -130,13 +152,18 @@ class AgentGenerationPreviewMapperTest {
                         "triggerType", "EVENT",
                         "evaluationMode", "STATELESS_EVENT_MATCH",
                         "inputModel", "ServiceDataV2",
-                        "outputModel", "AgentOutput.CANDIDATE_SUGGESTION"),
+                        "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                        "condition", condition),
                 Map.of(
                         "schemaVersion", "iia.agent.blueprint/v1",
                         "agentName", "CancelledJourneyServiceDataAgent",
                         "description", "Detects cancelled journeys.",
                         "triggerType", "EVENT",
-                        "requiredSources", List.of("SERVICE_DATA")),
+                        "requiredSources", List.of("SERVICE_DATA"),
+                        "evaluationMode", "STATELESS_EVENT_MATCH",
+                        "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                        "stateRequirements", Map.of("requiresState", false),
+                        "output", Map.of("type", "CANDIDATE_SUGGESTION")),
                 List.of("JOURNEY_CANCELLED"),
                 List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
@@ -178,6 +205,47 @@ class AgentGenerationPreviewMapperTest {
                         "type", "CANDIDATE_SUGGESTION",
                         "reasonTemplate", "Journey ${payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName} is cancelled at Milano Malpensa T1.",
                         "operatorAdviceTemplate", "Check journey cancellation and passenger information procedures."));
+        return dataWithArtifacts(technicalSpecification, blueprint);
+    }
+
+    private AlertAgentGenerationPreviewData genovaContainsAnyPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("any", List.of(
+                                Map.of(
+                                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                                        "operator", "CONTAINS_ANY",
+                                        "values", List.of("ARRIVAL_CANCELLATION")),
+                                Map.of(
+                                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                                        "operator", "CONTAINS_ANY",
+                                        "values", List.of("DEPARTURE_CANCELLATION")))),
+                        Map.of("any", List.of(
+                                Map.of(
+                                        "field", "payload.stopPointJourney.stopPoint.nameLong",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova Piazza Principe"),
+                                Map.of(
+                                        "field", "payload.stopPointJourney.stopPoint.nameShort",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova PP")))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ServiceDataFieldMatchAlertAgent",
+                "description", "Generic.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
         return dataWithArtifacts(technicalSpecification, blueprint);
     }
 

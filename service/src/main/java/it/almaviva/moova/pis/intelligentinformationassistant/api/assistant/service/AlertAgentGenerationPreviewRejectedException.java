@@ -15,6 +15,7 @@ public class AlertAgentGenerationPreviewRejectedException extends RuntimeExcepti
 
     public enum Reason {
         NOT_VERIFIED,
-        MISSING_TECHNICAL_ARTIFACTS
+        MISSING_TECHNICAL_ARTIFACTS,
+        INVALID_BLUEPRINT
     }
 }

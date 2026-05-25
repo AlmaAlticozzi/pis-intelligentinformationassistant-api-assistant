@@ -25,7 +25,7 @@ public class AgentGenerationCapabilityCatalog {
     private static final Set<String> COMPLEXITIES = orderedSet("LOW", "MEDIUM", "HIGH", "UNSUPPORTED");
     private static final Set<String> PERMISSIONS = orderedSet("READ_SERVICE_DATA");
     private static final Set<String> DSL_OPERATORS = orderedSet(
-            "CONTAINS", "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "EXISTS", "IN", "NOT_EQUALS");
+            "CONTAINS", "CONTAINS_ANY", "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "EXISTS", "IN", "NOT_EQUALS");
     private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any");
     private static final Set<String> DSL_FUNCTIONS = orderedSet(
             "normalize", "contains", "equals", "equalsIgnoreCase", "in", "exists");

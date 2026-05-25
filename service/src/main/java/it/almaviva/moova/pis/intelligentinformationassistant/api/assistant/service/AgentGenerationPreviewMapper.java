@@ -35,18 +35,24 @@ public class AgentGenerationPreviewMapper {
     private final AgentPreviewNamingHelper namingHelper;
     private final AgentDslPreviewBuilder dslPreviewBuilder;
     private final AgentValidationPlanBuilder validationPlanBuilder;
+    private final AgentBlueprintValidator blueprintValidator;
 
     public AgentGenerationPreviewMapper() {
-        this(new AgentGenerationCapabilityCatalog());
+        this(new AgentGenerationCapabilityCatalog(), null);
     }
 
     @Inject
-    public AgentGenerationPreviewMapper(AgentGenerationCapabilityCatalog capabilityCatalog) {
+    public AgentGenerationPreviewMapper(
+            AgentGenerationCapabilityCatalog capabilityCatalog,
+            AgentBlueprintValidator blueprintValidator) {
         this.capabilityCatalog = capabilityCatalog;
         this.conditionExtractor = new AgentPreviewConditionExtractor();
         this.namingHelper = new AgentPreviewNamingHelper();
-        this.dslPreviewBuilder = new AgentDslPreviewBuilder(capabilityCatalog);
+        this.dslPreviewBuilder = new AgentDslPreviewBuilder();
         this.validationPlanBuilder = new AgentValidationPlanBuilder();
+        this.blueprintValidator = blueprintValidator == null
+                ? new AgentBlueprintValidator(capabilityCatalog)
+                : blueprintValidator;
     }
 
     public AgentGenerationPreviewResponse toResponse(
@@ -68,15 +74,30 @@ public class AgentGenerationPreviewMapper {
         AgentGenerationMode recommendedMode = capabilityCatalog.recommendedDefaultGenerationMode();
 
         AgentBlueprint blueprint = toBlueprint(data, conditionSummary, requiredSources);
+        AgentBlueprintValidationResult validationResult = blueprintValidator.validate(
+                data.alertId(),
+                data,
+                blueprint,
+                conditionSummary,
+                sourceNames,
+                requiredPermissions,
+                requestedMode == null ? null : requestedMode.toString(),
+                recommendedMode.toString());
+        if (!validationResult.valid() || !validationResult.runtimeSupported()) {
+            throw new AlertAgentGenerationPreviewRejectedException(
+                    AlertAgentGenerationPreviewRejectedException.Reason.INVALID_BLUEPRINT);
+        }
         System.out.println("[IIA][AGENT_PREVIEW] Rendering deterministic DSL preview alertId=" + data.alertId());
         AgentDslPreviewBuilder.BuildResult dslResult = dslPreviewBuilder.build(
                 data,
                 blueprint,
                 conditionSummary,
-                requestedMode == null ? null : requestedMode.toString(),
-                recommendedMode.toString(),
                 sourceNames,
-                requiredPermissions);
+                validationResult);
+        if (dslResult.partial() || !dslResult.supportedByRuntime()) {
+            throw new AlertAgentGenerationPreviewRejectedException(
+                    AlertAgentGenerationPreviewRejectedException.Reason.INVALID_BLUEPRINT);
+        }
         LinkedHashSet<String> warnings = new LinkedHashSet<>(data.warnings() == null ? List.of() : data.warnings());
         warnings.add("Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.");
         warnings.add("DSL preview is diagnostic and has not been compiled or executed.");
@@ -135,8 +156,8 @@ public class AgentGenerationPreviewMapper {
         AgentBlueprint blueprint = new AgentBlueprint()
                 .agentName(namingHelper.agentName(data, conditionSummary))
                 .description(namingHelper.description(data, conditionSummary))
-                .triggerType(AgentBlueprint.TriggerTypeEnum.fromString(
-                        firstString(persisted.get("triggerType"), data.technicalSpecification().get("triggerType"), "EVENT")))
+                .triggerType(toTriggerType(firstString(
+                        persisted.get("triggerType"), data.technicalSpecification().get("triggerType"), "EVENT")))
                 .requiredSources(requiredSources)
                 .targetTypes(data.targetTypes() == null ? List.of() : data.targetTypes())
                 .parameters(mapValue(persisted.get("parameters")))
@@ -175,6 +196,14 @@ public class AgentGenerationPreviewMapper {
         }
         try {
             return AgentDataSource.fromString(source);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private AgentBlueprint.TriggerTypeEnum toTriggerType(String triggerType) {
+        try {
+            return AgentBlueprint.TriggerTypeEnum.fromString(triggerType);
         } catch (IllegalArgumentException exception) {
             return null;
         }

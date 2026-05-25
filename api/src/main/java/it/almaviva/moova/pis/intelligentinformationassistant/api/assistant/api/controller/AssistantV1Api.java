@@ -481,6 +481,10 @@ public class AssistantV1Api implements IAssistantV1Api {
                     Response.status(422)
                             .entity(AssistantApiErrors.alertAgentGenerationPreviewMissingTechnicalArtifacts())
                             .build());
+            case INVALID_BLUEPRINT -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertAgentGenerationPreviewInvalidBlueprint())
+                            .build());
         };
     }
 
