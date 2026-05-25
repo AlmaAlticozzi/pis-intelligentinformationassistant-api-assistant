@@ -134,9 +134,8 @@ public class AssistantV1Api implements IAssistantV1Api {
         return new AgentDefinitionDetail();
     }
 
-    @POST
+    @PATCH
     @Path("/alerts/{alertId}/disable")
-    @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
     public AlertDetail disableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
@@ -146,7 +145,6 @@ public class AssistantV1Api implements IAssistantV1Api {
 
     @PATCH
     @Path("/alerts/{alertId}/enable")
-    @Consumes({ "application/json" })
     @Produces({ "application/json" })
     @Override
     public AlertDetail enableAlert(@PathParam("alertId") @Size(max=50) String alertId) {
