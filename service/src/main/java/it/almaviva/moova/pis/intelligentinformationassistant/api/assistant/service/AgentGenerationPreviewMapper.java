@@ -3,18 +3,15 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentComplexity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDataSource;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDslPreview;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentValidationExample;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentValidationPlan;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import jakarta.enterprise.context.ApplicationScoped;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,12 +29,34 @@ public class AgentGenerationPreviewMapper {
             "stateRequirements",
             "suggestionIntent");
 
+    private final AgentPreviewConditionExtractor conditionExtractor = new AgentPreviewConditionExtractor();
+    private final AgentPreviewNamingHelper namingHelper = new AgentPreviewNamingHelper();
+    private final AgentDslPreviewBuilder dslPreviewBuilder = new AgentDslPreviewBuilder();
+    private final AgentValidationPlanBuilder validationPlanBuilder = new AgentValidationPlanBuilder();
+
     public AgentGenerationPreviewResponse toResponse(
             AlertAgentGenerationPreviewData data,
             AgentGenerationPreviewRequest request) {
-        List<String> warnings = new ArrayList<>(data.warnings() == null ? List.of() : data.warnings());
+        AgentPreviewConditionExtractor.ConditionSummary conditionSummary = conditionExtractor.extract(data);
+        System.out.println("[IIA][AGENT_PREVIEW] Extracted preview condition summary alertId=" + data.alertId()
+                + ", conditionType=" + conditionSummary.conditionType()
+                + ", location=" + conditionSummary.location()
+                + ", cancellation=" + conditionSummary.cancellation());
+
+        AgentBlueprint blueprint = toBlueprint(data, conditionSummary);
+        System.out.println("[IIA][AGENT_PREVIEW] Rendering deterministic DSL preview alertId=" + data.alertId());
+        AgentDslPreviewBuilder.BuildResult dslResult = dslPreviewBuilder.build(data, blueprint, conditionSummary);
+        LinkedHashSet<String> warnings = new LinkedHashSet<>(data.warnings() == null ? List.of() : data.warnings());
+        warnings.add("Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.");
+        warnings.add("DSL preview is diagnostic and has not been compiled or executed.");
         if (request != null && AgentGenerationMode.JAVA_TEMPLATE.equals(request.getPreferredGenerationMode())) {
-            warnings.add("JAVA_TEMPLATE is not generated in the read-only preview MVP; DSL preview is returned when possible.");
+            warnings.add("JAVA_TEMPLATE was requested but is not generated in the read-only preview MVP; DSL preview is returned when possible.");
+        }
+        if (dslResult.partial()) {
+            warnings.add("DSL preview is partial because some condition nodes are not supported by the deterministic renderer.");
+        }
+        if (!dslResult.supportedByRuntime()) {
+            warnings.add("DSL preview is diagnostic only because the verified artifacts do not match the supported stateless ServiceData runtime profile.");
         }
 
         AgentGenerationPreviewResponse response = new AgentGenerationPreviewResponse()
@@ -47,31 +66,46 @@ public class AgentGenerationPreviewMapper {
                 .estimatedComplexity(AgentComplexity.LOW)
                 .requiredSources(List.of(AgentDataSource.SERVICE_DATA))
                 .requiredPermissions(List.of("READ_SERVICE_DATA"))
-                .blueprint(toBlueprint(data))
-                .warnings(warnings)
+                .blueprint(blueprint)
+                .warnings(List.copyOf(warnings))
                 .rejectedReason(null);
 
         if (included(request == null ? null : request.getIncludeDslPreview())) {
-            response.dslPreview(toDslPreview(data));
+            response.dslPreview(dslResult.preview());
         }
         if (included(request == null ? null : request.getIncludeValidationPlan())) {
-            response.validationPlan(toValidationPlan(data));
+            response.validationPlan(validationPlanBuilder.build(data, conditionSummary));
+            System.out.println("[IIA][AGENT_PREVIEW] Validation plan generated alertId=" + data.alertId()
+                    + ", positiveExamples=" + response.getValidationPlan().getPositiveExamples().size()
+                    + ", negativeExamples=" + response.getValidationPlan().getNegativeExamples().size()
+                    + ", edgeCases=" + response.getValidationPlan().getEdgeCases().size());
         }
+        System.out.println("[IIA][AGENT_PREVIEW] Preview warnings alertId=" + data.alertId()
+                + ", warningsCount=" + response.getWarnings().size());
         return response;
     }
 
-    private AgentBlueprint toBlueprint(AlertAgentGenerationPreviewData data) {
+    private AgentBlueprint toBlueprint(
+            AlertAgentGenerationPreviewData data,
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
         Map<String, Object> persisted = data.agentBlueprintPreview();
+        Map<String, Object> suggestionIntent = mapValue(persisted.get("suggestionIntent"));
+        if (conditionSummary.cancellation()) {
+            suggestionIntent.putIfAbsent("type", "INFORM_OPERATOR");
+            suggestionIntent.putIfAbsent("category", "JOURNEY_CANCELLATION");
+            suggestionIntent.putIfAbsent("candidateOutput", "CANDIDATE_SUGGESTION");
+            suggestionIntent.putIfAbsent("operatorAction", "CHECK_PASSENGER_INFORMATION_PROCEDURES");
+        }
         AgentBlueprint blueprint = new AgentBlueprint()
-                .agentName(stringValue(persisted.get("agentName")))
-                .description(firstString(persisted.get("description"), data.verificationSummary()))
+                .agentName(namingHelper.agentName(data, conditionSummary))
+                .description(namingHelper.description(data, conditionSummary))
                 .triggerType(AgentBlueprint.TriggerTypeEnum.fromString(
                         firstString(persisted.get("triggerType"), data.technicalSpecification().get("triggerType"), "EVENT")))
                 .requiredSources(List.of(AgentDataSource.SERVICE_DATA))
                 .targetTypes(data.targetTypes() == null ? List.of() : data.targetTypes())
                 .parameters(mapValue(persisted.get("parameters")))
                 .stateRequirements(mapValue(persisted.get("stateRequirements")))
-                .suggestionIntent(mapValue(persisted.get("suggestionIntent")));
+                .suggestionIntent(suggestionIntent);
 
         persisted.forEach((key, value) -> {
             if (!BLUEPRINT_FIELDS.contains(key)) {
@@ -79,47 +113,6 @@ public class AgentGenerationPreviewMapper {
             }
         });
         return blueprint;
-    }
-
-    private AgentDslPreview toDslPreview(AlertAgentGenerationPreviewData data) {
-        String triggerType = firstString(data.technicalSpecification().get("triggerType"), "EVENT");
-        String inputModel = firstString(data.inputModel(), data.technicalSpecification().get("inputModel"), "ServiceDataV2");
-        String outputModel = firstString(data.outputModel(), data.technicalSpecification().get("outputModel"), "AgentOutput.CANDIDATE_SUGGESTION");
-        String evaluationMode = firstString(data.technicalSpecification().get("evaluationMode"), "STATELESS_EVENT_MATCH");
-        List<String> events = data.interpretedEventNames() == null ? List.of() : data.interpretedEventNames();
-        String eventLines = events.isEmpty()
-                ? "    events: []\n"
-                : "    events:\n" + events.stream().map(event -> "      - " + event + "\n").reduce("", String::concat);
-
-        String dsl = "schemaVersion: iia.agent.dsl/v1\n"
-                + "trigger:\n"
-                + "  type: " + triggerType + "\n"
-                + "  source: SERVICE_DATA\n"
-                + "  inputModel: " + inputModel + "\n"
-                + "match:\n"
-                + "  evaluationMode: " + evaluationMode + "\n"
-                + eventLines
-                + "output:\n"
-                + "  type: " + outputModel + "\n";
-        return new AgentDslPreview()
-                .schemaVersion("iia.agent.dsl/v1")
-                .summary("Read-only DSL preview derived from verified alert artifacts.")
-                .dsl(dsl)
-                .supportedByRuntime(true);
-    }
-
-    private AgentValidationPlan toValidationPlan(AlertAgentGenerationPreviewData data) {
-        String eventName = data.interpretedEventNames() == null || data.interpretedEventNames().isEmpty()
-                ? "a matching interpreted event"
-                : data.interpretedEventNames().getFirst();
-        return new AgentValidationPlan()
-                .positiveExamples(List.of(new AgentValidationExample()
-                        .description("ServiceData event with eventName " + eventName + ".")
-                        .expectedOutput(AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
-                .negativeExamples(List.of(new AgentValidationExample()
-                        .description("ServiceData event with an eventName outside the interpreted event set.")
-                        .expectedOutput(AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
-                .edgeCases(List.of("ServiceData event without journeyId or with an incomplete target is rejected safely."));
     }
 
     private boolean included(Boolean value) {
@@ -148,4 +141,5 @@ public class AgentGenerationPreviewMapper {
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
+
 }
