@@ -32,7 +32,8 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getValidationPlan().getPositiveExamples()).hasSize(1);
         assertThat(response.getWarnings()).contains(
                 "Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.",
-                "DSL preview is diagnostic and has not been compiled or executed.");
+                "DSL preview is diagnostic and has not been compiled or executed.",
+                "The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
     }
 
     @Test
@@ -90,6 +91,23 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getWarnings()).contains(
                 "DSL preview is partial because some condition nodes are not supported by the deterministic renderer.");
         assertThat(response.getDslPreview().getDsl()).contains("schemaVersion: iia.agent.dsl/v1");
+    }
+
+    @Test
+    void unsupportedArtifactSourceIsDisplayedWithCatalogWarning() {
+        Map<String, Object> blueprint = new LinkedHashMap<>(cancellationPreviewData().agentBlueprintPreview());
+        blueprint.put("requiredSources", List.of("MONITORED_AUDIO_MESSAGE"));
+
+        AgentGenerationPreviewResponse response = mapper.toResponse(
+                dataWithArtifacts(cancellationPreviewData().technicalSpecification(), blueprint),
+                null);
+
+        assertThat(response.getRequiredSources()).containsExactly(AgentDataSource.MONITORED_AUDIO_MESSAGE);
+        assertThat(response.getRequiredPermissions()).isEmpty();
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isFalse();
+        assertThat(response.getWarnings()).contains(
+                "Capability 'MONITORED_AUDIO_MESSAGE' is not supported by the current Agent Generation MVP.",
+                "The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
     }
 
     private AlertAgentGenerationPreviewData previewData() {

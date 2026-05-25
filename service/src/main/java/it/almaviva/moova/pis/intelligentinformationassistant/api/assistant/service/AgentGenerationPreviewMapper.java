@@ -1,7 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentComplexity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDataSource;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewRequest;
@@ -9,7 +8,9 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,10 +30,24 @@ public class AgentGenerationPreviewMapper {
             "stateRequirements",
             "suggestionIntent");
 
-    private final AgentPreviewConditionExtractor conditionExtractor = new AgentPreviewConditionExtractor();
-    private final AgentPreviewNamingHelper namingHelper = new AgentPreviewNamingHelper();
-    private final AgentDslPreviewBuilder dslPreviewBuilder = new AgentDslPreviewBuilder();
-    private final AgentValidationPlanBuilder validationPlanBuilder = new AgentValidationPlanBuilder();
+    private final AgentGenerationCapabilityCatalog capabilityCatalog;
+    private final AgentPreviewConditionExtractor conditionExtractor;
+    private final AgentPreviewNamingHelper namingHelper;
+    private final AgentDslPreviewBuilder dslPreviewBuilder;
+    private final AgentValidationPlanBuilder validationPlanBuilder;
+
+    public AgentGenerationPreviewMapper() {
+        this(new AgentGenerationCapabilityCatalog());
+    }
+
+    @Inject
+    public AgentGenerationPreviewMapper(AgentGenerationCapabilityCatalog capabilityCatalog) {
+        this.capabilityCatalog = capabilityCatalog;
+        this.conditionExtractor = new AgentPreviewConditionExtractor();
+        this.namingHelper = new AgentPreviewNamingHelper();
+        this.dslPreviewBuilder = new AgentDslPreviewBuilder(capabilityCatalog);
+        this.validationPlanBuilder = new AgentValidationPlanBuilder();
+    }
 
     public AgentGenerationPreviewResponse toResponse(
             AlertAgentGenerationPreviewData data,
@@ -43,29 +58,49 @@ public class AgentGenerationPreviewMapper {
                 + ", location=" + conditionSummary.location()
                 + ", cancellation=" + conditionSummary.cancellation());
 
-        AgentBlueprint blueprint = toBlueprint(data, conditionSummary);
+        List<String> sourceNames = resolveSourceNames(data);
+        List<AgentDataSource> requiredSources = sourceNames.stream()
+                .map(this::toDataSource)
+                .filter(value -> value != null)
+                .toList();
+        List<String> requiredPermissions = capabilityCatalog.permissionsForSources(sourceNames);
+        AgentGenerationMode requestedMode = request == null ? null : request.getPreferredGenerationMode();
+        AgentGenerationMode recommendedMode = capabilityCatalog.recommendedDefaultGenerationMode();
+
+        AgentBlueprint blueprint = toBlueprint(data, conditionSummary, requiredSources);
         System.out.println("[IIA][AGENT_PREVIEW] Rendering deterministic DSL preview alertId=" + data.alertId());
-        AgentDslPreviewBuilder.BuildResult dslResult = dslPreviewBuilder.build(data, blueprint, conditionSummary);
+        AgentDslPreviewBuilder.BuildResult dslResult = dslPreviewBuilder.build(
+                data,
+                blueprint,
+                conditionSummary,
+                requestedMode == null ? null : requestedMode.toString(),
+                recommendedMode.toString(),
+                sourceNames,
+                requiredPermissions);
         LinkedHashSet<String> warnings = new LinkedHashSet<>(data.warnings() == null ? List.of() : data.warnings());
         warnings.add("Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.");
         warnings.add("DSL preview is diagnostic and has not been compiled or executed.");
-        if (request != null && AgentGenerationMode.JAVA_TEMPLATE.equals(request.getPreferredGenerationMode())) {
+        if (requestedMode != null && capabilityCatalog.isPreviewOnlyGenerationMode(requestedMode.toString())) {
+            System.out.println("[IIA][AGENT_CAPABILITY] Requested generation mode=" + requestedMode
+                    + " is preview-only; falling back to " + recommendedMode);
             warnings.add("JAVA_TEMPLATE was requested but is not generated in the read-only preview MVP; DSL preview is returned when possible.");
         }
         if (dslResult.partial()) {
             warnings.add("DSL preview is partial because some condition nodes are not supported by the deterministic renderer.");
         }
         if (!dslResult.supportedByRuntime()) {
-            warnings.add("DSL preview is diagnostic only because the verified artifacts do not match the supported stateless ServiceData runtime profile.");
+            dslResult.unsupportedCapabilities().forEach(capability ->
+                    warnings.add("Capability '" + capability + "' is not supported by the current Agent Generation MVP."));
+            warnings.add("The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
         }
 
         AgentGenerationPreviewResponse response = new AgentGenerationPreviewResponse()
                 .alert(new AlertReference().id(data.alertId()).name(data.name()))
                 .canGenerate(true)
-                .recommendedGenerationMode(AgentGenerationMode.DSL)
-                .estimatedComplexity(AgentComplexity.LOW)
-                .requiredSources(List.of(AgentDataSource.SERVICE_DATA))
-                .requiredPermissions(List.of("READ_SERVICE_DATA"))
+                .recommendedGenerationMode(recommendedMode)
+                .estimatedComplexity(capabilityCatalog.defaultMvpComplexity())
+                .requiredSources(requiredSources)
+                .requiredPermissions(requiredPermissions)
                 .blueprint(blueprint)
                 .warnings(List.copyOf(warnings))
                 .rejectedReason(null);
@@ -87,7 +122,8 @@ public class AgentGenerationPreviewMapper {
 
     private AgentBlueprint toBlueprint(
             AlertAgentGenerationPreviewData data,
-            AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
+            List<AgentDataSource> requiredSources) {
         Map<String, Object> persisted = data.agentBlueprintPreview();
         Map<String, Object> suggestionIntent = mapValue(persisted.get("suggestionIntent"));
         if (conditionSummary.cancellation()) {
@@ -101,7 +137,7 @@ public class AgentGenerationPreviewMapper {
                 .description(namingHelper.description(data, conditionSummary))
                 .triggerType(AgentBlueprint.TriggerTypeEnum.fromString(
                         firstString(persisted.get("triggerType"), data.technicalSpecification().get("triggerType"), "EVENT")))
-                .requiredSources(List.of(AgentDataSource.SERVICE_DATA))
+                .requiredSources(requiredSources)
                 .targetTypes(data.targetTypes() == null ? List.of() : data.targetTypes())
                 .parameters(mapValue(persisted.get("parameters")))
                 .stateRequirements(mapValue(persisted.get("stateRequirements")))
@@ -113,6 +149,35 @@ public class AgentGenerationPreviewMapper {
             }
         });
         return blueprint;
+    }
+
+    private List<String> resolveSourceNames(AlertAgentGenerationPreviewData data) {
+        Object persistedSources = data.agentBlueprintPreview().get("requiredSources");
+        List<String> result = new ArrayList<>();
+        if (persistedSources instanceof List<?> sources) {
+            sources.stream()
+                    .map(this::stringValue)
+                    .filter(value -> value != null && !value.isBlank())
+                    .forEach(result::add);
+        }
+        if (result.isEmpty()) {
+            String technicalSource = stringValue(data.technicalSpecification().get("source"));
+            if (technicalSource != null && !technicalSource.isBlank()) {
+                result.add(technicalSource);
+            }
+        }
+        return result.isEmpty() ? List.of(capabilityCatalog.defaultSource().toString()) : List.copyOf(result);
+    }
+
+    private AgentDataSource toDataSource(String source) {
+        if (source == null || source.isBlank()) {
+            return null;
+        }
+        try {
+            return AgentDataSource.fromString(source);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private boolean included(Boolean value) {

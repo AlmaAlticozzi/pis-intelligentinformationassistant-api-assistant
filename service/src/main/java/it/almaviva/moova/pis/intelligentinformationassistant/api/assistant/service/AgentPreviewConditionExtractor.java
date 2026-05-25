@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 class AgentPreviewConditionExtractor {
 
@@ -35,6 +36,10 @@ class AgentPreviewConditionExtractor {
         List<ConditionLeaf> cancellationLeaves = leaves.stream()
                 .filter(this::isCancellationLeaf)
                 .toList();
+        Set<String> dslOperators = leaves.stream()
+                .map(ConditionLeaf::operator)
+                .filter(value -> value != null && !value.isBlank())
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
 
         return new ConditionSummary(
                 condition,
@@ -42,6 +47,7 @@ class AgentPreviewConditionExtractor {
                 location,
                 !cancellationLeaves.isEmpty(),
                 cancellationLeaves,
+                dslOperators,
                 partial);
     }
 
@@ -112,6 +118,7 @@ class AgentPreviewConditionExtractor {
             String location,
             boolean cancellation,
             List<ConditionLeaf> cancellationLeaves,
+            Set<String> dslOperators,
             boolean partial) {
     }
 }

@@ -1,7 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDataSource;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDslPreview;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 
@@ -11,10 +10,20 @@ import java.util.Map;
 
 class AgentDslPreviewBuilder {
 
+    private final AgentGenerationCapabilityCatalog capabilityCatalog;
+
+    AgentDslPreviewBuilder(AgentGenerationCapabilityCatalog capabilityCatalog) {
+        this.capabilityCatalog = capabilityCatalog;
+    }
+
     BuildResult build(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
-            AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
+            String requestedGenerationMode,
+            String recommendedGenerationMode,
+            List<String> sources,
+            List<String> permissions) {
         String triggerType = firstString(
                 enumValue(blueprint.getTriggerType()),
                 data.technicalSpecification().get("triggerType"),
@@ -31,12 +40,24 @@ class AgentDslPreviewBuilder {
         Map<String, Object> stateRequirements = blueprint.getStateRequirements();
         boolean requiresState = Boolean.TRUE.equals(stateRequirements.get("requiresState"));
         boolean explicitlyStateless = Boolean.FALSE.equals(stateRequirements.get("requiresState"));
-        boolean supportedByRuntime = "EVENT".equals(triggerType)
-                && blueprint.getRequiredSources() != null
-                && blueprint.getRequiredSources().contains(AgentDataSource.SERVICE_DATA)
-                && "STATELESS_EVENT_MATCH".equals(evaluationMode)
-                && "CANDIDATE_SUGGESTION".equals(removeOutputPrefix(outputType))
-                && explicitlyStateless;
+        List<String> targetTypes = blueprint.getTargetTypes() == null
+                ? List.of()
+                : blueprint.getTargetTypes().stream().map(String::valueOf).toList();
+        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
+                sources,
+                permissions,
+                triggerType,
+                evaluationMode,
+                inputModel,
+                outputType,
+                targetTypes,
+                conditionSummary.dslOperators(),
+                explicitlyStateless,
+                requestedGenerationMode,
+                recommendedGenerationMode);
+        AgentGenerationCapabilityCatalog.RuntimeSupportEvaluation runtimeSupport =
+                capabilityCatalog.evaluateRuntimeSupport(snapshot);
+        boolean supportedByRuntime = runtimeSupport.supported();
 
         StringBuilder dsl = new StringBuilder()
                 .append("schemaVersion: iia.agent.dsl/v1\n")
@@ -44,7 +65,7 @@ class AgentDslPreviewBuilder {
                 .append("  name: ").append(blueprint.getAgentName()).append("\n")
                 .append("trigger:\n")
                 .append("  type: ").append(triggerType).append("\n")
-                .append("  source: SERVICE_DATA\n")
+                .append("  source: ").append(sources.isEmpty() ? "UNSPECIFIED" : sources.getFirst()).append("\n")
                 .append("  inputModel: ").append(inputModel).append("\n")
                 .append("match:\n")
                 .append("  evaluationMode: ").append(evaluationMode).append("\n");
@@ -77,7 +98,8 @@ class AgentDslPreviewBuilder {
                         .dsl(dsl.toString())
                         .supportedByRuntime(supportedByRuntime),
                 partial,
-                supportedByRuntime);
+                supportedByRuntime,
+                runtimeSupport.unsupportedCapabilities());
     }
 
     private boolean renderRootCondition(StringBuilder output, Map<String, Object> condition) {
@@ -151,10 +173,6 @@ class AgentDslPreviewBuilder {
         return node.containsKey("field") && node.containsKey("operator") && node.containsKey("value");
     }
 
-    private String removeOutputPrefix(String outputType) {
-        return outputType.startsWith("AgentOutput.") ? outputType.substring("AgentOutput.".length()) : outputType;
-    }
-
     private String enumValue(Object value) {
         return value == null ? null : String.valueOf(value);
     }
@@ -186,6 +204,10 @@ class AgentDslPreviewBuilder {
         return value == null ? null : String.valueOf(value);
     }
 
-    record BuildResult(AgentDslPreview preview, boolean partial, boolean supportedByRuntime) {
+    record BuildResult(
+            AgentDslPreview preview,
+            boolean partial,
+            boolean supportedByRuntime,
+            java.util.Set<String> unsupportedCapabilities) {
     }
 }
