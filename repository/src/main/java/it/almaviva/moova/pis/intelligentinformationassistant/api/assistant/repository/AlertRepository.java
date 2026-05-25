@@ -33,6 +33,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.view.AlertSummaryView;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -42,6 +43,7 @@ import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +106,31 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                         alert.getDscName(),
                         alert.getDscDescription(),
                         alert.getDscPrompt()));
+    }
+
+    public Optional<AlertAgentGenerationPreviewData> getAlertAgentGenerationPreviewData(String alertId) {
+        return find("codAlert = ?1", alertId)
+                .firstResultOptional()
+                .map(alert -> new AlertAgentGenerationPreviewData(
+                        alert.getCodAlert(),
+                        alert.getDscName(),
+                        alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus(),
+                        alert.getSglVerificationstatus() == null ? null : alert.getSglVerificationstatus().getSglVerificationstatus(),
+                        alert.getFlgEnabled(),
+                        alert.getDtDeletedat(),
+                        alert.getNumVersion(),
+                        alert.getDscPrompt(),
+                        alert.getDscVerificationsummary(),
+                        alert.getDscRejectedreason(),
+                        alert.getNumVerificationconfidence(),
+                        alert.getSglInterpretertype() == null ? null : alert.getSglInterpretertype().getSglInterpretertype(),
+                        alert.getDscInputmodel(),
+                        alert.getDscOutputmodel(),
+                        toStringObjectMap(alert.getJsnTechnicalspecification()),
+                        toStringObjectMap(alert.getJsnAgentblueprintpreview()),
+                        toStringList(alert.getJsnInterpretedeventnames()),
+                        toStringList(alert.getJsnVerificationwarnings()),
+                        findTargetTypes(alert.getCodAlert())));
     }
 
     public boolean existsDeletedAlert(String alertId) {
@@ -846,6 +873,15 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
             }
         }
         return null;
+    }
+
+    private Map<String, Object> toStringObjectMap(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, nestedValue) -> result.put(String.valueOf(key), nestedValue));
+        return result;
     }
 
     private String normalizeName(String name) {

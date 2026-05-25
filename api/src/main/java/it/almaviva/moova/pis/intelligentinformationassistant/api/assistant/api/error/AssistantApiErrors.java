@@ -402,6 +402,40 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while deleting the alert definition.");
     }
 
+    public static Error alertAgentGenerationPreviewInvalidAlertId() {
+        return invalidParameter(
+                "IIA-ALT-AGP-400-001",
+                "alertId",
+                "The alertId path parameter is empty, contains only whitespace characters or exceeds 50 characters.");
+    }
+
+    public static Error alertAgentGenerationPreviewNotFound() {
+        return new Error()
+                .code("IIA-ALT-AGP-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertAgentGenerationPreviewAlertNotVerified() {
+        return conflict("IIA-ALT-AGP-409-001", "Alert not verified", "Only a technically verified alert can produce an Agent generation preview.");
+    }
+
+    public static Error alertAgentGenerationPreviewMissingTechnicalArtifacts() {
+        return new Error()
+                .code("IIA-ALT-AGP-422-001")
+                .title("Agent preview unavailable")
+                .detail("The verified alert does not contain the technical artifacts required to produce an Agent Blueprint preview.")
+                .source("alertId");
+    }
+
+    public static Error alertAgentGenerationPreviewUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-AGP-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while generating the Agent preview.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",

@@ -94,6 +94,13 @@ public final class AssistantApiInputValidator {
         return alertId;
     }
 
+    public static String validateAlertIdForAgentGenerationPreview(String alertId) {
+        if (alertId == null || alertId.isBlank() || alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertAgentGenerationPreviewInvalidAlertId());
+        }
+        return alertId;
+    }
+
     public static AlertCreateRequest validateAlertCreate(AlertCreateRequest request) {
         if (request == null) {
             throw badRequest(AssistantApiErrors.alertCreateMissingBody());

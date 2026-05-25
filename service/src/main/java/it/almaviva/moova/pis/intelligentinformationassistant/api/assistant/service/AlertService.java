@@ -9,6 +9,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewRequest;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
@@ -17,6 +19,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
@@ -64,6 +67,9 @@ public class AlertService {
     @Inject
     AlertAsyncVerificationService alertAsyncVerificationService;
 
+    @Inject
+    AgentGenerationPreviewMapper agentGenerationPreviewMapper;
+
     /**
      * Development safety valve for non-conforming LLM JSON. Production should set this to false.
      */
@@ -79,6 +85,41 @@ public class AlertService {
     public Optional<AlertDetail> getAlert(String alertId) {
         System.out.println("[IIA][ALERT_GET] alertId=" + alertId);
         return alertRepository.getAlert(alertId);
+    }
+
+    public Optional<AgentGenerationPreviewResponse> previewAgentGenerationForAlert(
+            String alertId,
+            AgentGenerationPreviewRequest request) {
+        Optional<AlertAgentGenerationPreviewData> previewData = alertRepository.getAlertAgentGenerationPreviewData(alertId);
+        if (previewData.isEmpty()) {
+            System.out.println("[IIA][AGENT_PREVIEW] Alert not found alertId=" + alertId);
+            return Optional.empty();
+        }
+
+        AlertAgentGenerationPreviewData data = previewData.get();
+        if (data.deletedAt() != null
+                || AlertStatus.DELETED.toString().equals(data.status())
+                || !AlertStatus.VERIFIED.toString().equals(data.status())
+                || !AlertVerificationStatus.VERIFIED.toString().equals(data.verificationStatus())) {
+            System.out.println("[IIA][AGENT_PREVIEW] Alert not verified alertId=" + alertId
+                    + ", status=" + data.status()
+                    + ", verificationStatus=" + data.verificationStatus());
+            throw new AlertAgentGenerationPreviewRejectedException(
+                    AlertAgentGenerationPreviewRejectedException.Reason.NOT_VERIFIED);
+        }
+        if (data.technicalSpecification() == null
+                || data.technicalSpecification().isEmpty()
+                || data.agentBlueprintPreview() == null
+                || data.agentBlueprintPreview().isEmpty()) {
+            System.out.println("[IIA][AGENT_PREVIEW] Missing technical artifacts alertId=" + alertId);
+            throw new AlertAgentGenerationPreviewRejectedException(
+                    AlertAgentGenerationPreviewRejectedException.Reason.MISSING_TECHNICAL_ARTIFACTS);
+        }
+
+        System.out.println("[IIA][AGENT_PREVIEW] Building read-only preview alertId=" + alertId);
+        AgentGenerationPreviewResponse response = agentGenerationPreviewMapper.toResponse(data, request);
+        System.out.println("[IIA][AGENT_PREVIEW] Preview produced alertId=" + alertId + ", generationMode=DSL, complexity=LOW");
+        return Optional.of(response);
     }
 
     @Transactional

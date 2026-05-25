@@ -7,10 +7,14 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -487,6 +491,64 @@ class AlertServiceTest {
         verify(repository, never()).softDeleteAlert("ALRT1");
     }
 
+    @Test
+    void previewVerifiedAlertBuildsReadOnlyResponse() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AgentGenerationPreviewMapper mapper = mock(AgentGenerationPreviewMapper.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        service.agentGenerationPreviewMapper = mapper;
+        AlertAgentGenerationPreviewData data = previewData("VERIFIED", "VERIFIED", Map.of("source", "SERVICE_DATA"), Map.of("agentName", "Agent"));
+        AgentGenerationPreviewResponse response = new AgentGenerationPreviewResponse();
+        when(repository.getAlertAgentGenerationPreviewData("ALRT1")).thenReturn(java.util.Optional.of(data));
+        when(mapper.toResponse(data, null)).thenReturn(response);
+
+        java.util.Optional<AgentGenerationPreviewResponse> result = service.previewAgentGenerationForAlert("ALRT1", null);
+
+        assertThat(result).contains(response);
+        verify(mapper).toResponse(data, null);
+    }
+
+    @Test
+    void previewMissingAlertReturnsEmpty() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlertAgentGenerationPreviewData("ALRT1")).thenReturn(java.util.Optional.empty());
+
+        java.util.Optional<AgentGenerationPreviewResponse> result = service.previewAgentGenerationForAlert("ALRT1", null);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void previewDraftAlertIsRejected() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlertAgentGenerationPreviewData("ALRT1"))
+                .thenReturn(java.util.Optional.of(previewData("DRAFT", "PENDING", Map.of(), Map.of())));
+
+        assertThatThrownBy(() -> service.previewAgentGenerationForAlert("ALRT1", null))
+                .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class)
+                .extracting(ex -> ((AlertAgentGenerationPreviewRejectedException) ex).reason())
+                .isEqualTo(AlertAgentGenerationPreviewRejectedException.Reason.NOT_VERIFIED);
+    }
+
+    @Test
+    void previewVerifiedAlertWithoutArtifactsIsUnprocessable() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        when(repository.getAlertAgentGenerationPreviewData("ALRT1"))
+                .thenReturn(java.util.Optional.of(previewData("VERIFIED", "VERIFIED", null, Map.of("agentName", "Agent"))));
+
+        assertThatThrownBy(() -> service.previewAgentGenerationForAlert("ALRT1", null))
+                .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class)
+                .extracting(ex -> ((AlertAgentGenerationPreviewRejectedException) ex).reason())
+                .isEqualTo(AlertAgentGenerationPreviewRejectedException.Reason.MISSING_TECHNICAL_ARTIFACTS);
+    }
+
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {
         return new AlertCreateRequest()
                 .name("Alert")
@@ -510,5 +572,32 @@ class AlertServiceTest {
                 .status(AlertStatus.VERIFIED)
                 .enabled(enabled)
                 .verification(new AlertVerificationResult().status(AlertVerificationStatus.VERIFIED));
+    }
+
+    private AlertAgentGenerationPreviewData previewData(
+            String status,
+            String verificationStatus,
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> blueprint) {
+        return new AlertAgentGenerationPreviewData(
+                "ALRT1",
+                "Alert",
+                status,
+                verificationStatus,
+                false,
+                null,
+                1,
+                "Create a suggestion when a journey is cancelled.",
+                "Verified.",
+                null,
+                null,
+                "EVENT_INTERPRETER",
+                "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                technicalSpecification,
+                blueprint,
+                List.of("JOURNEY_CANCELLED"),
+                List.of(),
+                List.of());
     }
 }

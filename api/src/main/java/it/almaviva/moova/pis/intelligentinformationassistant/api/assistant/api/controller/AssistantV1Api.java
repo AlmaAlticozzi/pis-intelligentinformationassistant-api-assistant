@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.i
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.validation.AssistantApiInputValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.*;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertAgentGenerationPreviewRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
@@ -454,8 +455,33 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentGenerationPreviewResponse previewAgentGenerationForAlert(@PathParam("alertId") @Size(max=50) String alertId, @Valid AgentGenerationPreviewRequest agentGenerationPreviewRequest) {
-        System.out.println("previewAgentGenerationForAlert: " + "alertId=" + alertId + ", " + "agentGenerationPreviewRequest=" + agentGenerationPreviewRequest);
-        return new AgentGenerationPreviewResponse();
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForAgentGenerationPreview(alertId);
+            System.out.println("[IIA][AGENT_PREVIEW] Preview requested for alertId=" + validatedAlertId);
+            return alertService.previewAgentGenerationForAlert(validatedAlertId, agentGenerationPreviewRequest)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertAgentGenerationPreviewNotFound())
+                            .build()));
+        } catch (AlertAgentGenerationPreviewRejectedException ex) {
+            throw alertAgentGenerationPreviewRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_PREVIEW] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertAgentGenerationPreviewUnexpectedError())
+                    .build());
+        }
+    }
+
+    private WebApplicationException alertAgentGenerationPreviewRejected(AlertAgentGenerationPreviewRejectedException ex) {
+        return switch (ex.reason()) {
+            case NOT_VERIFIED -> conflict(AssistantApiErrors.alertAgentGenerationPreviewAlertNotVerified());
+            case MISSING_TECHNICAL_ARTIFACTS -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertAgentGenerationPreviewMissingTechnicalArtifacts())
+                            .build());
+        };
     }
 
     @POST
