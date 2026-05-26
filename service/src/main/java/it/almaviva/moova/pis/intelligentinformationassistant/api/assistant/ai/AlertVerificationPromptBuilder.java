@@ -96,6 +96,7 @@ public class AlertVerificationPromptBuilder {
                 - technicalSpecification.condition.type must be SERVICE_DATA_FIELD_MATCH unless using a legacy event name for backward compatibility.
                 - Prefer SERVICE_DATA_FIELD_MATCH for all newly generated results.
                 - Copy every extracted condition, including LOCAL_TIME_BETWEEN leaves, into agentBlueprintPreview.parameters.condition.
+                - When multiple constraints must match the same nextCalls item, represent them with an anyElement node; never flatten correlated nextCalls constraints into independent leaves.
                 - Never use activation policy or scheduler to model a supported temporal condition.
                 """.formatted(defaultTemporalZone);
     }
@@ -141,6 +142,9 @@ public class AlertVerificationPromptBuilder {
                 - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
                 - "parte da Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS DEPARTED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
                 - "arriva a Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS ARRIVED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
+                - For a future stop described within the received journey payload, use an anyElement node with path payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].
+                - Inside nextCalls anyElement, fields are relative to the same nextCall item: stopPoint.nameLong, departureTime, arrivalTime, or passingType.
+                - A nextCalls stop point constraint and its departure/arrival time constraint must be inside the same anyElement.conditions node.
                 - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
                 - requiredSources must be only SERVICE_DATA.
                 - interpreterType must be EVENT_INTERPRETER.
@@ -194,6 +198,18 @@ public class AlertVerificationPromptBuilder {
                 - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
                 - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
                 Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
+                Decision: VERIFIED
+
+                Valid correlated nextCalls temporal example:
+                Prompt: "Fammi sapere quando una corsa arriva a Genova e partirà a Gorla tra le 11:30 e le 12:35"
+                Condition all children:
+                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
+                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
+                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]","conditions":{"all":[
+                    {"field":"stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Gorla"},
+                    {"field":"departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"%s"}}
+                  ]}}}
+                The Gorla and departureTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
                 Decision: VERIFIED
 
                 Rejected temporal example:
@@ -291,6 +307,7 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()),
                 catalog,
+                defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone);
     }

@@ -159,6 +159,87 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsCorrelatedNextCallDepartureWindowAndAppliesDefaultTimezone() {
+        Map<String, Object> condition = correlatedNextCallsCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                "departureTime",
+                Map.of("start", "11:30:00", "end", "12:35:00"));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(nextCallTemporalValue(validated.technicalSpecification())).containsEntry("timezone", "Europe/Rome");
+        assertThat(nextCallTemporalValueFromBlueprint(validated.agentBlueprintPreview())).containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void acceptsCorrelatedNextCallArrivalWindow() {
+        Map<String, Object> condition = correlatedNextCallsCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                "arrivalTime",
+                Map.of("start", "11:30:00", "end", "12:35:00", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(
+                condition,
+                condition,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].arrivalTime"));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(nextCallTemporalValue(validated.technicalSpecification())).containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void rejectsAnyElementOnUnsupportedArrayPath() {
+        Map<String, Object> condition = correlatedNextCallsCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]",
+                "departureTime",
+                Map.of("start", "11:30", "end", "12:35", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("anyElement").contains("path is not allowed");
+    }
+
+    @Test
+    void rejectsAbsoluteFieldInsideAnyElement() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                                "conditions", Map.of("all", List.of(Map.of(
+                                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime",
+                                        "operator", "LOCAL_TIME_BETWEEN",
+                                        "value", Map.of("start", "11:30", "end", "12:35", "timezone", "Europe/Rome"))))))));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("relative field is not allowed");
+    }
+
+    @Test
+    void rejectsFlatNextCallTemporalConditionWithoutCorrelationNode() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
+                                "operator", "CONTAINS_NORMALIZED",
+                                "value", "Gorla"),
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime",
+                                "operator", "LOCAL_TIME_BETWEEN",
+                                "value", Map.of("start", "11:30", "end", "12:35", "timezone", "Europe/Rome"))));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("correlated anyElement");
+    }
+
+    @Test
     void rejectsTemporalOperatorOnNonTemporalField() {
         AlertVerificationOutcome validated = validator.validate(temporalOutcome(
                 Map.of(
@@ -358,6 +439,77 @@ class AlertVerificationOutcomeValidatorTest {
                 base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
     }
 
+    private Map<String, Object> correlatedNextCallsCondition(
+            String path,
+            String temporalField,
+            Map<String, Object> temporalValue) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVED"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", path,
+                                        "conditions", Map.of(
+                                                "all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "EQUALS_NORMALIZED",
+                                                                "value", "Gorla"),
+                                                        Map.of(
+                                                                "field", temporalField,
+                                                                "operator", "LOCAL_TIME_BETWEEN",
+                                                                "value", temporalValue)))))));
+    }
+
+    private AlertVerificationOutcome correlatedNextCallsOutcome(
+            Map<String, Object> condition,
+            Map<String, Object> blueprintCondition) {
+        return correlatedNextCallsOutcome(
+                condition,
+                blueprintCondition,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime");
+    }
+
+    private AlertVerificationOutcome correlatedNextCallsOutcome(
+            Map<String, Object> condition,
+            Map<String, Object> blueprintCondition,
+            String temporalField) {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "arrivo evento a Genova",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.ongroundServiceEvent.eventsType", "payload.ongroundServiceEvent.stopPoint.nameLong")),
+                        Map.of(
+                                "text", "partira a Gorla",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong")),
+                        Map.of(
+                                "text", "tra le 11:30 e le 12:35",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of(temporalField))),
+                "allRequiredRequirementsMapped", true);
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        blueprint.put("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", blueprintCondition));
+        return new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> temporalValue(Map<String, Object> technicalSpecification) {
         Map<String, Object> condition = (Map<String, Object>) technicalSpecification.get("condition");
@@ -369,5 +521,21 @@ class AlertVerificationOutcomeValidatorTest {
     private Map<String, Object> temporalValueFromBlueprint(Map<String, Object> blueprint) {
         Map<String, Object> parameters = (Map<String, Object>) blueprint.get("parameters");
         return temporalValue(Map.of("condition", parameters.get("condition")));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> nextCallTemporalValue(Map<String, Object> technicalSpecification) {
+        Map<String, Object> condition = (Map<String, Object>) technicalSpecification.get("condition");
+        List<Map<String, Object>> all = (List<Map<String, Object>>) condition.get("all");
+        Map<String, Object> anyElement = (Map<String, Object>) all.get(2).get("anyElement");
+        Map<String, Object> conditions = (Map<String, Object>) anyElement.get("conditions");
+        List<Map<String, Object>> relativeLeaves = (List<Map<String, Object>>) conditions.get("all");
+        return (Map<String, Object>) relativeLeaves.get(1).get("value");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> nextCallTemporalValueFromBlueprint(Map<String, Object> blueprint) {
+        Map<String, Object> parameters = (Map<String, Object>) blueprint.get("parameters");
+        return nextCallTemporalValue(Map.of("condition", parameters.get("condition")));
     }
 }

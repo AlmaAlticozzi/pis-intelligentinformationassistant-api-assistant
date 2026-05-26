@@ -42,4 +42,41 @@ class AlertVerificationLlmResponseParserTest {
                 .containsEntry("end", "10:00:00")
                 .containsEntry("timezone", "Europe/Rome");
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void preservesCorrelatedNextCallsAnyElementCondition() {
+        String response = """
+                {
+                  "decision":"VERIFIED",
+                  "technicalSpecification":{
+                    "condition":{
+                      "type":"SERVICE_DATA_FIELD_MATCH",
+                      "all":[{
+                        "anyElement":{
+                          "path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                          "conditions":{"all":[
+                            {"field":"stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Gorla"},
+                            {"field":"departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"Europe/Rome"}}
+                          ]}
+                        }
+                      }]
+                    }
+                  },
+                  "agentBlueprintPreview":{"parameters":{"condition":{"type":"SERVICE_DATA_FIELD_MATCH","all":[]}}}
+                }
+                """;
+
+        AlertVerificationOutcome outcome = parser.parse(response, "test", "model").orElseThrow();
+        Map<String, Object> condition = (Map<String, Object>) outcome.technicalSpecification().get("condition");
+        Map<String, Object> anyElement = (Map<String, Object>) ((List<Map<String, Object>>) condition.get("all"))
+                .getFirst().get("anyElement");
+        Map<String, Object> conditions = (Map<String, Object>) anyElement.get("conditions");
+        List<Map<String, Object>> leaves = (List<Map<String, Object>>) conditions.get("all");
+
+        assertThat(anyElement).containsEntry("path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]");
+        assertThat(leaves.getFirst()).containsEntry("field", "stopPoint.nameLong");
+        assertThat(leaves.get(1)).containsEntry("field", "departureTime")
+                .containsEntry("operator", "LOCAL_TIME_BETWEEN");
+    }
 }

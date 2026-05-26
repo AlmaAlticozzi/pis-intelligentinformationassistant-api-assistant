@@ -34,6 +34,7 @@ public class AlertVerificationOutcomeValidator {
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final String NEXT_CALLS_ARRAY_PATH = "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final String DEFAULT_REJECTED_REASON = "The alert cannot be verified with the current MVP constraints.";
@@ -42,6 +43,11 @@ public class AlertVerificationOutcomeValidator {
             "JOURNEY_DELAYED",
             "PLATFORM_EVENT",
             "GENERIC_SERVICE_DATA_EVENT");
+    private static final Map<String, Set<String>> NEXT_CALL_RELATIVE_OPERATORS = Map.of(
+            "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"),
+            "departureTime", Set.of(LOCAL_TIME_BETWEEN),
+            "arrivalTime", Set.of(LOCAL_TIME_BETWEEN),
+            "passingType", Set.of("EQUALS", "CONTAINS"));
 
     @Inject
     TemporalConfiguration temporalConfiguration;
@@ -245,6 +251,7 @@ public class AlertVerificationOutcomeValidator {
     private void validateConditionNode(ValidationContext context, Map<?, ?> conditionNode, String path) {
         Object all = conditionNode.get("all");
         Object any = conditionNode.get("any");
+        Object anyElement = conditionNode.get("anyElement");
         boolean hasComposite = false;
 
         if (all != null) {
@@ -261,6 +268,13 @@ public class AlertVerificationOutcomeValidator {
                 return;
             }
         }
+        if (anyElement != null) {
+            hasComposite = true;
+            validateAnyElement(context, anyElement, path + ".anyElement");
+            if (context.failureReason != null) {
+                return;
+            }
+        }
 
         if (conditionNode.containsKey("field") || conditionNode.containsKey("operator")) {
             validateConditionLeaf(context, conditionNode, path);
@@ -268,7 +282,7 @@ public class AlertVerificationOutcomeValidator {
         }
 
         if (!hasComposite) {
-            context.fail("Verified alert condition must contain all/any or a field/operator leaf.");
+            context.fail("Verified alert condition must contain all/any/anyElement or a field/operator leaf.");
         }
     }
 
@@ -321,17 +335,133 @@ public class AlertVerificationOutcomeValidator {
 
         context.conditionFields.add(field);
         if (LOCAL_TIME_BETWEEN.equals(operator)) {
-            validateTemporalCondition(context, leaf, field);
+            validateTemporalCondition(context, leaf, field, false);
             return;
         }
         validateConditionValue(context, capability, operator, leaf, field);
     }
 
+    private void validateAnyElement(ValidationContext context, Object anyElement, String path) {
+        if (!(anyElement instanceof Map<?, ?> anyElementMap)) {
+            rejectArrayCondition(context, null, "anyElement must be an object.");
+            return;
+        }
+        String arrayPath = stringValue(anyElementMap.get("path"));
+        System.out.println("[IIA][ALERT_VERIFY][ARRAY] anyElement path found=" + arrayPath);
+        if (!NEXT_CALLS_ARRAY_PATH.equals(arrayPath)) {
+            rejectArrayCondition(context, arrayPath, "path is not allowed.");
+            return;
+        }
+        Object conditions = anyElementMap.get("conditions");
+        if (!(conditions instanceof Map<?, ?> conditionMap)) {
+            rejectArrayCondition(context, arrayPath, "conditions must be an object.");
+            return;
+        }
+        int leafCount = countConditionLeaves(conditionMap);
+        System.out.println("[IIA][ALERT_VERIFY][ARRAY] path=" + arrayPath + " internalConditions=" + leafCount);
+        if (leafCount == 0) {
+            rejectArrayCondition(context, arrayPath, "conditions must contain at least one field/operator leaf.");
+            return;
+        }
+        validateAnyElementConditionNode(context, conditionMap, path + ".conditions", arrayPath);
+    }
+
+    private void validateAnyElementConditionNode(
+            ValidationContext context,
+            Map<?, ?> conditionNode,
+            String path,
+            String arrayPath) {
+        if (conditionNode.containsKey("anyElement")) {
+            rejectArrayCondition(context, arrayPath, "nested anyElement is not supported.");
+            return;
+        }
+        boolean hasComposite = false;
+        for (String group : List.of("all", "any")) {
+            Object nodes = conditionNode.get(group);
+            if (nodes == null) {
+                continue;
+            }
+            hasComposite = true;
+            if (!(nodes instanceof List<?> list) || list.isEmpty()) {
+                rejectArrayCondition(context, arrayPath, path + "." + group + " must be a non-empty array.");
+                return;
+            }
+            for (int index = 0; index < list.size(); index++) {
+                Object child = list.get(index);
+                if (!(child instanceof Map<?, ?> childMap)) {
+                    rejectArrayCondition(context, arrayPath, path + "." + group + "[" + index + "] must be an object.");
+                    return;
+                }
+                validateAnyElementConditionNode(context, childMap, path + "." + group + "[" + index + "]", arrayPath);
+                if (context.failureReason != null) {
+                    return;
+                }
+            }
+        }
+        if (conditionNode.containsKey("field") || conditionNode.containsKey("operator")) {
+            validateAnyElementLeaf(context, conditionNode, arrayPath);
+            return;
+        }
+        if (!hasComposite) {
+            rejectArrayCondition(context, arrayPath, "conditions must contain all/any or a field/operator leaf.");
+        }
+    }
+
+    private void validateAnyElementLeaf(ValidationContext context, Map<?, ?> leaf, String arrayPath) {
+        String relativeField = stringValue(leaf.get("field"));
+        String operator = stringValue(leaf.get("operator"));
+        System.out.println("[IIA][ALERT_VERIFY][ARRAY] validating relative field=" + relativeField
+                + " operator=" + operator + " path=" + arrayPath);
+        Set<String> allowedOperators = NEXT_CALL_RELATIVE_OPERATORS.get(relativeField);
+        if (allowedOperators == null) {
+            rejectArrayCondition(context, arrayPath, "relative field is not allowed: " + relativeField);
+            return;
+        }
+        if (!allowedOperators.contains(operator)) {
+            rejectArrayCondition(context, arrayPath,
+                    "operator is not allowed for relative field " + relativeField + ": " + operator);
+            return;
+        }
+        String absoluteField = arrayPath + "." + relativeField;
+        ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
+                .orElse(null);
+        if (capability == null) {
+            rejectArrayCondition(context, arrayPath, "relative field has no catalog mapping: " + relativeField);
+            return;
+        }
+        context.conditionFields.add(absoluteField);
+        if (LOCAL_TIME_BETWEEN.equals(operator)) {
+            validateTemporalCondition(context, leaf, absoluteField, true);
+            return;
+        }
+        validateConditionValue(context, capability, operator, leaf, absoluteField);
+    }
+
+    private int countConditionLeaves(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            int current = map.containsKey("field") && map.containsKey("operator") ? 1 : 0;
+            return current + map.values().stream().mapToInt(this::countConditionLeaves).sum();
+        }
+        if (node instanceof Collection<?> collection) {
+            return collection.stream().mapToInt(this::countConditionLeaves).sum();
+        }
+        return 0;
+    }
+
     @SuppressWarnings("unchecked")
-    private void validateTemporalCondition(ValidationContext context, Map<?, ?> leaf, String field) {
+    private void validateTemporalCondition(
+            ValidationContext context,
+            Map<?, ?> leaf,
+            String field,
+            boolean withinAnyElement) {
         TemporalScope scope = TemporalScope.fromField(field).orElse(null);
         if (scope == null) {
             rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN, "field is not an allowed temporal scope.");
+            return;
+        }
+        if (!withinAnyElement && scope != TemporalScope.EVENT_GENERATION_TIME) {
+            rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN,
+                    "nextCalls temporal fields must be represented inside a correlated anyElement node.");
             return;
         }
         Object value = leaf.get("value");
@@ -541,6 +671,11 @@ public class AlertVerificationOutcomeValidator {
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] rejected field=" + field
                 + " operator=" + operator + " reason=" + reason);
         context.fail("Verified alert temporal condition is not supported: " + reason);
+    }
+
+    private void rejectArrayCondition(ValidationContext context, String path, String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][ARRAY] rejected path=" + path + " reason=" + reason);
+        context.fail("Verified alert anyElement condition is not supported: " + reason);
     }
 
     private void rejectCatalogField(ValidationContext context, String field, String reason) {
