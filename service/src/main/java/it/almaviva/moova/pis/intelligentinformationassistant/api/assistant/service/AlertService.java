@@ -207,7 +207,7 @@ public class AlertService {
                     data,
                     request,
                     null,
-                    List.of("LLM Agent Blueprint generation failed or was rejected by backend validation; deterministic verified Alert artifacts were used instead."));
+                    List.of(AgentGenerationPreviewMapper.LLM_FALLBACK_PREVIEW_WARNING));
         }
     }
 

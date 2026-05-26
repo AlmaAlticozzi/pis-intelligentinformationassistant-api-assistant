@@ -34,6 +34,33 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getWarnings()).contains(
                 "Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.",
                 "DSL preview is diagnostic and has not been compiled or executed.");
+        assertThat(metadata(response, "generationContext"))
+                .containsEntry("sourceAlertId", "ALRT1")
+                .containsEntry("sourceAlertVersion", 1)
+                .containsEntry("sourceAlertStatus", "VERIFIED")
+                .containsEntry("verificationStatus", "VERIFIED")
+                .containsEntry("generationMode", "DSL")
+                .containsEntry("previewSource", "DETERMINISTIC");
+        assertThat(metadata(response, "runtimeContract"))
+                .containsEntry("schemaVersion", "iia.agent.runtime-contract/v1")
+                .containsEntry("executionModel", "EVENT_DRIVEN")
+                .containsEntry("triggerType", "EVENT")
+                .containsEntry("source", "SERVICE_DATA")
+                .containsEntry("inputModel", "ServiceDataV2")
+                .containsEntry("outputModel", "AgentOutput.CANDIDATE_SUGGESTION")
+                .containsEntry("evaluationMode", "STATELESS_EVENT_MATCH")
+                .containsEntry("requiresState", false)
+                .containsEntry("requiresExternalTools", false)
+                .containsEntry("requiresNetworkAccess", false)
+                .containsEntry("requiresFilesystemAccess", false)
+                .containsEntry("requiredPermissions", List.of("READ_SERVICE_DATA"))
+                .containsEntry("allowedSources", List.of("SERVICE_DATA"));
+        assertThat(metadata(response, "generationReadiness"))
+                .containsEntry("readyForAgentDefinition", true)
+                .containsEntry("recommendedNextStep", "CREATE_AGENT_DEFINITION")
+                .containsEntry("requiresHumanReview", true)
+                .containsEntry("requiresCompilation", true)
+                .containsEntry("requiresRuntimeActivation", true);
     }
 
     @Test
@@ -218,6 +245,8 @@ class AgentGenerationPreviewMapperTest {
                         AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING,
                         AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING)
                 .doesNotContain(AgentGenerationPreviewMapper.DETERMINISTIC_PREVIEW_WARNING);
+        assertThat(metadata(response, "generationContext"))
+                .containsEntry("previewSource", "LLM_VALIDATED");
     }
 
     @Test
@@ -235,6 +264,8 @@ class AgentGenerationPreviewMapperTest {
                 fallbackWarning,
                 AgentGenerationPreviewMapper.DETERMINISTIC_PREVIEW_WARNING,
                 AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING);
+        assertThat(metadata(response, "generationContext"))
+                .containsEntry("previewSource", "LLM_FALLBACK");
     }
 
     @Test
@@ -268,6 +299,11 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getWarnings()).containsExactly(
                 AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING,
                 AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> metadata(AgentGenerationPreviewResponse response, String section) {
+        return (Map<String, Object>) response.getBlueprint().getParameters().get(section);
     }
 
     private AlertAgentGenerationPreviewData previewData() {

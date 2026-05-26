@@ -673,7 +673,12 @@ class AlertServiceTest {
         AlertService service = llmPreviewService();
         service.persistValidatedLlmPreview = true;
         AlertAgentGenerationPreviewData data = validPreviewData();
-        AgentBlueprint finalBlueprint = new AgentBlueprint().agentName("GeneratedAgent");
+        AgentBlueprint finalBlueprint = new AgentBlueprint()
+                .agentName("GeneratedAgent")
+                .parameters(Map.of(
+                        "generationContext", Map.of("previewSource", "LLM_VALIDATED"),
+                        "runtimeContract", Map.of("source", "SERVICE_DATA"),
+                        "generationReadiness", Map.of("readyForAgentDefinition", true)));
         AgentGenerationPreviewResponse response = new AgentGenerationPreviewResponse()
                 .blueprint(finalBlueprint)
                 .warnings(List.of(
@@ -691,7 +696,10 @@ class AlertServiceTest {
 
         verify(service.alertRepository).persistValidatedAgentBlueprintPreview(
                 org.mockito.ArgumentMatchers.eq("ALRT1"),
-                org.mockito.ArgumentMatchers.argThat(blueprint -> "GeneratedAgent".equals(blueprint.get("agentName"))));
+                org.mockito.ArgumentMatchers.argThat(blueprint -> "GeneratedAgent".equals(blueprint.get("agentName"))
+                        && ((Map<?, ?>) blueprint.get("parameters")).containsKey("generationContext")
+                        && ((Map<?, ?>) blueprint.get("parameters")).containsKey("runtimeContract")
+                        && ((Map<?, ?>) blueprint.get("parameters")).containsKey("generationReadiness")));
         assertThat(result.getWarnings()).containsExactly(
                 AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING,
                 AgentGenerationPreviewMapper.PERSISTED_LLM_PREVIEW_WARNING,

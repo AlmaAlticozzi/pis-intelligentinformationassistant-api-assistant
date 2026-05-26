@@ -29,6 +29,8 @@ public class AgentGenerationPreviewMapper {
             "DSL preview is diagnostic and has not been compiled or executed.";
     static final String PERSISTED_LLM_PREVIEW_WARNING =
             "Validated LLM Agent Blueprint preview has been persisted on the Alert.";
+    static final String LLM_FALLBACK_PREVIEW_WARNING =
+            "LLM Agent Blueprint generation failed or was rejected by backend validation; deterministic verified Alert artifacts were used instead.";
 
     private static final Set<String> BLUEPRINT_FIELDS = Set.of(
             "agentName",
@@ -46,15 +48,23 @@ public class AgentGenerationPreviewMapper {
     private final AgentDslPreviewBuilder dslPreviewBuilder;
     private final AgentValidationPlanBuilder validationPlanBuilder;
     private final AgentBlueprintValidator blueprintValidator;
+    private final AgentDefinitionDraftBuilder agentDefinitionDraftBuilder;
 
     public AgentGenerationPreviewMapper() {
-        this(new AgentGenerationCapabilityCatalog(), null);
+        this(new AgentGenerationCapabilityCatalog(), null, null);
+    }
+
+    public AgentGenerationPreviewMapper(
+            AgentGenerationCapabilityCatalog capabilityCatalog,
+            AgentBlueprintValidator blueprintValidator) {
+        this(capabilityCatalog, blueprintValidator, null);
     }
 
     @Inject
     public AgentGenerationPreviewMapper(
             AgentGenerationCapabilityCatalog capabilityCatalog,
-            AgentBlueprintValidator blueprintValidator) {
+            AgentBlueprintValidator blueprintValidator,
+            AgentDefinitionDraftBuilder agentDefinitionDraftBuilder) {
         this.capabilityCatalog = capabilityCatalog;
         this.conditionExtractor = new AgentPreviewConditionExtractor();
         this.namingHelper = new AgentPreviewNamingHelper();
@@ -63,6 +73,9 @@ public class AgentGenerationPreviewMapper {
         this.blueprintValidator = blueprintValidator == null
                 ? new AgentBlueprintValidator(capabilityCatalog)
                 : blueprintValidator;
+        this.agentDefinitionDraftBuilder = agentDefinitionDraftBuilder == null
+                ? new AgentDefinitionDraftBuilder(capabilityCatalog)
+                : agentDefinitionDraftBuilder;
     }
 
     public AgentGenerationPreviewResponse toResponse(
@@ -144,22 +157,40 @@ public class AgentGenerationPreviewMapper {
             warnings.add("The preview can be displayed, but the current runtime catalog does not fully support all required capabilities.");
         }
 
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentComplexity complexity =
+                capabilityCatalog.defaultMvpComplexity();
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentValidationPlan validationPlan =
+                included(request == null ? null : request.getIncludeValidationPlan())
+                        ? validationPlanBuilder.build(data, conditionSummary)
+                        : null;
+        List<String> requiredSourceNames = requiredSources.stream().map(String::valueOf).toList();
+        AgentDefinitionDraftCandidate draftCandidate = agentDefinitionDraftBuilder.prepare(
+                data,
+                blueprint,
+                recommendedMode,
+                complexity,
+                requiredSourceNames,
+                requiredPermissions,
+                validationResult,
+                dslResult.preview(),
+                validationPlan,
+                previewSource(additionalWarnings));
         AgentGenerationPreviewResponse response = new AgentGenerationPreviewResponse()
                 .alert(new AlertReference().id(data.alertId()).name(data.name()))
                 .canGenerate(true)
                 .recommendedGenerationMode(recommendedMode)
-                .estimatedComplexity(capabilityCatalog.defaultMvpComplexity())
+                .estimatedComplexity(complexity)
                 .requiredSources(requiredSources)
                 .requiredPermissions(requiredPermissions)
-                .blueprint(blueprint)
+                .blueprint(draftCandidate.blueprint())
                 .warnings(List.copyOf(warnings))
                 .rejectedReason(null);
 
         if (included(request == null ? null : request.getIncludeDslPreview())) {
             response.dslPreview(dslResult.preview());
         }
-        if (included(request == null ? null : request.getIncludeValidationPlan())) {
-            response.validationPlan(validationPlanBuilder.build(data, conditionSummary));
+        if (validationPlan != null) {
+            response.validationPlan(validationPlan);
             System.out.println("[IIA][AGENT_PREVIEW] Validation plan generated alertId=" + data.alertId()
                     + ", positiveExamples=" + response.getValidationPlan().getPositiveExamples().size()
                     + ", negativeExamples=" + response.getValidationPlan().getNegativeExamples().size()
@@ -168,6 +199,16 @@ public class AgentGenerationPreviewMapper {
         System.out.println("[IIA][AGENT_PREVIEW] Preview warnings alertId=" + data.alertId()
                 + ", warningsCount=" + response.getWarnings().size());
         return response;
+    }
+
+    private AgentDefinitionDraftBuilder.PreviewSource previewSource(List<String> warnings) {
+        if (warnings != null && warnings.contains(LLM_VALIDATED_PREVIEW_WARNING)) {
+            return AgentDefinitionDraftBuilder.PreviewSource.LLM_VALIDATED;
+        }
+        if (warnings != null && warnings.contains(LLM_FALLBACK_PREVIEW_WARNING)) {
+            return AgentDefinitionDraftBuilder.PreviewSource.LLM_FALLBACK;
+        }
+        return AgentDefinitionDraftBuilder.PreviewSource.DETERMINISTIC;
     }
 
     private AgentBlueprint toBlueprint(
