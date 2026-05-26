@@ -26,6 +26,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
+import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import jakarta.enterprise.inject.Instance;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.junit.jupiter.api.Test;
@@ -86,6 +88,22 @@ class AlertServiceTest {
     }
 
     @Test
+    void verifyTenantFailureIsNotReportedAsAiProviderFailure() {
+        AlertService service = verificationService(false);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.llmGateway.get().generateText(any())).thenThrow(
+                new RuntimeException("SessionFactory configured for multi-tenancy, but no tenant identifier specified"));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
+        assertThat(outcome.getValue().summary()).contains("tenant context").doesNotContain("AI provider");
+    }
+
+    @Test
     void createWithVerifyImmediatelyFalseKeepsDraftDisabled() {
         AlertRepository repository = mock(AlertRepository.class);
         AlertService service = spy(new AlertService());
@@ -120,6 +138,32 @@ class AlertServiceTest {
         assertThat(result.getStatus()).isEqualTo(AlertStatus.VERIFYING);
         assertThat(result.getEnabled()).isFalse();
         verify(managedExecutor).runAsync(any(Runnable.class));
+    }
+
+    @Test
+    void createWithVerifyImmediatelyTruePropagatesResolvedTenantToAsyncVerification() {
+        AlertService service = spy(new AlertService());
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
+        service.managedExecutor = managedExecutor;
+        service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
+        service.tenantContext = mock(TenantContext.class);
+        service.tenantResolver = mock(Instance.class);
+        TenantResolver resolver = mock(TenantResolver.class);
+        when(service.tenantResolver.isUnsatisfied()).thenReturn(false);
+        when(service.tenantResolver.isAmbiguous()).thenReturn(false);
+        when(service.tenantResolver.get()).thenReturn(resolver);
+        when(resolver.resolveTenantId()).thenReturn("tenant-a");
+        AlertCreateRequest request = createRequest(true, true);
+        AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
+        doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return CompletableFuture.completedFuture(null);
+        }).when(managedExecutor).runAsync(any(Runnable.class));
+
+        service.createAlert(request);
+
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true, "tenant-a");
     }
 
     @Test
@@ -274,7 +318,7 @@ class AlertServiceTest {
         assertThat(result).contains(updated);
         verify(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
         verify(managedExecutor).runAsync(any(Runnable.class));
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true);
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true, null);
         verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
         verify(repository, never()).updateAlertDraftAfterPromptChange("ALRT1", request);
     }
@@ -311,7 +355,7 @@ class AlertServiceTest {
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false);
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false, null);
     }
 
     @Test
@@ -346,7 +390,7 @@ class AlertServiceTest {
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false);
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false, null);
     }
 
     @Test

@@ -29,6 +29,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
+import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -47,6 +49,10 @@ import java.util.ArrayList;
 public class AlertService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String AI_PROVIDER_ERROR_SUMMARY =
+            "Alert verification failed because the AI provider did not respond successfully.";
+    private static final String TENANT_CONTEXT_ERROR_SUMMARY =
+            "Alert verification failed because tenant context was not available for database access.";
 
     @Inject
     AlertRepository alertRepository;
@@ -74,6 +80,12 @@ public class AlertService {
 
     @Inject
     AlertAsyncVerificationService alertAsyncVerificationService;
+
+    @Inject
+    TenantContext tenantContext;
+
+    @Inject
+    Instance<TenantResolver> tenantResolver;
 
     @Inject
     AgentGenerationPreviewMapper agentGenerationPreviewMapper;
@@ -465,21 +477,23 @@ public class AlertService {
                     promptRequest), false);
         } catch (ProcessingException ex) {
             String shortMessage = shortTechnicalMessage(ex);
-            System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
+            logTechnicalVerificationError(shortMessage);
             return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
         } catch (RuntimeException ex) {
             String shortMessage = shortTechnicalMessage(ex);
-            System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
+            logTechnicalVerificationError(shortMessage);
             return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
         }
     }
 
     private void scheduleAsyncVerification(String alertId, boolean enableAfterVerification) {
-        managedExecutor.runAsync(() -> alertAsyncVerificationService.verifyCreatedAlertAsync(alertId, enableAfterVerification))
+        String tenantId = resolveTenantIdForAsyncVerification(alertId);
+        managedExecutor.runAsync(() -> alertAsyncVerificationService.verifyCreatedAlertAsync(
+                        alertId, enableAfterVerification, tenantId))
                 .exceptionally(ex -> {
                     String shortMessage = shortTechnicalMessage(ex);
                     System.out.println("[IIA][ALERT_VERIFY][ASYNC_ERROR] alertId=" + alertId + " error=" + shortMessage);
-                    alertAsyncVerificationService.markCreatedAlertVerificationError(alertId, shortMessage);
+                    alertAsyncVerificationService.markCreatedAlertVerificationError(alertId, shortMessage, tenantId);
                     System.out.println("[IIA][ALERT_CREATE] finalStatus=ERROR enabled=false");
                     return null;
                 });
@@ -511,7 +525,7 @@ public class AlertService {
     }
 
     private AlertVerificationOutcome technicalErrorOutcome(String warning, LlmRequest promptRequest) {
-        String summary = "Alert verification failed because the AI provider did not respond successfully.";
+        String summary = isTenantContextFailure(warning) ? TENANT_CONTEXT_ERROR_SUMMARY : AI_PROVIDER_ERROR_SUMMARY;
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.ERROR,
                 summary,
@@ -555,6 +569,37 @@ public class AlertService {
             message = throwable.getClass().getSimpleName();
         }
         return message.length() > 500 ? message.substring(0, 500) : message;
+    }
+
+    private void logTechnicalVerificationError(String shortMessage) {
+        if (isTenantContextFailure(shortMessage)) {
+            System.out.println("[IIA][ALERT_VERIFY][TENANT] tenant context failure during verification");
+            return;
+        }
+        System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
+    }
+
+    private String resolveTenantIdForAsyncVerification(String alertId) {
+        String tenantId = tenantContext == null ? null : tenantContext.getTenantId();
+        String source = "tenantContext";
+        if ((tenantId == null || tenantId.isBlank())
+                && tenantResolver != null
+                && !tenantResolver.isUnsatisfied()
+                && !tenantResolver.isAmbiguous()) {
+            tenantId = tenantResolver.get().resolveTenantId();
+            source = "hibernateResolver";
+        }
+        System.out.println("[IIA][ALERT_VERIFY][TENANT] async tenant captured alertId=" + alertId
+                + " source=" + source
+                + " present=" + (tenantId != null && !tenantId.isBlank()));
+        return tenantId;
+    }
+
+    private boolean isTenantContextFailure(String message) {
+        return message != null
+                && (message.contains("tenant identifier")
+                || message.contains("tenant context")
+                || message.contains("multi-tenancy"));
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {

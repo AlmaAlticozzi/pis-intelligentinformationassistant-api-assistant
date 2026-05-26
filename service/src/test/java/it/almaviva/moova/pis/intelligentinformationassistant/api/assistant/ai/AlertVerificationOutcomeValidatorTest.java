@@ -294,6 +294,56 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void normalizesNaturalHourTemporalBoundaries() {
+        Map<String, Object> value = new java.util.LinkedHashMap<>();
+        value.put("start", "2");
+        value.put("end", "10");
+        Map<String, Object> condition = temporalDepartureCondition(value);
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(temporalValue(validated.technicalSpecification()))
+                .containsEntry("start", "02:00:00")
+                .containsEntry("end", "10:00:00")
+                .containsEntry("timezone", "Europe/Rome");
+        assertThat(temporalValueFromBlueprint(validated.agentBlueprintPreview()))
+                .containsEntry("start", "02:00:00")
+                .containsEntry("end", "10:00:00")
+                .containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void normalizesNaturalMinuteBoundaryAndPreservesSecondPrecision() {
+        Map<String, Object> value = new java.util.LinkedHashMap<>();
+        value.put("start", "2:30");
+        value.put("end", "02:30:15");
+        value.put("timezone", "Europe/Rome");
+        Map<String, Object> condition = temporalDepartureCondition(value);
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(temporalValue(validated.technicalSpecification()))
+                .containsEntry("start", "02:30:00")
+                .containsEntry("end", "02:30:15");
+    }
+
+    @Test
+    void rejectsOutOfRangeNaturalHourAndMinuteValues() {
+        Map<String, Object> hourCondition = temporalDepartureCondition(Map.of(
+                "start", "25", "end", "10", "timezone", "Europe/Rome"));
+        Map<String, Object> minuteCondition = temporalDepartureCondition(Map.of(
+                "start", "2", "end", "10:99", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome invalidHour = validator.validate(temporalOutcome(hourCondition, hourCondition));
+        AlertVerificationOutcome invalidMinute = validator.validate(temporalOutcome(minuteCondition, minuteCondition));
+
+        assertThat(invalidHour.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(invalidMinute.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
     void rejectsInventedTemporalOperator() {
         Map<String, Object> condition = Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
@@ -311,8 +361,8 @@ class AlertVerificationOutcomeValidatorTest {
     @Test
     void rejectsTemporalTechnicalConditionMissingFromBlueprint() {
         Map<String, Object> condition = temporalDepartureCondition(Map.of(
-                "start", "02:00",
-                "end", "10:00",
+                "start", "02:00:00",
+                "end", "10:00:00",
                 "timezone", "Europe/Rome"));
 
         AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, null));
@@ -332,7 +382,7 @@ class AlertVerificationOutcomeValidatorTest {
 
         AlertVerificationOutcome validated = validator.validate(temporalOutcome(
                 ordinaryCondition,
-                temporalDepartureCondition(Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome"))));
+                temporalDepartureCondition(Map.of("start", "02:00:00", "end", "10:00:00", "timezone", "Europe/Rome"))));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
         assertThat(validated.rejectedReason()).contains("not represented in technicalSpecification");
@@ -405,6 +455,21 @@ class AlertVerificationOutcomeValidatorTest {
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
         assertThat(validated.rejectedReason()).contains("scheduled future or date-relative lookup");
+    }
+
+    @Test
+    void rejectsAlertActivationWindowEvenWhenLlmReturnsSupportedTemporalTree() {
+        Map<String, Object> condition = temporalArrivalCondition(Map.of(
+                "start", "11:30:00", "end", "12:35:00", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                temporalOutcome(condition, condition),
+                "Attiva questo alert solo tra le 11:30 e le 12:35 quando una corsa arriva a Genova.");
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).isEqualTo(
+                "Activation time windows are not supported in the current Alert Verify MVP. "
+                        + "Only stateless temporal predicates evaluated on ServiceData event timestamps are supported.");
     }
 
     @Test

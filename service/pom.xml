@@ -36,6 +36,10 @@
             <artifactId>quarkus-smallrye-context-propagation</artifactId>
         </dependency>
         <dependency>
+            <groupId>it.almaviva.fnd</groupId>
+            <artifactId>fnd-core-lib-quarkuscommon</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.quarkiverse.langchain4j</groupId>
             <artifactId>quarkus-langchain4j-openai</artifactId>
         </dependency>

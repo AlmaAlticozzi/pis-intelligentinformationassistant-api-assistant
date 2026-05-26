@@ -106,6 +106,16 @@ class AlertRepositoryTest {
     }
 
     @Test
+    void tenantContextTechnicalErrorIsNotAttributedToAiProvider() {
+        AlertRepository repository = new AlertRepository();
+
+        String summary = repository.technicalErrorSummary(
+                "Alert verification failed because tenant context is missing during asynchronous verification.");
+
+        assertThat(summary).contains("tenant context").doesNotContain("AI provider");
+    }
+
+    @Test
     void alertSummaryIncludesLastVerification() throws Exception {
         AlertRepository repository = new AlertRepository();
         AlertSummaryView view = mock(AlertSummaryView.class);

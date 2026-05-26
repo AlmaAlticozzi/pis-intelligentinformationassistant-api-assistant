@@ -15,7 +15,6 @@ import java.time.DateTimeException;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -35,8 +34,10 @@ public class AlertVerificationOutcomeValidator {
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final String ACTIVATION_WINDOW_REJECTION_REASON =
+            "Activation time windows are not supported in the current Alert Verify MVP. "
+                    + "Only stateless temporal predicates evaluated on ServiceData event timestamps are supported.";
     private static final String NEXT_CALLS_ARRAY_PATH = "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
-    private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final String DEFAULT_REJECTED_REASON = "The alert cannot be verified with the current MVP constraints.";
     private static final Set<String> LEGACY_CONDITION_TYPES = Set.of(
@@ -528,13 +529,17 @@ public class AlertVerificationOutcomeValidator {
         Map<String, Object> temporalValue = (Map<String, Object>) rawValue;
         String startText = stringValue(temporalValue.get("start"));
         String endText = stringValue(temporalValue.get("end"));
-        LocalTime start = parseLocalTime(startText);
-        LocalTime end = parseLocalTime(endText);
-        if (start == null || end == null) {
+        String normalizedStart = normalizeLocalTime(startText);
+        String normalizedEnd = normalizeLocalTime(endText);
+        if (normalizedStart == null || normalizedEnd == null) {
             rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN,
-                    "start and end must be valid times in HH:mm or HH:mm:ss format.");
+                    "start and end must be valid times in H, HH, H:mm, HH:mm or HH:mm:ss format.");
             return;
         }
+        logAndApplyTimeNormalization(temporalValue, "start", startText, normalizedStart, field);
+        logAndApplyTimeNormalization(temporalValue, "end", endText, normalizedEnd, field);
+        LocalTime start = LocalTime.parse(normalizedStart, HOUR_MINUTE_SECOND);
+        LocalTime end = LocalTime.parse(normalizedEnd, HOUR_MINUTE_SECOND);
         String timezone = stringValue(temporalValue.get("timezone"));
         if (timezone == null) {
             timezone = context.defaultTemporalZone;
@@ -559,26 +564,44 @@ public class AlertVerificationOutcomeValidator {
         context.temporalConditions.add(condition);
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] validated field=" + condition.field()
                 + " operator=" + condition.operator()
-                + " start=" + startText
-                + " end=" + endText
+                + " start=" + normalizedStart
+                + " end=" + normalizedEnd
                 + " timezone=" + condition.timezone());
     }
 
-    private LocalTime parseLocalTime(String value) {
+    private String normalizeLocalTime(String value) {
         if (value == null) {
             return null;
         }
         try {
-            if (value.matches("\\d{2}:\\d{2}")) {
-                return LocalTime.parse(value, HOUR_MINUTE);
+            if (value.matches("\\d{1,2}")) {
+                return LocalTime.of(Integer.parseInt(value), 0).format(HOUR_MINUTE_SECOND);
+            }
+            if (value.matches("\\d{1,2}:\\d{2}")) {
+                String[] components = value.split(":");
+                return LocalTime.of(Integer.parseInt(components[0]), Integer.parseInt(components[1]))
+                        .format(HOUR_MINUTE_SECOND);
             }
             if (value.matches("\\d{2}:\\d{2}:\\d{2}")) {
-                return LocalTime.parse(value, HOUR_MINUTE_SECOND);
+                return LocalTime.parse(value, HOUR_MINUTE_SECOND).format(HOUR_MINUTE_SECOND);
             }
-        } catch (DateTimeParseException exception) {
+        } catch (DateTimeException | NumberFormatException exception) {
             return null;
         }
         return null;
+    }
+
+    private void logAndApplyTimeNormalization(
+            Map<String, Object> temporalValue,
+            String boundary,
+            String original,
+            String normalized,
+            String field) {
+        if (!normalized.equals(original)) {
+            temporalValue.put(boundary, normalized);
+            System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] normalized field=" + field
+                    + " " + boundary + "=" + original + " -> " + normalized);
+        }
     }
 
     private void validateRequirementCoverage(ValidationContext context, Map<String, Object> requirementCoverage) {
@@ -735,6 +758,10 @@ public class AlertVerificationOutcomeValidator {
         String normalized = normalizeText(prompt);
         if (normalized == null) {
             return null;
+        }
+        if (containsAny(normalized, "attiva questo alert solo", "attiva l'alert solo",
+                "solo attivo tra", "esegui questo alert solo", "abilita questo alert solo")) {
+            return ACTIVATION_WINDOW_REJECTION_REASON;
         }
         if (containsAny(normalized, "ultimi 30 minuti", "ultimi minuti", "nell'ultima ora",
                 "nelle ultime", "negli ultimi", "in the last", "last 30 minutes")) {

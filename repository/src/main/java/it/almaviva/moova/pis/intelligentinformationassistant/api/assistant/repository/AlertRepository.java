@@ -441,7 +441,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus.class,
                 "ERROR"));
         alert.setFlgEnabled(false);
-        alert.setDscVerificationsummary("Alert verification failed because the AI provider did not respond successfully.");
+        alert.setDscVerificationsummary(technicalErrorSummary(warning));
         alert.setDscRejectedreason(null);
         alert.setNumVerificationconfidence(BigDecimal.ZERO);
         alert.setDscLlmprovider(provider);
@@ -480,6 +480,13 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 toStringList(alert.getJsnSafetychecks())));
         flush();
         return Optional.of(toAlertDetailForVerification(alert));
+    }
+
+    String technicalErrorSummary(String warning) {
+        if (warning != null && warning.contains("tenant context")) {
+            return "Alert verification failed because tenant context was not available for database access.";
+        }
+        return "Alert verification failed because the AI provider did not respond successfully.";
     }
 
     private AlertSummary toAlertSummary(AlertSummaryView view) {

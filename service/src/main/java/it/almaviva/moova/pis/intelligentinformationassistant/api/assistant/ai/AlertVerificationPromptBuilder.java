@@ -70,7 +70,9 @@ public class AlertVerificationPromptBuilder {
                 - Internal state is not supported.
                 - Temporal conditions are supported only when evaluated statelessly on timestamps in one ServiceDataV2 event.
                 - Local time windows such as "tra le 02:00 e le 10:00" must use operator LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
+                - Time expressions such as "tra le 2 e le 10", "tra le 2:00 e le 10", or "tra le 02 e le 10:30" must be normalized to HH:mm:ss; a single hour means the beginning of that hour ("2" becomes "02:00:00", "10" becomes "10:00:00").
                 - Scheduled, future-existence, event-absence and historical time reasoning are not supported.
+                - Alert or Agent activation time windows are not temporal predicates: reject requests such as "Attiva questo alert solo tra le 11:30 e le 12:35..." and never represent them with activationPolicy or a scheduler.
                 - Absence of events is not supported.
                 - Audio, video, device, display, broadcast, and content sources are not supported.
                 - The MVP accepts any alert that can be expressed as a stateless boolean condition over the allowed ServiceData fields listed in the ServiceData Capability Catalog.
@@ -139,6 +141,7 @@ public class AlertVerificationPromptBuilder {
                 - For delayed journeys, use a delay field or delay status from the catalog.
                 - Stateless temporal predicates are allowed only on payload.ongroundServiceEvent.eventGenerationTime, payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime, and payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].arrivalTime.
                 - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
+                - Normalize natural clock expressions: "tra le 2 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 2:00 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 02 e le 10:30" -> start 02:00:00 and end 10:30:00.
                 - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
                 - "parte da Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS DEPARTED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
                 - "arriva a Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS ARRIVED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
@@ -202,6 +205,14 @@ public class AlertVerificationPromptBuilder {
                 Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
                 Decision: VERIFIED
 
+                Valid natural-hour temporal example:
+                Prompt: "Fammi sapere quando una corsa parte da Genova tra le 2 e le 10"
+                Condition all leaves:
+                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"}
+                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
+                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
+                Decision: VERIFIED
+
                 Valid temporal arrival example:
                 Prompt: "Fammi sapere quando una corsa arriva a Genova tra le 02:00 e le 10:00"
                 Condition all leaves:
@@ -254,6 +265,11 @@ public class AlertVerificationPromptBuilder {
                 Prompt: "Avvisami quando una corsa sara probabilmente in ritardo domani"
                 Decision: REJECTED
                 rejectedReason: "The request requires prediction, which is not evaluable on a single ServiceData event."
+
+                Rejected activation window example:
+                Prompt: "Attiva questo alert solo tra le 11:30 e le 12:35 quando una corsa arriva a Genova."
+                Decision: REJECTED
+                rejectedReason: "Activation time windows are not supported in the current Alert Verify MVP. Only stateless temporal predicates evaluated on ServiceData event timestamps are supported."
 
                 Expected JSON schema:
                 {
@@ -346,6 +362,7 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()),
                 catalog,
+                defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,
