@@ -223,6 +223,10 @@ public class AgentBlueprintValidator {
             return;
         }
         validateConditionCapabilities(conditions, path + ".conditions", arrayPath, errors);
+        if (errors.isEmpty() && containsTemporalOperator(conditions) && !hasCorrelatedStopAndTime(conditions)) {
+            rejectArray(errors, path,
+                    "temporal nextCalls constraints must correlate stopPoint.nameLong and departureTime/arrivalTime in the same all group.");
+        }
     }
 
     private void validateConditionLeaf(
@@ -308,6 +312,39 @@ public class AgentBlueprintValidator {
 
     private boolean isPotentialTemporalOperator(String operator) {
         return operator != null && operator.toUpperCase().contains("TIME");
+    }
+
+    private boolean containsTemporalOperator(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            if (LOCAL_TIME_BETWEEN.equals(stringValue(map.get("operator")))) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::containsTemporalOperator);
+        }
+        if (node instanceof List<?> list) {
+            return list.stream().anyMatch(this::containsTemporalOperator);
+        }
+        return false;
+    }
+
+    private boolean hasCorrelatedStopAndTime(Map<String, Object> conditions) {
+        if (!(conditions.get("all") instanceof List<?> children)) {
+            return false;
+        }
+        boolean stopPoint = children.stream().anyMatch(child -> isRelativeLeaf(
+                child, "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED")));
+        boolean timestamp = children.stream().anyMatch(child -> isRelativeLeaf(
+                child, "departureTime", Set.of(LOCAL_TIME_BETWEEN))
+                || isRelativeLeaf(child, "arrivalTime", Set.of(LOCAL_TIME_BETWEEN)));
+        return stopPoint && timestamp;
+    }
+
+    private boolean isRelativeLeaf(Object node, String field, Set<String> operators) {
+        if (!(node instanceof Map<?, ?> map)) {
+            return false;
+        }
+        return field.equals(stringValue(map.get("field")))
+                && operators.contains(stringValue(map.get("operator")));
     }
 
     private void rejectTemporal(List<String> errors, String path, String reason) {

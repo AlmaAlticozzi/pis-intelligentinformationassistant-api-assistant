@@ -10,6 +10,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.co
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.text.Normalizer;
 import java.time.DateTimeException;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -53,6 +54,10 @@ public class AlertVerificationOutcomeValidator {
     TemporalConfiguration temporalConfiguration;
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome) {
+        return validate(outcome, null);
+    }
+
+    public AlertVerificationOutcome validate(AlertVerificationOutcome outcome, String originalPrompt) {
         String defaultTemporalZone = defaultTemporalZone();
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
         if (outcome == null) {
@@ -63,6 +68,11 @@ public class AlertVerificationOutcomeValidator {
             return outcome;
         }
         if (outcome.decision() == AlertVerificationDecision.REJECTED) {
+            String defensiveReason = unsupportedPromptTemporalReason(originalPrompt);
+            if (defensiveReason != null) {
+                logTemporalRejection(defensiveReason);
+                return rejected(outcome, defensiveReason);
+            }
             System.out.println("[IIA][ALERT_VERIFY][VALIDATOR] Validation passed");
             return ensureRejectedReason(outcome);
         }
@@ -70,7 +80,7 @@ public class AlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        ValidationContext context = new ValidationContext(outcome, defaultTemporalZone);
+        ValidationContext context = new ValidationContext(outcome, defaultTemporalZone, originalPrompt);
         validateVerifiedOutcome(context);
         if (context.failureReason != null) {
             return fail(outcome, context.failureReason);
@@ -84,10 +94,21 @@ public class AlertVerificationOutcomeValidator {
     private void validateVerifiedOutcome(ValidationContext context) {
         AlertVerificationOutcome outcome = context.outcome;
         logVerifiedChecks(outcome);
+        String unsupportedPromptReason = unsupportedPromptTemporalReason(context.originalPrompt);
+        if (unsupportedPromptReason != null) {
+            rejectTemporalRequest(context, unsupportedPromptReason);
+            return;
+        }
+        boolean temporalIntent = hasTemporalIntent(context);
 
         List<String> requiredSources = normalizedList(outcome.requiredSources());
         if (requiredSources.stream().anyMatch(source -> !SERVICE_DATA.equals(source))) {
-            context.fail("Verified alert uses a data source outside the current MVP contract.");
+            if (temporalIntent) {
+                rejectTemporalRequest(context,
+                        "The temporal request uses a source other than SERVICE_DATA and cannot be evaluated on one ServiceData event.");
+            } else {
+                context.fail("Verified alert uses a data source outside the current MVP contract.");
+            }
             return;
         }
         if (containsForbiddenSource(requiredSources)) {
@@ -98,7 +119,8 @@ public class AlertVerificationOutcomeValidator {
         if (EVENT_INTERPRETER.equals(outcome.interpreterType())) {
             // Expected.
         } else if ("SCHEDULED_INTERPRETER".equals(outcome.interpreterType())) {
-            context.fail("SCHEDULED_INTERPRETER is not supported by the current MVP.");
+            rejectTemporalRequest(context,
+                    "The request requires scheduled evaluation; SCHEDULED_INTERPRETER is not permitted for stateless temporal predicates.");
             return;
         } else {
             context.fail("Verified alert uses an unsupported interpreter type.");
@@ -106,7 +128,12 @@ public class AlertVerificationOutcomeValidator {
         }
 
         if (!EVENT.equals(outcome.triggerType())) {
-            context.fail("Verified alert uses an unsupported trigger type.");
+            if (temporalIntent) {
+                rejectTemporalRequest(context,
+                        "The request requires a scheduled trigger; temporal predicates must use the received EVENT payload.");
+            } else {
+                context.fail("Verified alert uses an unsupported trigger type.");
+            }
             return;
         }
         if (!STATELESS_EVENT_MATCH.equals(outcome.evaluationMode())) {
@@ -148,6 +175,12 @@ public class AlertVerificationOutcomeValidator {
             context.fail("Verified alert has empty agentBlueprintPreview.");
             return;
         }
+        if (!SERVICE_DATA.equals(stringValue(context.technicalSpecification.get("source")))
+                || !onlyServiceDataSources(context.agentBlueprintPreview.get("requiredSources"))) {
+            rejectTemporalRequest(context,
+                    "The temporal request must use only SERVICE_DATA artifacts and cannot use another source.");
+            return;
+        }
 
         Object stateRequirements = context.agentBlueprintPreview.get("stateRequirements");
         if (stateRequirements instanceof Map<?, ?> stateRequirementsMap) {
@@ -160,14 +193,20 @@ public class AlertVerificationOutcomeValidator {
             context.warn("agentBlueprintPreview.stateRequirements.requiresState is missing.");
         }
 
+        if (containsExternalLookupOrTools(context.technicalSpecification)
+                || containsExternalLookupOrTools(context.agentBlueprintPreview)) {
+            rejectTemporalRequest(context,
+                    "The request requires tools, APIs or queries and is not evaluable on a single ServiceData event.");
+            return;
+        }
         if (containsSuspiciousContent(context.technicalSpecification) || containsSuspiciousContent(context.agentBlueprintPreview)) {
             context.fail("Verified alert contains forbidden technical keys or values.");
             return;
         }
         if (containsForbiddenTemporalOrchestration(context.technicalSpecification)
                 || containsForbiddenTemporalOrchestration(context.agentBlueprintPreview)) {
-            System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] rejected reason=activation policy or scheduler is not supported");
-            context.fail("Verified alert must not use activation policy or scheduler for temporal evaluation.");
+            rejectTemporalRequest(context,
+                    "The request uses activation policy or scheduler; temporal windows must be matched on one ServiceData event.");
             return;
         }
 
@@ -176,6 +215,12 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         int technicalTemporalConditionCount = context.temporalConditions.size();
+        if (technicalTemporalConditionCount > 0
+                && !hasCurrentEventAnchor(context.technicalSpecification.get("condition"))) {
+            rejectTemporalRequest(context,
+                    "The temporal condition has no supported current-event type and stop-point anchor in the single ServiceData event.");
+            return;
+        }
         if (technicalTemporalConditionCount > 0 || containsPotentialTemporalOperator(context.agentBlueprintPreview)) {
             validateBlueprintTemporalCondition(context);
             if (context.failureReason != null) {
@@ -310,7 +355,12 @@ public class AlertVerificationOutcomeValidator {
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CATALOG] validating field=" + field + " operator=" + operator);
 
         if (field == null || field.isBlank()) {
-            rejectCatalogField(context, field, "field is missing.");
+            if (LOCAL_TIME_BETWEEN.equals(operator) || isPotentialTemporalOperator(operator)) {
+                rejectTemporalCondition(context, field, operator,
+                        "field is missing or is not an allowed temporal scope.");
+            } else {
+                rejectCatalogField(context, field, "field is missing.");
+            }
             return;
         }
         if (ServiceDataCapabilityCatalog.isSuspiciousFieldName(field)) {
@@ -364,6 +414,12 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         validateAnyElementConditionNode(context, conditionMap, path + ".conditions", arrayPath);
+        if (context.failureReason == null
+                && containsPotentialTemporalOperator(conditionMap)
+                && !hasCorrelatedStopAndTime(conditionMap)) {
+            rejectArrayCondition(context, arrayPath,
+                    "temporal nextCalls constraints must correlate stopPoint.nameLong and departureTime/arrivalTime in the same all group.");
+        }
     }
 
     private void validateAnyElementConditionNode(
@@ -667,15 +723,161 @@ public class AlertVerificationOutcomeValidator {
         return false;
     }
 
+    private boolean hasTemporalIntent(ValidationContext context) {
+        return unsupportedPromptTemporalReason(context.originalPrompt) != null
+                || containsPotentialTemporalOperator(context.technicalSpecification)
+                || containsPotentialTemporalOperator(context.agentBlueprintPreview)
+                || containsForbiddenTemporalOrchestration(context.technicalSpecification)
+                || containsForbiddenTemporalOrchestration(context.agentBlueprintPreview);
+    }
+
+    private String unsupportedPromptTemporalReason(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null) {
+            return null;
+        }
+        if (containsAny(normalized, "ultimi 30 minuti", "ultimi minuti", "nell'ultima ora",
+                "nelle ultime", "negli ultimi", "in the last", "last 30 minutes")) {
+            return "The request requires historical event evaluation, which is not evaluable on a single ServiceData event.";
+        }
+        if (containsAny(normalized, "nessuna corsa", "nessun treno", "nessun autobus",
+                "non parte nessuna", "non sono arrivati", "non sono partiti", "assenza eventi", "assenza di eventi")) {
+            return "The request requires absence-of-events evaluation, which is not evaluable on a single ServiceData event.";
+        }
+        if (containsAny(normalized, "probabilmente", "probabile", "predici", "prevedi", "probably", "predict")) {
+            return "The request requires prediction, which is not evaluable on a single ServiceData event.";
+        }
+        if (containsAny(normalized, "domani", "dopodomani", "oggi", "tomorrow", "today", "day after tomorrow")) {
+            return "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event.";
+        }
+        if (containsAny(normalized, "fascia oraria", "time window")
+                && !containsAny(normalized, "parte", "partenza", "arriva", "arrivo", "depart", "arrival")) {
+            return "The request specifies a time window without a supported event field evaluable on a single ServiceData event.";
+        }
+        return null;
+    }
+
+    private boolean onlyServiceDataSources(Object value) {
+        List<String> requiredSources = stringList(value).stream()
+                .map(item -> item.toUpperCase(Locale.ROOT))
+                .toList();
+        return !requiredSources.isEmpty() && requiredSources.stream().allMatch(SERVICE_DATA::equals);
+    }
+
+    private boolean containsExternalLookupOrTools(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String key = normalizeText(String.valueOf(entry.getKey()));
+                if (key != null && (key.contains("allowedtools") || key.contains("allowed_tools")
+                        || key.contains("tool") || key.equals("api") || key.contains("externalapi")
+                        || key.contains("centralapi") || key.contains("databasequery")
+                        || key.contains("apiquery") || key.equals("query") || key.equals("http"))) {
+                    return true;
+                }
+                if (containsExternalLookupOrTools(entry.getValue())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().anyMatch(this::containsExternalLookupOrTools);
+        }
+        String scalar = normalizeText(value == null ? null : String.valueOf(value));
+        return scalar != null && containsAny(scalar, "external_http", "central_api", "database_query", "api_query");
+    }
+
+    private boolean hasCurrentEventAnchor(Object value) {
+        return hasLeaf(value, "payload.ongroundServiceEvent.eventsType", "CONTAINS", Set.of("DEPARTED", "ARRIVED"))
+                && hasLeaf(value, "payload.ongroundServiceEvent.stopPoint.nameLong",
+                "EQUALS_NORMALIZED", null);
+    }
+
+    private boolean hasCorrelatedStopAndTime(Object node) {
+        if (!(node instanceof Map<?, ?> map)) {
+            return false;
+        }
+        Object all = map.get("all");
+        if (all instanceof List<?> children) {
+            boolean stopPoint = children.stream().anyMatch(child -> hasRelativeLeaf(
+                    child, "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED")));
+            boolean time = children.stream().anyMatch(child -> hasRelativeLeaf(
+                    child, "departureTime", Set.of(LOCAL_TIME_BETWEEN))
+                    || hasRelativeLeaf(child, "arrivalTime", Set.of(LOCAL_TIME_BETWEEN)));
+            if (stopPoint && time) {
+                return true;
+            }
+        }
+        return map.values().stream().anyMatch(this::hasCorrelatedStopAndTime);
+    }
+
+    private boolean hasRelativeLeaf(Object node, String field, Set<String> operators) {
+        if (!(node instanceof Map<?, ?> map)) {
+            return false;
+        }
+        return field.equals(stringValue(map.get("field")))
+                && operators.contains(stringValue(map.get("operator")));
+    }
+
+    private boolean hasLeaf(Object node, String field, String operator, Set<String> allowedValues) {
+        if (node instanceof Map<?, ?> map) {
+            if (field.equals(stringValue(map.get("field")))
+                    && operator.equals(stringValue(map.get("operator")))) {
+                if (allowedValues == null) {
+                    return map.get("value") != null;
+                }
+                Object rawValues = map.get("values");
+                if (allowedValues.contains(stringValue(map.get("value")))) {
+                    return true;
+                }
+                return rawValues instanceof Collection<?> values
+                        && values.stream().map(this::stringValue).anyMatch(allowedValues::contains);
+            }
+            return map.values().stream().anyMatch(item -> hasLeaf(item, field, operator, allowedValues));
+        }
+        if (node instanceof Collection<?> collection) {
+            return collection.stream().anyMatch(item -> hasLeaf(item, field, operator, allowedValues));
+        }
+        return false;
+    }
+
+    private boolean containsAny(String value, String... tokens) {
+        for (String token : tokens) {
+            if (value.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT);
+    }
+
     private void rejectTemporalCondition(ValidationContext context, String field, String operator, String reason) {
-        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] rejected field=" + field
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL][REJECT] field=" + field
                 + " operator=" + operator + " reason=" + reason);
         context.fail("Verified alert temporal condition is not supported: " + reason);
     }
 
     private void rejectArrayCondition(ValidationContext context, String path, String reason) {
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] rejected path=" + path + " reason=" + reason);
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL][REJECT] anyElement path=" + path + " reason=" + reason);
         context.fail("Verified alert anyElement condition is not supported: " + reason);
+    }
+
+    private void rejectTemporalRequest(ValidationContext context, String reason) {
+        logTemporalRejection(reason);
+        context.fail(reason);
+    }
+
+    private void logTemporalRejection(String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL][REJECT] reason=" + reason);
     }
 
     private void rejectCatalogField(ValidationContext context, String field, String reason) {
@@ -893,6 +1095,7 @@ public class AlertVerificationOutcomeValidator {
         private final AlertVerificationOutcome outcome;
         private final List<String> warnings;
         private final String defaultTemporalZone;
+        private final String originalPrompt;
         private final Map<String, Object> technicalSpecification;
         private final Map<String, Object> agentBlueprintPreview;
         private String failureReason;
@@ -901,10 +1104,11 @@ public class AlertVerificationOutcomeValidator {
         private final List<String> conditionFields;
         private final List<TemporalCondition> temporalConditions;
 
-        private ValidationContext(AlertVerificationOutcome outcome, String defaultTemporalZone) {
+        private ValidationContext(AlertVerificationOutcome outcome, String defaultTemporalZone, String originalPrompt) {
             this.outcome = outcome;
             this.warnings = new ArrayList<>(outcome.warnings() == null ? List.of() : outcome.warnings());
             this.defaultTemporalZone = defaultTemporalZone;
+            this.originalPrompt = originalPrompt;
             this.technicalSpecification = mutableMapStatic(outcome.technicalSpecification());
             this.agentBlueprintPreview = mutableMapStatic(outcome.agentBlueprintPreview());
             this.conditionFields = new ArrayList<>();

@@ -800,7 +800,8 @@ class AlertServiceTest {
                 new LlmRequest(AiUseCase.ALERT_VERIFY, "system", "user", "gpt-4.1-mini", 0.1, 5000, "ALRT1"));
         service.alertVerificationLlmResponseParser = new AlertVerificationLlmResponseParser();
         service.alertVerificationOutcomeValidator = mock(AlertVerificationOutcomeValidator.class);
-        when(service.alertVerificationOutcomeValidator.validate(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(service.alertVerificationOutcomeValidator.validate(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         service.alertVerificationMockEngine = mock(AlertVerificationMockEngine.class);
         service.llmGateway = mock(Instance.class);
         when(service.llmGateway.isUnsatisfied()).thenReturn(false);

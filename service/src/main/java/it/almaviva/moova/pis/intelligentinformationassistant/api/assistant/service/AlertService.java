@@ -402,15 +402,18 @@ public class AlertService {
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
 
         AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, promptData.get(), promptRequest);
-        AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(resolution.outcome());
+        AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(
+                resolution.outcome(), promptData.get().prompt());
         if (resolution.parseableLlm() && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][VALIDATION] LLM outcome rejected by backend validation alertId="
                     + alertId + ", fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
         }
         if (resolution.parseableLlm() && fallbackOnInvalidLlm && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine because backend validation rejected LLM output");
-            outcome = alertVerificationOutcomeValidator.validate(alertVerificationMockEngine.verify(alertId, promptData.get().prompt())
-                    .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."));
+            outcome = alertVerificationOutcomeValidator.validate(
+                    alertVerificationMockEngine.verify(alertId, promptData.get().prompt())
+                            .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."),
+                    promptData.get().prompt());
         }
         return alertRepository.verifyAlert(alertId, request, outcome);
     }

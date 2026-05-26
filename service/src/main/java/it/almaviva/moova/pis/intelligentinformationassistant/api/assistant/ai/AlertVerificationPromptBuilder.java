@@ -146,6 +146,8 @@ public class AlertVerificationPromptBuilder {
                 - Inside nextCalls anyElement, fields are relative to the same nextCall item: stopPoint.nameLong, departureTime, arrivalTime, or passingType.
                 - A nextCalls stop point constraint and its departure/arrival time constraint must be inside the same anyElement.conditions node.
                 - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
+                - Reject dates relative to evaluation time such as oggi, domani, or dopodomani: a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
+                - Reject prediction, absence of events, or historical observation windows even if a nearby stop point or clock time appears mappable.
                 - requiredSources must be only SERVICE_DATA.
                 - interpreterType must be EVENT_INTERPRETER.
                 - evaluationMode must be STATELESS_EVENT_MATCH.
@@ -200,6 +202,15 @@ public class AlertVerificationPromptBuilder {
                 Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
                 Decision: VERIFIED
 
+                Valid temporal arrival example:
+                Prompt: "Fammi sapere quando una corsa arriva a Genova tra le 02:00 e le 10:00"
+                Condition all leaves:
+                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
+                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
+                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
+                Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
+                Decision: VERIFIED
+
                 Valid correlated nextCalls temporal example:
                 Prompt: "Fammi sapere quando una corsa arriva a Genova e partirà a Gorla tra le 11:30 e le 12:35"
                 Condition all children:
@@ -212,9 +223,37 @@ public class AlertVerificationPromptBuilder {
                 The Gorla and departureTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
                 Decision: VERIFIED
 
-                Rejected temporal example:
-                Prompt: "Domani ci partono autobus da Pisa Centrale"
-                Decision: REJECTED because it asks for future existence rather than matching a received ServiceDataV2 event.
+                Valid correlated nextCalls arrival temporal example:
+                Prompt: "Fammi sapere quando una corsa arriva a Genova e arrivera a Gorla tra le 11:30 e le 12:35"
+                Condition all children:
+                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
+                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
+                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]","conditions":{"all":[
+                    {"field":"stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Gorla"},
+                    {"field":"arrivalTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"%s"}}
+                  ]}}}
+                The Gorla and arrivalTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
+                Decision: VERIFIED
+
+                Rejected scheduled lookup example:
+                Prompt: "Segnalami se domani ci partono dall'origine autobus da Pisa Centrale"
+                Decision: REJECTED
+                rejectedReason: "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event."
+
+                Rejected absence example:
+                Prompt: "Avvisami se domani non parte nessuna corsa da Genova"
+                Decision: REJECTED
+                rejectedReason: "The request requires absence-of-events evaluation, which is not evaluable on a single ServiceData event."
+
+                Rejected historical absence example:
+                Prompt: "Avvisami se negli ultimi 30 minuti non sono arrivati treni"
+                Decision: REJECTED
+                rejectedReason: "The request requires historical event evaluation, which is not evaluable on a single ServiceData event."
+
+                Rejected prediction example:
+                Prompt: "Avvisami quando una corsa sara probabilmente in ritardo domani"
+                Decision: REJECTED
+                rejectedReason: "The request requires prediction, which is not evaluable on a single ServiceData event."
 
                 Expected JSON schema:
                 {
@@ -307,6 +346,8 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()),
                 catalog,
+                defaultTemporalZone,
+                defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone);

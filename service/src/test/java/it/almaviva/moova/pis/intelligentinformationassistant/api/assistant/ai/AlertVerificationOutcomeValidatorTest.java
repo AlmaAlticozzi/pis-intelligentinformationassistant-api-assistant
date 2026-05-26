@@ -159,6 +159,18 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsStatelessArrivalEventGenerationTimeWindow() {
+        Map<String, Object> condition = temporalArrivalCondition(Map.of(
+                "start", "02:00:00",
+                "end", "10:00:00",
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsCorrelatedNextCallDepartureWindowAndAppliesDefaultTimezone() {
         Map<String, Object> condition = correlatedNextCallsCondition(
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
@@ -255,6 +267,20 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsTemporalOperatorWithoutFieldOrSupportedScope() {
+        Map<String, Object> invalid = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "operator", "LOCAL_TIME_BETWEEN",
+                        "value", Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome"))));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(invalid, invalid));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("field is missing");
+    }
+
+    @Test
     void rejectsInvalidTemporalClockValue() {
         Map<String, Object> condition = temporalDepartureCondition(Map.of(
                 "start", "25:00",
@@ -332,6 +358,121 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(validated.rejectedReason()).contains("activation policy or scheduler");
     }
 
+    @Test
+    void rejectsScheduledInterpreterForTemporalCondition() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00", "end", "10:00", "timezone", "Europe/Rome"));
+        AlertVerificationOutcome base = temporalOutcome(condition, condition);
+        AlertVerificationOutcome scheduled = new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), "SCHEDULED_INTERPRETER", base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), base.agentBlueprintPreview(), base.requirementCoverage(), base.warnings(), base.safetyChecks());
+
+        AlertVerificationOutcome validated = validator.validate(scheduled);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("scheduled evaluation");
+    }
+
+    @Test
+    void rejectsExternalToolLookupForTemporalCondition() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00", "end", "10:00", "timezone", "Europe/Rome"));
+        AlertVerificationOutcome base = temporalOutcome(condition, condition);
+        Map<String, Object> technical = new java.util.LinkedHashMap<>(base.technicalSpecification());
+        technical.put("toolCalls", List.of("CENTRAL_API"));
+        AlertVerificationOutcome externalLookup = new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                technical, base.agentBlueprintPreview(), base.requirementCoverage(), base.warnings(), base.safetyChecks());
+
+        AlertVerificationOutcome validated = validator.validate(externalLookup);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("tools, APIs or queries");
+    }
+
+    @Test
+    void rejectsDateRelativePromptEvenWhenLlmReturnsSupportedTemporalTree() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00:00", "end", "10:00:00", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                temporalOutcome(condition, condition),
+                "Segnalami se domani ci partono dall'origine autobus da Pisa Centrale");
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("scheduled future or date-relative lookup");
+    }
+
+    @Test
+    void rejectsUnanchoredTimeWindowPromptEvenWhenLlmInventsAnEventMapping() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00:00", "end", "10:00:00", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                temporalOutcome(condition, condition),
+                "Avvisami quando una corsa passa in una fascia oraria");
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("without a supported event field");
+    }
+
+    @Test
+    void rejectsAbsenceHistoricalAndPredictionPromptsEvenWithValidTemporalTree() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00:00", "end", "10:00:00", "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome absence = validator.validate(
+                temporalOutcome(condition, condition),
+                "Avvisami se domani non parte nessuna corsa da Genova");
+        AlertVerificationOutcome history = validator.validate(
+                temporalOutcome(condition, condition),
+                "Avvisami se negli ultimi 30 minuti non sono arrivati treni");
+        AlertVerificationOutcome prediction = validator.validate(
+                temporalOutcome(condition, condition),
+                "Avvisami quando una corsa sara probabilmente in ritardo domani");
+
+        assertThat(absence.rejectedReason()).contains("absence-of-events");
+        assertThat(history.rejectedReason()).contains("historical event evaluation");
+        assertThat(prediction.rejectedReason()).contains("prediction");
+    }
+
+    @Test
+    void rejectsTemporalNextCallsConditionWithoutSameElementStopPointCorrelation() {
+        Map<String, Object> condition = correlatedNextCallsCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                "departureTime",
+                Map.of("start", "11:30:00", "end", "12:35:00", "timezone", "Europe/Rome"));
+        Map<String, Object> uncorrelated = new java.util.LinkedHashMap<>(condition);
+        uncorrelated.put("all", List.of(
+                Map.of(
+                        "field", "payload.ongroundServiceEvent.eventsType",
+                        "operator", "CONTAINS",
+                        "value", "ARRIVED"),
+                Map.of(
+                        "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                        "operator", "EQUALS_NORMALIZED",
+                        "value", "Genova"),
+                Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                                "conditions", Map.of("all", List.of(Map.of(
+                                        "field", "departureTime",
+                                        "operator", "LOCAL_TIME_BETWEEN",
+                                        "value", Map.of(
+                                                "start", "11:30:00",
+                                                "end", "12:35:00",
+                                                "timezone", "Europe/Rome"))))))));
+
+        AlertVerificationOutcome validated = validator.validate(correlatedNextCallsOutcome(uncorrelated, uncorrelated));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("correlate stopPoint.nameLong");
+    }
+
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
         return outcomeWithConditionAndCoverage(
                 condition,
@@ -398,6 +539,24 @@ class AlertVerificationOutcomeValidatorTest {
                                 "field", "payload.ongroundServiceEvent.eventsType",
                                 "operator", "CONTAINS",
                                 "value", "DEPARTED"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                                "operator", "LOCAL_TIME_BETWEEN",
+                        "value", temporalValue)));
+    }
+
+    private Map<String, Object> temporalArrivalCondition(Map<String, Object> temporalValue) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVED"),
                         Map.of(
                                 "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
                                 "operator", "EQUALS_NORMALIZED",

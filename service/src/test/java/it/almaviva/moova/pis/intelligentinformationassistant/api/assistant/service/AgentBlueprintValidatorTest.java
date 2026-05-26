@@ -162,6 +162,28 @@ class AgentBlueprintValidatorTest {
         assertThat(missingTimezoneResult.errors()).anyMatch(error -> error.contains("timezone is required"));
     }
 
+    @Test
+    void rejectsTemporalAnyElementWithoutCorrelatedStopPointLeaf() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                                "conditions", Map.of("all", List.of(Map.of(
+                                        "field", "departureTime",
+                                        "operator", "LOCAL_TIME_BETWEEN",
+                                        "value", Map.of(
+                                                "start", "11:30:00",
+                                                "end", "12:35:00",
+                                                "timezone", "Europe/Rome"))))))));
+        AlertAgentGenerationPreviewData data = previewData(condition);
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("correlate stopPoint.nameLong"));
+    }
+
     private AgentBlueprintValidationResult validate(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
