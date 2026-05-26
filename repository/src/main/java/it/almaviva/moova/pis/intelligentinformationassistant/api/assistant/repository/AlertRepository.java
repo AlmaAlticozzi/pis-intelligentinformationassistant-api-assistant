@@ -38,6 +38,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
 
 import java.math.BigDecimal;
 import java.text.Normalizer;
@@ -131,6 +132,33 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                         toStringList(alert.getJsnInterpretedeventnames()),
                         toStringList(alert.getJsnVerificationwarnings()),
                         findTargetTypes(alert.getCodAlert())));
+    }
+
+    @Transactional
+    public boolean persistValidatedAgentBlueprintPreview(String alertId, Map<String, Object> blueprint) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()
+                || !applyValidatedAgentBlueprintPreview(maybeAlert.get(), blueprint, OffsetDateTime.now())) {
+            return false;
+        }
+        flush();
+        return true;
+    }
+
+    boolean applyValidatedAgentBlueprintPreview(
+            Alert alert,
+            Map<String, Object> blueprint,
+            OffsetDateTime updatedAt) {
+        if (alert.getDtDeletedat() != null
+                || alert.getSglStatus() == null
+                || !"VERIFIED".equals(alert.getSglStatus().getSglStatus())
+                || alert.getSglVerificationstatus() == null
+                || !"VERIFIED".equals(alert.getSglVerificationstatus().getSglVerificationstatus())) {
+            return false;
+        }
+        alert.setJsnAgentblueprintpreview(blueprint);
+        alert.setDtUpdatedat(updatedAt);
+        return true;
     }
 
     public boolean existsDeletedAlert(String alertId) {

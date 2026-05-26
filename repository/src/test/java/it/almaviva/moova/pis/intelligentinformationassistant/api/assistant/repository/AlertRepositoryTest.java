@@ -130,6 +130,45 @@ class AlertRepositoryTest {
         assertThat(summary.getLastVerification().getVerifiedAt()).isEqualTo(verifiedAt);
     }
 
+    @Test
+    void applyValidatedAgentBlueprintPreviewUpdatesOnlyPreviewAndTimestamp() {
+        AlertRepository repository = new AlertRepository();
+        Alert alert = verifiedAlertForPreviewPersistence();
+        Object originalTechnicalSpecification = alert.getJsnTechnicalspecification();
+        OffsetDateTime updatedAt = OffsetDateTime.parse("2026-05-26T10:15:30Z");
+        Map<String, Object> blueprint = Map.of("agentName", "PlatformChangeAnyLocationAgent");
+
+        boolean updated = repository.applyValidatedAgentBlueprintPreview(alert, blueprint, updatedAt);
+
+        assertThat(updated).isTrue();
+        assertThat(alert.getJsnAgentblueprintpreview()).isEqualTo(blueprint);
+        assertThat(alert.getDtUpdatedat()).isEqualTo(updatedAt);
+        assertThat(alert.getNumVersion()).isEqualTo(7);
+        assertThat(alert.getFlgEnabled()).isTrue();
+        assertThat(alert.getSglStatus().getSglStatus()).isEqualTo("VERIFIED");
+        assertThat(alert.getSglVerificationstatus().getSglVerificationstatus()).isEqualTo("VERIFIED");
+        assertThat(alert.getJsnTechnicalspecification()).isSameAs(originalTechnicalSpecification);
+    }
+
+    @Test
+    void applyValidatedAgentBlueprintPreviewRejectsAlertNoLongerVerified() {
+        AlertRepository repository = new AlertRepository();
+        Alert alert = verifiedAlertForPreviewPersistence();
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus status =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus();
+        status.setSglStatus("VERIFYING");
+        alert.setSglStatus(status);
+        Object originalPreview = alert.getJsnAgentblueprintpreview();
+
+        boolean updated = repository.applyValidatedAgentBlueprintPreview(
+                alert,
+                Map.of("agentName", "NewAgent"),
+                OffsetDateTime.parse("2026-05-26T10:15:30Z"));
+
+        assertThat(updated).isFalse();
+        assertThat(alert.getJsnAgentblueprintpreview()).isSameAs(originalPreview);
+    }
+
     private Alert alertWithExistingInterpreterMetadata() {
         Alert alert = new Alert();
         it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType interpreterType =
@@ -144,6 +183,21 @@ class AlertRepositoryTest {
         alert.setCodCoderef("artifact://existing");
         alert.setJsnTechnicalspecification(Map.of("source", "SERVICE_DATA"));
         alert.setJsnAgentblueprintpreview(Map.of("agentName", "ExistingAgent"));
+        return alert;
+    }
+
+    private Alert verifiedAlertForPreviewPersistence() {
+        Alert alert = alertWithExistingInterpreterMetadata();
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus status =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus();
+        status.setSglStatus("VERIFIED");
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus verificationStatus =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus();
+        verificationStatus.setSglVerificationstatus("VERIFIED");
+        alert.setSglStatus(status);
+        alert.setSglVerificationstatus(verificationStatus);
+        alert.setNumVersion(7);
+        alert.setFlgEnabled(true);
         return alert;
     }
 

@@ -1,5 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
@@ -40,9 +41,12 @@ import org.eclipse.microprofile.context.ManagedExecutor;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ArrayList;
 
 @ApplicationScoped
 public class AlertService {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Inject
     AlertRepository alertRepository;
@@ -92,6 +96,9 @@ public class AlertService {
     @ConfigProperty(name = "iia.agent-generation-preview.fallback-to-deterministic-on-llm-error", defaultValue = "true")
     boolean agentGenerationPreviewFallbackToDeterministicOnLlmError;
 
+    @ConfigProperty(name = "iia.agent-generation-preview.persist-validated-llm-preview", defaultValue = "false")
+    boolean persistValidatedLlmPreview;
+
     public AlertSummaryListResponse searchAlerts(AlertSearchCriteria criteria) {
         System.out.println("[IIA][ALERT_SEARCH] criteria=" + criteria);
         return new AlertSummaryListResponse()
@@ -133,6 +140,12 @@ public class AlertService {
         }
 
         System.out.println("[IIA][AGENT_PREVIEW] Building read-only preview alertId=" + alertId);
+        System.out.println("[IIA][AGENT_PREVIEW][CONFIG] useLlm=" + agentGenerationPreviewUseLlm
+                + ", fallbackToDeterministicOnLlmError=" + agentGenerationPreviewFallbackToDeterministicOnLlmError
+                + ", persistValidatedLlmPreview=" + persistValidatedLlmPreview);
+        if (!agentGenerationPreviewUseLlm && persistValidatedLlmPreview) {
+            System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Skipped persistence because preview source is deterministic alertId=" + alertId);
+        }
         AgentGenerationPreviewResponse response = agentGenerationPreviewUseLlm
                 ? previewUsingLlmWithControlledFallback(data, request)
                 : agentGenerationPreviewMapper.toResponse(data, request);
@@ -169,20 +182,55 @@ public class AlertService {
                     warnings);
             System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM blueprint validated alertId=" + data.alertId()
                     + ", runtimeSupported=true");
+            if (persistValidatedLlmPreview) {
+                System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Persistence requested alertId=" + data.alertId());
+                persistValidatedLlmBlueprint(data.alertId(), generated);
+            } else {
+                System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Persistence disabled alertId=" + data.alertId());
+            }
             return generated;
         } catch (RuntimeException exception) {
+            if (exception instanceof AlertAgentGenerationPreviewRejectedException rejectedException
+                    && rejectedException.reason() == AlertAgentGenerationPreviewRejectedException.Reason.NOT_VERIFIED) {
+                throw exception;
+            }
             System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM blueprint rejected or generation failed alertId="
                     + data.alertId() + ", error=" + exception.getMessage());
             if (!agentGenerationPreviewFallbackToDeterministicOnLlmError) {
                 throw exception;
             }
             System.out.println("[IIA][AGENT_PREVIEW_LLM] Falling back to deterministic preview alertId=" + data.alertId());
+            if (persistValidatedLlmPreview) {
+                System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Skipped persistence because LLM fallback was used alertId=" + data.alertId());
+            }
             return agentGenerationPreviewMapper.toResponse(
                     data,
                     request,
                     null,
                     List.of("LLM Agent Blueprint generation failed or was rejected by backend validation; deterministic verified Alert artifacts were used instead."));
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void persistValidatedLlmBlueprint(
+            String alertId,
+            AgentGenerationPreviewResponse generated) {
+        Map<String, Object> blueprint = OBJECT_MAPPER.convertValue(generated.getBlueprint(), Map.class);
+        System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Persisting validated LLM blueprint alertId=" + alertId);
+        if (!alertRepository.persistValidatedAgentBlueprintPreview(alertId, blueprint)) {
+            System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Skipped persistence because alert is no longer VERIFIED alertId=" + alertId);
+            throw new AlertAgentGenerationPreviewRejectedException(
+                    AlertAgentGenerationPreviewRejectedException.Reason.NOT_VERIFIED);
+        }
+        List<String> responseWarnings = new ArrayList<>(generated.getWarnings());
+        int diagnosticWarningIndex = responseWarnings.indexOf(AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING);
+        if (!responseWarnings.contains(AgentGenerationPreviewMapper.PERSISTED_LLM_PREVIEW_WARNING)) {
+            responseWarnings.add(
+                    diagnosticWarningIndex < 0 ? responseWarnings.size() : diagnosticWarningIndex,
+                    AgentGenerationPreviewMapper.PERSISTED_LLM_PREVIEW_WARNING);
+        }
+        generated.setWarnings(responseWarnings);
+        System.out.println("[IIA][AGENT_PREVIEW_PERSIST] Persisted validated LLM blueprint alertId=" + alertId);
     }
 
     @Transactional
