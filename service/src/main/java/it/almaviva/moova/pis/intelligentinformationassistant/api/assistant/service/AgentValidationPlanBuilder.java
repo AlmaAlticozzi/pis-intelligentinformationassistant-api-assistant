@@ -5,13 +5,18 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 class AgentValidationPlanBuilder {
 
     AgentValidationPlan build(
             AlertAgentGenerationPreviewData data,
             AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        if (conditionSummary.temporalFilter()) {
+            return temporalPlan(conditionSummary);
+        }
         if (conditionSummary.platformChange()) {
             return new AgentValidationPlan()
                     .positiveExamples(List.of(
@@ -95,6 +100,97 @@ class AgentValidationPlanBuilder {
                         "ServiceData event with an eventName outside the interpreted event set.",
                         AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                 .edgeCases(List.of("ServiceData event without journeyId or with an incomplete target is rejected safely."));
+    }
+
+    private AgentValidationPlan temporalPlan(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        AgentPreviewConditionExtractor.ArrayElementCondition correlated =
+                conditionSummary.arrayConditions().stream()
+                        .filter(condition -> condition.leaves().stream().anyMatch(this::isTemporalLeaf))
+                        .findFirst()
+                        .orElse(null);
+        if (correlated != null) {
+            AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = correlated.leaves().stream()
+                    .filter(this::isTemporalLeaf)
+                    .findFirst()
+                    .orElseThrow();
+            String stopPoint = correlated.leaves().stream()
+                    .filter(leaf -> "stopPoint.nameLong".equals(leaf.field()))
+                    .map(AgentPreviewConditionExtractor.ConditionLeaf::value)
+                    .findFirst()
+                    .orElse("the requested stop point");
+            String window = temporalWindow(temporalLeaf);
+            return new AgentValidationPlan()
+                    .positiveExamples(List.of(example(
+                            "ServiceData event whose same nextCall has stopPoint " + stopPoint
+                                    + " and " + temporalLeaf.field() + " inside " + window + ".",
+                            AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
+                    .negativeExamples(List.of(
+                            example("ServiceData event with a nextCall for " + stopPoint
+                                            + " but " + temporalLeaf.field() + " outside " + window + ".",
+                                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
+                            example("ServiceData event with a nextCall inside " + window
+                                            + " but for a stop point different from " + stopPoint + ".",
+                                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
+                    .edgeCases(List.of(
+                            "A matching stop point and matching time on different nextCalls do not satisfy anyElement.",
+                            "A nextCall without " + temporalLeaf.field() + " does not match the temporal condition."));
+        }
+        AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = findTemporalLeaf(conditionSummary.condition());
+        String window = temporalLeaf == null ? "the configured local time window" : temporalWindow(temporalLeaf);
+        String field = temporalLeaf == null ? "event timestamp" : temporalLeaf.field();
+        return new AgentValidationPlan()
+                .positiveExamples(List.of(example(
+                        "ServiceData event with " + field + " inside " + window + ".",
+                        AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
+                .negativeExamples(List.of(example(
+                        "ServiceData event with " + field + " outside " + window + ".",
+                        AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
+                .edgeCases(List.of("ServiceData event without " + field + " does not match the temporal condition."));
+    }
+
+    private AgentPreviewConditionExtractor.ConditionLeaf findTemporalLeaf(Object node) {
+        if (node instanceof Map<?, ?> rawNode) {
+            Map<String, Object> map = mapValue(rawNode);
+            if ("LOCAL_TIME_BETWEEN".equals(String.valueOf(map.get("operator")))) {
+                return new AgentPreviewConditionExtractor.ConditionLeaf(
+                        String.valueOf(map.get("field")),
+                        String.valueOf(map.get("operator")),
+                        map.get("value") == null ? List.of() : List.of(String.valueOf(map.get("value"))),
+                        map.get("value"));
+            }
+            for (Object value : map.values()) {
+                AgentPreviewConditionExtractor.ConditionLeaf leaf = findTemporalLeaf(value);
+                if (leaf != null) {
+                    return leaf;
+                }
+            }
+        } else if (node instanceof List<?> list) {
+            for (Object value : list) {
+                AgentPreviewConditionExtractor.ConditionLeaf leaf = findTemporalLeaf(value);
+                if (leaf != null) {
+                    return leaf;
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean isTemporalLeaf(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
+        return "LOCAL_TIME_BETWEEN".equals(leaf.operator());
+    }
+
+    private String temporalWindow(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
+        Map<String, Object> value = mapValue(leaf.rawValue());
+        return value.get("start") + "-" + value.get("end") + " local time (" + value.get("timezone") + ")";
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        map.forEach((key, nestedValue) -> result.put(String.valueOf(key), nestedValue));
+        return result;
     }
 
     private String statusLabel(String field) {

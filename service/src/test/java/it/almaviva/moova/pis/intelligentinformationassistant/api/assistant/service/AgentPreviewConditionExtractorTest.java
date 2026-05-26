@@ -110,4 +110,39 @@ class AgentPreviewConditionExtractorTest {
         assertThat(result.delay()).isFalse();
         assertThat(result.location()).isNull();
     }
+
+    @Test
+    void extractsTemporalAnyElementWithoutFlatteningOrBecomingPartial() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                                "conditions", Map.of("all", List.of(
+                                        Map.of(
+                                                "field", "stopPoint.nameLong",
+                                                "operator", "EQUALS_NORMALIZED",
+                                                "value", "Gorla"),
+                                        Map.of(
+                                                "field", "departureTime",
+                                                "operator", "LOCAL_TIME_BETWEEN",
+                                                "value", Map.of(
+                                                        "start", "11:30:00",
+                                                        "end", "12:35:00",
+                                                        "timezone", "Europe/Rome"))))))));
+        AgentPreviewConditionExtractor.ConditionSummary result = extractor.extract(new AlertAgentGenerationPreviewData(
+                "ALRT1", "Temporal next call", "VERIFIED", "VERIFIED", false, null, 1,
+                "Prompt", "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                Map.of("condition", condition),
+                Map.of("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition)),
+                List.of(), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY)));
+
+        assertThat(result.partial()).isFalse();
+        assertThat(result.temporalFilter()).isTrue();
+        assertThat(result.dslOperators()).contains("LOCAL_TIME_BETWEEN", "EQUALS_NORMALIZED");
+        assertThat(result.arrayConditions()).singleElement()
+                .satisfies(array -> assertThat(array.path())
+                        .isEqualTo("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]"));
+    }
 }

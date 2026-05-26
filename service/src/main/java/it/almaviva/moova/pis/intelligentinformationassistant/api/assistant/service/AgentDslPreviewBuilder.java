@@ -94,6 +94,10 @@ class AgentDslPreviewBuilder {
                 supported &= renderChildren(output, children, 4);
             }
         }
+        if (condition.containsKey("anyElement")) {
+            rendered = true;
+            supported &= renderAnyElement(output, condition.get("anyElement"), 2, false);
+        }
         if (!rendered && isLeaf(condition)) {
             appendLine(output, 2, "condition:");
             renderLeaf(output, condition, 4, false);
@@ -112,6 +116,8 @@ class AgentDslPreviewBuilder {
             Map<String, Object> node = mapValue(rawNode);
             if (isLeaf(node)) {
                 renderLeaf(output, node, indent, true);
+            } else if (node.containsKey("anyElement")) {
+                supported &= renderAnyElement(output, node.get("anyElement"), indent, true);
             } else if (node.get("all") instanceof List<?> nested) {
                 appendLine(output, indent, "- all:");
                 supported &= renderChildren(output, nested, indent + 4);
@@ -125,16 +131,63 @@ class AgentDslPreviewBuilder {
         return supported;
     }
 
+    private boolean renderAnyElement(StringBuilder output, Object value, int indent, boolean listItem) {
+        Map<String, Object> anyElement = mapValue(value);
+        String path = stringValue(anyElement.get("path"));
+        Map<String, Object> conditions = mapValue(anyElement.get("conditions"));
+        if (!hasText(path) || conditions.isEmpty()) {
+            return false;
+        }
+        appendLine(output, indent, (listItem ? "- " : "") + "anyElement:");
+        int propertyIndent = indent + 2;
+        appendLine(output, propertyIndent, "path: " + path);
+        boolean rendered = false;
+        boolean supported = true;
+        for (String group : List.of("all", "any")) {
+            if (conditions.get(group) instanceof List<?> nested) {
+                rendered = true;
+                appendLine(output, propertyIndent, group + ":");
+                supported &= renderChildren(output, nested, propertyIndent + 2);
+            }
+        }
+        if (!rendered && isLeaf(conditions)) {
+            rendered = true;
+            appendLine(output, propertyIndent, "condition:");
+            renderLeaf(output, conditions, propertyIndent + 2, false);
+        }
+        System.out.println("[IIA][AGENT_PREVIEW][ARRAY] anyElement rendered path=" + path);
+        return rendered && supported;
+    }
+
     private void renderLeaf(StringBuilder output, Map<String, Object> leaf, int indent, boolean listItem) {
         appendLine(output, indent, (listItem ? "- " : "") + "field: " + leaf.get("field"));
         appendLine(output, indent + (listItem ? 2 : 0), "operator: " + leaf.get("operator"));
         int propertyIndent = indent + (listItem ? 2 : 0);
-        if (leaf.containsKey("value")) {
+        if ("LOCAL_TIME_BETWEEN".equals(stringValue(leaf.get("operator")))) {
+            System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] rendered operator=LOCAL_TIME_BETWEEN field="
+                    + leaf.get("field"));
+        }
+        if (leaf.get("value") instanceof Map<?, ?> rawValue) {
+            appendLine(output, propertyIndent, "value:");
+            Map<String, Object> nestedValue = mapValue(rawValue);
+            for (String key : List.of("start", "end", "timezone")) {
+                if (nestedValue.containsKey(key)) {
+                    appendLine(output, propertyIndent + 2, key + ": " + renderedValue(key, nestedValue.remove(key)));
+                }
+            }
+            nestedValue.forEach((key, value) ->
+                    appendLine(output, propertyIndent + 2, key + ": " + renderedValue(key, value)));
+        } else if (leaf.containsKey("value")) {
             appendLine(output, propertyIndent, "value: " + leaf.get("value"));
         } else if (leaf.get("values") instanceof List<?> values) {
             appendLine(output, propertyIndent, "values:");
             values.forEach(value -> appendLine(output, propertyIndent + 2, "- " + value));
         }
+    }
+
+    private String renderedValue(String key, Object value) {
+        String rendered = stringValue(value);
+        return ("start".equals(key) || "end".equals(key)) ? "\"" + rendered + "\"" : rendered;
     }
 
     private void appendEvents(StringBuilder output, List<String> events) {

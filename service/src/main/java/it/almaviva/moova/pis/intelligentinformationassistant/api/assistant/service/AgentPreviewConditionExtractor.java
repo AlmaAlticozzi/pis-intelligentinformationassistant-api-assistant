@@ -17,7 +17,9 @@ class AgentPreviewConditionExtractor {
 
     private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values");
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
+    private static final Set<String> ANY_ELEMENT_FIELDS = Set.of("type", "anyElement");
     private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+    private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
     private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
             "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 
@@ -33,8 +35,10 @@ class AgentPreviewConditionExtractor {
                 condition.get("type"),
                 data.technicalSpecification().get("conditionType"));
         List<ConditionLeaf> leaves = new ArrayList<>();
+        List<ArrayElementCondition> arrayConditions = new ArrayList<>();
         List<RenderIssue> renderIssues = new ArrayList<>();
-        boolean partial = !condition.isEmpty() && !collectLeaves(condition, "condition", leaves, renderIssues);
+        boolean partial = !condition.isEmpty()
+                && !collectLeaves(condition, "condition", leaves, arrayConditions, renderIssues);
         String location = leaves.stream()
                 .filter(leaf -> leaf.field() != null && leaf.field().contains("stopPoint.nameLong"))
                 .map(ConditionLeaf::value)
@@ -67,6 +71,14 @@ class AgentPreviewConditionExtractor {
                 .map(ConditionLeaf::operator)
                 .filter(value -> value != null && !value.isBlank())
                 .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        boolean temporalFilter = dslOperators.contains(LOCAL_TIME_BETWEEN);
+        if (temporalFilter) {
+            System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] recognized operators=" + dslOperators);
+        }
+        if (!arrayConditions.isEmpty()) {
+            System.out.println("[IIA][AGENT_PREVIEW][ARRAY] extracted anyElement paths="
+                    + arrayConditions.stream().map(ArrayElementCondition::path).toList());
+        }
 
         return new ConditionSummary(
                 condition,
@@ -79,6 +91,8 @@ class AgentPreviewConditionExtractor {
                 platformChangeLeaves,
                 serviceType,
                 dslOperators,
+                temporalFilter,
+                List.copyOf(arrayConditions),
                 partial,
                 List.copyOf(renderIssues));
     }
@@ -87,12 +101,14 @@ class AgentPreviewConditionExtractor {
             Map<String, Object> node,
             String path,
             List<ConditionLeaf> leaves,
+            List<ArrayElementCondition> arrayConditions,
             List<RenderIssue> issues) {
         if (isLeaf(node)) {
             leaves.add(new ConditionLeaf(
                     stringValue(node.get("field")),
                     stringValue(node.get("operator")),
-                    values(node)));
+                    values(node),
+                    node.get("value")));
             return LEAF_FIELDS.containsAll(node.keySet());
         }
         if (node.containsKey("field") || node.containsKey("operator")) {
@@ -108,6 +124,26 @@ class AgentPreviewConditionExtractor {
             issues.add(issue(path, reason, operator, node));
             return false;
         }
+        if (node.containsKey("anyElement")) {
+            if (!(node.get("anyElement") instanceof Map<?, ?> rawArrayCondition)) {
+                issues.add(issue(path + ".anyElement", "expected anyElement object", null, node));
+                return false;
+            }
+            Map<String, Object> arrayCondition = mapValue(rawArrayCondition);
+            String arrayPath = stringValue(arrayCondition.get("path"));
+            Map<String, Object> nestedCondition = mapValue(arrayCondition.get("conditions"));
+            if (arrayPath == null || arrayPath.isBlank() || nestedCondition.isEmpty()) {
+                issues.add(issue(path + ".anyElement", "expected path and conditions", null, arrayCondition));
+                return false;
+            }
+            List<ConditionLeaf> elementLeaves = new ArrayList<>();
+            boolean supported = ANY_ELEMENT_FIELDS.containsAll(node.keySet())
+                    && collectLeaves(nestedCondition, path + ".anyElement.conditions",
+                    elementLeaves, arrayConditions, issues);
+            leaves.addAll(elementLeaves);
+            arrayConditions.add(new ArrayElementCondition(arrayPath, nestedCondition, List.copyOf(elementLeaves)));
+            return supported;
+        }
         boolean supported = GROUP_FIELDS.containsAll(node.keySet());
         boolean foundGroup = false;
         for (String group : List.of("all", "any")) {
@@ -122,12 +158,13 @@ class AgentPreviewConditionExtractor {
                         supported = false;
                         continue;
                     }
-                    supported &= collectLeaves(mapValue(map), childPath, leaves, issues);
+                    supported &= collectLeaves(mapValue(map), childPath, leaves, arrayConditions, issues);
                 }
             }
         }
         if (!foundGroup) {
-            issues.add(issue(path, "expected all/any or field/operator/value node", stringValue(node.get("operator")), node));
+            issues.add(issue(path, "expected all/any or field/operator/value node",
+                    stringValue(node.get("operator")), node));
         } else if (!supported && issues.isEmpty()) {
             issues.add(issue(path, "unsupported condition node keys", stringValue(node.get("operator")), node));
         }
@@ -250,10 +287,13 @@ class AgentPreviewConditionExtractor {
         return value == null ? null : String.valueOf(value);
     }
 
-    record ConditionLeaf(String field, String operator, List<String> values) {
+    record ConditionLeaf(String field, String operator, List<String> values, Object rawValue) {
         String value() {
             return values.isEmpty() ? null : values.getFirst();
         }
+    }
+
+    record ArrayElementCondition(String path, Map<String, Object> condition, List<ConditionLeaf> leaves) {
     }
 
     record ConditionSummary(
@@ -267,6 +307,8 @@ class AgentPreviewConditionExtractor {
             List<ConditionLeaf> platformChangeLeaves,
             String serviceType,
             Set<String> dslOperators,
+            boolean temporalFilter,
+            List<ArrayElementCondition> arrayConditions,
             boolean partial,
             List<RenderIssue> renderIssues) {
     }

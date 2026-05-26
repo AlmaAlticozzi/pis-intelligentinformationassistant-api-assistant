@@ -27,6 +27,14 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedDslOperator("LESS_OR_EQUAL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_NULL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_EMPTY")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("LOCAL_TIME_BETWEEN")).isTrue();
+        assertThat(catalog.supportedDslLogicalNodes()).contains("anyElement");
+        assertThat(catalog.isSupportedTemporalField("payload.ongroundServiceEvent.eventGenerationTime")).isTrue();
+        assertThat(catalog.isSupportedArrayPath(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]")).isTrue();
+        assertThat(catalog.supportedArrayRelativeFields(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]"))
+                .contains("stopPoint.nameLong", "departureTime", "arrivalTime", "passingType");
         assertThat(catalog.isSupportedDslOperator("RANDOM_OPERATOR")).isFalse();
         assertThat(catalog.isPreviewOnlyGenerationMode("JAVA_TEMPLATE")).isTrue();
         assertThat(catalog.isForbiddenCapability("EXTERNAL_HTTP")).isTrue();
@@ -74,5 +82,23 @@ class AgentGenerationCapabilityCatalogTest {
 
         assertThat(result.supported()).isFalse();
         assertThat(result.unsupportedCapabilities()).containsExactly("RANDOM_OPERATOR");
+    }
+
+    @Test
+    void acceptsStatelessTemporalOperatorInRuntimeProfile() {
+        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
+                List.of("SERVICE_DATA"),
+                List.of("READ_SERVICE_DATA"),
+                "EVENT",
+                "STATELESS_EVENT_MATCH",
+                "ServiceDataV2",
+                "CANDIDATE_SUGGESTION",
+                List.of("SERVICE_DATA_JOURNEY"),
+                Set.of("LOCAL_TIME_BETWEEN", "EQUALS_NORMALIZED"),
+                true,
+                "DSL",
+                "DSL");
+
+        assertThat(catalog.evaluateRuntimeSupport(snapshot).supported()).isTrue();
     }
 }

@@ -5,6 +5,11 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.time.DateTimeException;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -13,6 +18,16 @@ import java.util.Set;
 
 @ApplicationScoped
 public class AgentBlueprintValidator {
+
+    private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final Set<String> TEMPORAL_RELATIVE_FIELDS = Set.of("departureTime", "arrivalTime");
+    private static final Map<String, Set<String>> NEXT_CALL_RELATIVE_OPERATORS = Map.of(
+            "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"),
+            "departureTime", Set.of(LOCAL_TIME_BETWEEN),
+            "arrivalTime", Set.of(LOCAL_TIME_BETWEEN),
+            "passingType", Set.of("EQUALS", "CONTAINS"));
+    private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
+    private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final AgentGenerationCapabilityCatalog capabilityCatalog;
 
@@ -107,6 +122,7 @@ public class AgentBlueprintValidator {
         conditionSummary.dslOperators().stream()
                 .filter(operator -> !capabilityCatalog.isSupportedDslOperator(operator))
                 .forEach(operator -> errors.add("Unsupported DSL operator: " + operator));
+        validateConditionCapabilities(conditionSummary.condition(), "condition", null, errors);
 
         Set<String> forbidden = new LinkedHashSet<>();
         findForbidden(blueprint, forbidden);
@@ -134,6 +150,8 @@ public class AgentBlueprintValidator {
         unsupported.addAll(forbidden);
         boolean valid = errors.isEmpty();
         boolean runtimeSupported = valid && runtime.supported() && unsupported.isEmpty();
+        System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] validation result alertId=" + alertId
+                + " runtimeSupported=" + runtimeSupported);
         if (valid) {
             System.out.println("[IIA][AGENT_BLUEPRINT_VALIDATOR] Blueprint valid alertId=" + alertId
                     + ", runtimeSupported=" + runtimeSupported);
@@ -159,6 +177,147 @@ public class AgentBlueprintValidator {
                 evaluationMode,
                 inputModel,
                 outputModel);
+    }
+
+    private void validateConditionCapabilities(
+            Map<String, Object> node,
+            String path,
+            String arrayPath,
+            List<String> errors) {
+        if (node.containsKey("anyElement")) {
+            if (arrayPath != null) {
+                rejectArray(errors, path, "nested anyElement is not supported.");
+                return;
+            }
+            validateAnyElement(node.get("anyElement"), path + ".anyElement", errors);
+            return;
+        }
+        if (node.containsKey("field") || node.containsKey("operator")) {
+            validateConditionLeaf(node, path, arrayPath, errors);
+            return;
+        }
+        for (String group : List.of("all", "any")) {
+            if (!(node.get(group) instanceof List<?> children)) {
+                continue;
+            }
+            for (int index = 0; index < children.size(); index++) {
+                if (children.get(index) instanceof Map<?, ?> child) {
+                    validateConditionCapabilities(mapValue(child), path + "." + group + "[" + index + "]",
+                            arrayPath, errors);
+                }
+            }
+        }
+    }
+
+    private void validateAnyElement(Object value, String path, List<String> errors) {
+        Map<String, Object> anyElement = mapValue(value);
+        String arrayPath = stringValue(anyElement.get("path"));
+        System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating anyElement path=" + arrayPath);
+        if (!capabilityCatalog.isSupportedArrayPath(arrayPath)) {
+            rejectArray(errors, path, "path is not supported: " + arrayPath);
+            return;
+        }
+        Map<String, Object> conditions = mapValue(anyElement.get("conditions"));
+        if (conditions.isEmpty()) {
+            rejectArray(errors, path, "conditions are missing.");
+            return;
+        }
+        validateConditionCapabilities(conditions, path + ".conditions", arrayPath, errors);
+    }
+
+    private void validateConditionLeaf(
+            Map<String, Object> leaf,
+            String path,
+            String arrayPath,
+            List<String> errors) {
+        String field = stringValue(leaf.get("field"));
+        String operator = stringValue(leaf.get("operator"));
+        if (arrayPath != null) {
+            System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating relative field=" + field
+                    + " operator=" + operator + " path=" + arrayPath);
+            Set<String> allowedOperators = NEXT_CALL_RELATIVE_OPERATORS.get(field);
+            if (!capabilityCatalog.isSupportedArrayRelativeField(arrayPath, field) || allowedOperators == null) {
+                rejectArray(errors, path, "relative field is not supported: " + field);
+                return;
+            }
+            if (!allowedOperators.contains(operator)) {
+                rejectArray(errors, path, "operator is not supported for relative field " + field + ": " + operator);
+                return;
+            }
+            if (TEMPORAL_RELATIVE_FIELDS.contains(field)) {
+                validateTemporalValue(leaf, path, field, errors);
+            }
+            return;
+        }
+        if (LOCAL_TIME_BETWEEN.equals(operator)) {
+            if (!capabilityCatalog.isSupportedTemporalField(field)) {
+                rejectTemporal(errors, path, "field is not supported for LOCAL_TIME_BETWEEN: " + field);
+                return;
+            }
+            validateTemporalValue(leaf, path, field, errors);
+        } else if (capabilityCatalog.isSupportedTemporalField(field)) {
+            rejectTemporal(errors, path, "operator is not supported on temporal field " + field + ": " + operator);
+        } else if (isPotentialTemporalOperator(operator)) {
+            rejectTemporal(errors, path, "temporal operator is not supported: " + operator);
+        }
+    }
+
+    private void validateTemporalValue(
+            Map<String, Object> leaf,
+            String path,
+            String field,
+            List<String> errors) {
+        Map<String, Object> value = mapValue(leaf.get("value"));
+        String start = stringValue(value.get("start"));
+        String end = stringValue(value.get("end"));
+        String timezone = stringValue(value.get("timezone"));
+        if (parseLocalTime(start) == null || parseLocalTime(end) == null) {
+            rejectTemporal(errors, path, "start and end must use HH:mm or HH:mm:ss.");
+            return;
+        }
+        if (timezone == null || timezone.isBlank()) {
+            rejectTemporal(errors, path, "timezone is required.");
+            return;
+        }
+        try {
+            ZoneId.of(timezone);
+        } catch (DateTimeException exception) {
+            rejectTemporal(errors, path, "timezone is not a valid zone id: " + timezone);
+            return;
+        }
+        System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] recognized operator=" + LOCAL_TIME_BETWEEN
+                + " field=" + field + " start=" + start + " end=" + end + " timezone=" + timezone);
+    }
+
+    private LocalTime parseLocalTime(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            if (value.matches("\\d{2}:\\d{2}")) {
+                return LocalTime.parse(value, HOUR_MINUTE);
+            }
+            if (value.matches("\\d{2}:\\d{2}:\\d{2}")) {
+                return LocalTime.parse(value, HOUR_MINUTE_SECOND);
+            }
+        } catch (DateTimeParseException exception) {
+            return null;
+        }
+        return null;
+    }
+
+    private boolean isPotentialTemporalOperator(String operator) {
+        return operator != null && operator.toUpperCase().contains("TIME");
+    }
+
+    private void rejectTemporal(List<String> errors, String path, String reason) {
+        System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] rejected path=" + path + " reason=" + reason);
+        errors.add("Unsupported temporal condition at " + path + ": " + reason);
+    }
+
+    private void rejectArray(List<String> errors, String path, String reason) {
+        System.out.println("[IIA][AGENT_PREVIEW][ARRAY] rejected path=" + path + " reason=" + reason);
+        errors.add("Unsupported anyElement condition at " + path + ": " + reason);
     }
 
     private void findForbidden(Object value, Set<String> forbidden) {
@@ -191,5 +350,9 @@ public class AgentBlueprintValidator {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

@@ -116,6 +116,52 @@ class AgentBlueprintValidatorTest {
                 && error.contains("customExpression"));
     }
 
+    @Test
+    void acceptsCorrelatedNextCallsTemporalCondition() {
+        AlertAgentGenerationPreviewData data = previewData(nextCallsTemporalCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]", "Europe/Rome"));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("LOCAL_TIME_BETWEEN", "EQUALS_NORMALIZED");
+    }
+
+    @Test
+    void acceptsEventGenerationTimeTemporalConditionAndRejectsInventedTemporalOperator() {
+        AlertAgentGenerationPreviewData validData = previewData(eventTemporalCondition("LOCAL_TIME_BETWEEN"));
+        AlertAgentGenerationPreviewData invalidData = previewData(eventTemporalCondition("LOCAL_TIME_AFTER"));
+
+        AgentBlueprintValidationResult valid = validate(
+                validData, blueprint(validData, "EVENT", false), List.of("SERVICE_DATA"));
+        AgentBlueprintValidationResult invalid = validate(
+                invalidData, blueprint(invalidData, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(valid.valid()).isTrue();
+        assertThat(valid.runtimeSupported()).isTrue();
+        assertThat(invalid.valid()).isFalse();
+        assertThat(invalid.errors()).anyMatch(error -> error.contains("LOCAL_TIME_AFTER"));
+    }
+
+    @Test
+    void rejectsTemporalAnyElementWithUnsupportedPathOrMissingTimezone() {
+        AlertAgentGenerationPreviewData unsupportedPath = previewData(nextCallsTemporalCondition(
+                "payload.stopPointJourney.otherCalls[]", "Europe/Rome"));
+        AlertAgentGenerationPreviewData missingTimezone = previewData(nextCallsTemporalCondition(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]", null));
+
+        AgentBlueprintValidationResult unsupportedResult = validate(
+                unsupportedPath, blueprint(unsupportedPath, "EVENT", false), List.of("SERVICE_DATA"));
+        AgentBlueprintValidationResult missingTimezoneResult = validate(
+                missingTimezone, blueprint(missingTimezone, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(unsupportedResult.valid()).isFalse();
+        assertThat(unsupportedResult.errors()).anyMatch(error -> error.contains("path is not supported"));
+        assertThat(missingTimezoneResult.valid()).isFalse();
+        assertThat(missingTimezoneResult.errors()).anyMatch(error -> error.contains("timezone is required"));
+    }
+
     private AgentBlueprintValidationResult validate(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
@@ -224,9 +270,50 @@ class AgentBlueprintValidatorTest {
                                         "field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
                                         "operator", "GREATER_THAN",
                                         "value", 0),
-                                Map.of(
+                        Map.of(
                                         "field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
                                         "operator", "CONTAINS_ANY",
                                         "values", List.of("ARRIVAL_DELAY"))))));
+    }
+
+    private Map<String, Object> nextCallsTemporalCondition(String path, String timezone) {
+        Map<String, Object> temporalValue = new java.util.LinkedHashMap<>();
+        temporalValue.put("start", "11:30:00");
+        temporalValue.put("end", "12:35:00");
+        if (timezone != null) {
+            temporalValue.put("timezone", timezone);
+        }
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVED"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", path,
+                                        "conditions", Map.of(
+                                                "all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "EQUALS_NORMALIZED",
+                                                                "value", "Gorla"),
+                                                        Map.of(
+                                                                "field", "departureTime",
+                                                                "operator", "LOCAL_TIME_BETWEEN",
+                                                                "value", temporalValue)))))));
+    }
+
+    private Map<String, Object> eventTemporalCondition(String operator) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                        "operator", operator,
+                        "value", Map.of(
+                                "start", "02:00:00",
+                                "end", "10:00:00",
+                                "timezone", "Europe/Rome"))));
     }
 }

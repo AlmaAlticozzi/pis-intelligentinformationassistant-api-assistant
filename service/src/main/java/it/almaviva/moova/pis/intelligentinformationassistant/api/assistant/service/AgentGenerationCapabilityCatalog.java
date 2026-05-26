@@ -28,8 +28,17 @@ public class AgentGenerationCapabilityCatalog {
             "CONTAINS", "CONTAINS_ANY", "CONTAINS_IGNORE_CASE", "CONTAINS_NORMALIZED",
             "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "NOT_EQUALS",
             "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL",
-            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN");
-    private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any");
+            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "LOCAL_TIME_BETWEEN");
+    private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any", "anyElement");
+    private static final String EVENT_GENERATION_TIME =
+            "payload.ongroundServiceEvent.eventGenerationTime";
+    private static final String NEXT_CALLS_ARRAY_PATH =
+            "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
+    private static final Set<String> TEMPORAL_FIELDS = orderedSet(EVENT_GENERATION_TIME);
+    private static final Set<String> ARRAY_PATHS = orderedSet(NEXT_CALLS_ARRAY_PATH);
+    private static final Map<String, Set<String>> ARRAY_RELATIVE_FIELDS = Map.of(
+            NEXT_CALLS_ARRAY_PATH, orderedSet(
+                    "stopPoint.nameLong", "departureTime", "arrivalTime", "passingType"));
     private static final Set<String> DSL_FUNCTIONS = orderedSet(
             "normalize", "contains", "equals", "equalsIgnoreCase", "in", "exists");
     private static final Set<String> FORBIDDEN_CAPABILITIES = orderedSet(
@@ -92,6 +101,18 @@ public class AgentGenerationCapabilityCatalog {
         return DSL_FUNCTIONS.contains(function);
     }
 
+    public boolean isSupportedTemporalField(String field) {
+        return TEMPORAL_FIELDS.contains(field);
+    }
+
+    public boolean isSupportedArrayPath(String path) {
+        return ARRAY_PATHS.contains(path);
+    }
+
+    public boolean isSupportedArrayRelativeField(String path, String field) {
+        return ARRAY_RELATIVE_FIELDS.getOrDefault(path, Set.of()).contains(field);
+    }
+
     public boolean isSupportedPermission(String permission) {
         return PERMISSIONS.contains(permission);
     }
@@ -130,6 +151,18 @@ public class AgentGenerationCapabilityCatalog {
 
     public Set<String> supportedDslFunctions() {
         return DSL_FUNCTIONS;
+    }
+
+    public Set<String> supportedTemporalFields() {
+        return TEMPORAL_FIELDS;
+    }
+
+    public Set<String> supportedArrayPaths() {
+        return ARRAY_PATHS;
+    }
+
+    public Set<String> supportedArrayRelativeFields(String path) {
+        return ARRAY_RELATIVE_FIELDS.getOrDefault(path, Set.of());
     }
 
     public Set<String> forbiddenCapabilities() {

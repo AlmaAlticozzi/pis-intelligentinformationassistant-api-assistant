@@ -69,7 +69,11 @@ public class AgentGenerationPromptBuilder {
                 - generationModes: %s
                 - previewOnlyGenerationModes: %s
                 - dslOperators: %s
+                - dslLogicalNodes: %s
                 - dslFunctions: %s
+                - temporalFields: %s
+                - arrayPaths: %s
+                - nextCallsRelativeFields: %s
                 - forbiddenCapabilities: %s
                 - triggerType: EVENT
                 - evaluationMode: STATELESS_EVENT_MATCH
@@ -77,6 +81,12 @@ public class AgentGenerationPromptBuilder {
                 - outputType: CANDIDATE_SUGGESTION
                 - targetType: SERVICE_DATA_JOURNEY
                 - requiresState: false
+
+                Temporal and correlated-array rules:
+                - Preserve every verified condition in the generated blueprint parameters.condition tree.
+                - LOCAL_TIME_BETWEEN is stateless only for the verified temporal fields and must retain start, end and timezone.
+                - Preserve anyElement for correlated nextCalls constraints; never flatten stopPoint and departureTime/arrivalTime conditions into independent leaves.
+                - Inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[], fields are relative to the same item.
 
                 Verified technicalSpecification JSON:
                 %s
@@ -133,7 +143,12 @@ public class AgentGenerationPromptBuilder {
                 capabilityCatalog.supportedGenerationModes(),
                 capabilityCatalog.previewOnlyGenerationModes(),
                 capabilityCatalog.supportedDslOperators(),
+                capabilityCatalog.supportedDslLogicalNodes(),
                 capabilityCatalog.supportedDslFunctions(),
+                capabilityCatalog.supportedTemporalFields(),
+                capabilityCatalog.supportedArrayPaths(),
+                capabilityCatalog.supportedArrayRelativeFields(
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]"),
                 capabilityCatalog.forbiddenCapabilities(),
                 json(alert.technicalSpecification()),
                 json(alert.agentBlueprintPreview()),

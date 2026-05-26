@@ -222,6 +222,29 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void temporalNextCallsConditionProducesRuntimeSupportedCorrelatedPreview() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(temporalNextCallsPreviewData(), null);
+
+        assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("operator: LOCAL_TIME_BETWEEN")
+                .contains("- anyElement:\n      path: payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]")
+                .contains("field: stopPoint.nameLong\n          operator: EQUALS_NORMALIZED\n          value: Gorla")
+                .contains("field: departureTime\n          operator: LOCAL_TIME_BETWEEN")
+                .contains("start: \"11:30:00\"\n            end: \"12:35:00\"\n            timezone: Europe/Rome")
+                .contains("supportedByRuntime: true");
+        assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
+                .contains("same nextCall", "Gorla", "departureTime", "11:30:00-12:35:00");
+        assertThat(response.getValidationPlan().getNegativeExamples())
+                .extracting(example -> example.getDescription())
+                .anyMatch(description -> description.contains("Gorla") && description.contains("outside"))
+                .anyMatch(description -> description.contains("different from Gorla"));
+        assertThat(response.getValidationPlan().getEdgeCases())
+                .anyMatch(description -> description.contains("different nextCalls"));
+    }
+
+    @Test
     void validatedLlmDelayCandidateNormalizesIntentAndOmitsDeterministicWarning() {
         AlertAgentGenerationPreviewData data = verifiedIntercityNumericDelayPreviewData();
         Map<String, Object> generatedBlueprint = new LinkedHashMap<>(data.agentBlueprintPreview());
@@ -518,6 +541,58 @@ class AgentGenerationPreviewMapperTest {
                 "Avverti quando un treno Intercity e in ritardo a Genova Nervi.", "Verified.",
                 null, null, "EVENT_INTERPRETER", "ServiceDataV2", "AgentOutput.CANDIDATE_SUGGESTION",
                 technicalSpecification, blueprint, List.of("JOURNEY_DELAYED"), List.of(),
+                List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData temporalNextCallsPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVED"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
+                                        "conditions", Map.of(
+                                                "all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "EQUALS_NORMALIZED",
+                                                                "value", "Gorla"),
+                                                        Map.of(
+                                                                "field", "departureTime",
+                                                                "operator", "LOCAL_TIME_BETWEEN",
+                                                                "value", Map.of(
+                                                                        "start", "11:30:00",
+                                                                        "end", "12:35:00",
+                                                                        "timezone", "Europe/Rome"))))))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ArrivalGenovaNextDepartureGorlaAgent",
+                "description", "Detects temporal next calls.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT1", "Temporal next call", "VERIFIED", "VERIFIED", false, null, 1,
+                "Fammi sapere quando una corsa arriva a Genova e partira a Gorla tra le 11:30 e le 12:35",
+                "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION", technicalSpecification, blueprint, List.of("ARRIVED"), List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
     }
 
