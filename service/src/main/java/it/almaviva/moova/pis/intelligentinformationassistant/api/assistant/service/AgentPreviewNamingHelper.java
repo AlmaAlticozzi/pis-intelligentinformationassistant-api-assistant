@@ -9,10 +9,19 @@ class AgentPreviewNamingHelper {
     String agentName(
             AlertAgentGenerationPreviewData data,
             AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        if (conditionSummary.platformChange()) {
+            String location = compact(conditionSummary.location());
+            String result = "PlatformChange" + (location.isBlank() ? "AnyLocation" : location) + "Agent";
+            return result.length() <= 120 ? result : result.substring(0, 115) + "Agent";
+        }
+        if (conditionSummary.delay() && hasText(conditionSummary.location())) {
+            String serviceType = compact(conditionSummary.serviceType());
+            String location = compact(conditionSummary.location());
+            String result = "JourneyDelay" + serviceType + location + "Agent";
+            return result.length() <= 120 ? result : result.substring(0, 115) + "Agent";
+        }
         if (conditionSummary.cancellation() && hasText(conditionSummary.location())) {
-            String location = Normalizer.normalize(conditionSummary.location(), Normalizer.Form.NFD)
-                    .replaceAll("\\p{M}", "")
-                    .replaceAll("[^A-Za-z0-9]", "");
+            String location = compact(conditionSummary.location());
             if (!location.isBlank()) {
                 String result = "JourneyCancellation" + location + "Agent";
                 return result.length() <= 120 ? result : result.substring(0, 115) + "Agent";
@@ -25,6 +34,15 @@ class AgentPreviewNamingHelper {
     String description(
             AlertAgentGenerationPreviewData data,
             AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        if (conditionSummary.platformChange()) {
+            String location = hasText(conditionSummary.location()) ? conditionSummary.location() : "any location";
+            return "Detects train platform changes at " + location + " from realtime ServiceData events.";
+        }
+        if (conditionSummary.delay() && hasText(conditionSummary.location())) {
+            String service = hasText(conditionSummary.serviceType()) ? conditionSummary.serviceType() + " " : "";
+            return "Detects delayed " + service + "journeys at " + conditionSummary.location()
+                    + " from realtime ServiceData events.";
+        }
         if (conditionSummary.cancellation() && hasText(conditionSummary.location())) {
             return "Detects cancelled journeys at " + conditionSummary.location()
                     + " from realtime ServiceData events.";
@@ -40,6 +58,14 @@ class AgentPreviewNamingHelper {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String compact(String value) {
+        return hasText(value)
+                ? Normalizer.normalize(value, Normalizer.Form.NFD)
+                        .replaceAll("\\p{M}", "")
+                        .replaceAll("[^A-Za-z0-9]", "")
+                : "";
     }
 
     private String stringValue(Object value) {

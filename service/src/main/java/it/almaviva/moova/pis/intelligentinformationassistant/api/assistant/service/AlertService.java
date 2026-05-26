@@ -3,6 +3,10 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
@@ -70,11 +74,23 @@ public class AlertService {
     @Inject
     AgentGenerationPreviewMapper agentGenerationPreviewMapper;
 
+    @Inject
+    AgentGenerationPromptBuilder agentGenerationPromptBuilder;
+
+    @Inject
+    AgentGenerationLlmResponseParser agentGenerationLlmResponseParser;
+
     /**
      * Development safety valve for non-conforming LLM JSON. Production should set this to false.
      */
-    @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "true")
+    @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "false")
     boolean fallbackOnInvalidLlm;
+
+    @ConfigProperty(name = "iia.agent-generation-preview.use-llm", defaultValue = "false")
+    boolean agentGenerationPreviewUseLlm;
+
+    @ConfigProperty(name = "iia.agent-generation-preview.fallback-to-deterministic-on-llm-error", defaultValue = "true")
+    boolean agentGenerationPreviewFallbackToDeterministicOnLlmError;
 
     public AlertSummaryListResponse searchAlerts(AlertSearchCriteria criteria) {
         System.out.println("[IIA][ALERT_SEARCH] criteria=" + criteria);
@@ -117,9 +133,56 @@ public class AlertService {
         }
 
         System.out.println("[IIA][AGENT_PREVIEW] Building read-only preview alertId=" + alertId);
-        AgentGenerationPreviewResponse response = agentGenerationPreviewMapper.toResponse(data, request);
+        AgentGenerationPreviewResponse response = agentGenerationPreviewUseLlm
+                ? previewUsingLlmWithControlledFallback(data, request)
+                : agentGenerationPreviewMapper.toResponse(data, request);
         System.out.println("[IIA][AGENT_PREVIEW] Preview produced alertId=" + alertId + ", generationMode=DSL, complexity=LOW");
         return Optional.of(response);
+    }
+
+    private AgentGenerationPreviewResponse previewUsingLlmWithControlledFallback(
+            AlertAgentGenerationPreviewData data,
+            AgentGenerationPreviewRequest request) {
+        System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM generation enabled alertId=" + data.alertId());
+        try {
+            LlmRequest llmRequest = agentGenerationPromptBuilder.build(data, request);
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] Calling LlmGateway useCase="
+                    + AiUseCase.AGENT_BLUEPRINT_GENERATE + " alertId=" + data.alertId());
+            LlmResponse response = llmGateway.get().generateText(llmRequest);
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM response received alertId=" + data.alertId()
+                    + ", provider=" + response.provider() + ", model=" + response.model());
+            AgentGenerationPreviewOutcome outcome = agentGenerationLlmResponseParser.parse(response.text())
+                    .orElseThrow(() -> new IllegalStateException("LLM Agent Blueprint response is not valid JSON."));
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] Parsed LLM blueprint alertId=" + data.alertId()
+                    + ", canGenerate=" + outcome.canGenerate()
+                    + ", recommendedGenerationMode=" + outcome.recommendedGenerationMode());
+            if (!outcome.canGenerate()) {
+                throw new AlertAgentGenerationPreviewRejectedException(
+                        AlertAgentGenerationPreviewRejectedException.Reason.INVALID_BLUEPRINT);
+            }
+            List<String> warnings = new java.util.ArrayList<>(outcome.warnings());
+            warnings.add(AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING);
+            AgentGenerationPreviewResponse generated = agentGenerationPreviewMapper.toResponse(
+                    data,
+                    request,
+                    outcome.blueprint(),
+                    warnings);
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM blueprint validated alertId=" + data.alertId()
+                    + ", runtimeSupported=true");
+            return generated;
+        } catch (RuntimeException exception) {
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] LLM blueprint rejected or generation failed alertId="
+                    + data.alertId() + ", error=" + exception.getMessage());
+            if (!agentGenerationPreviewFallbackToDeterministicOnLlmError) {
+                throw exception;
+            }
+            System.out.println("[IIA][AGENT_PREVIEW_LLM] Falling back to deterministic preview alertId=" + data.alertId());
+            return agentGenerationPreviewMapper.toResponse(
+                    data,
+                    request,
+                    null,
+                    List.of("LLM Agent Blueprint generation failed or was rejected by backend validation; deterministic verified Alert artifacts were used instead."));
+        }
     }
 
     @Transactional
@@ -285,16 +348,21 @@ public class AlertService {
         }
 
         LlmRequest promptRequest = alertVerificationPromptBuilder.build(promptData.get());
+        System.out.println("[IIA][ALERT_VERIFY][CONFIG] fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT] Built ALERT_VERIFY prompt for alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][SYSTEM] " + promptRequest.systemPrompt());
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
 
         AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, promptData.get(), promptRequest);
         AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(resolution.outcome());
+        if (resolution.parseableLlm() && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
+            System.out.println("[IIA][ALERT_VERIFY][VALIDATION] LLM outcome rejected by backend validation alertId="
+                    + alertId + ", fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
+        }
         if (resolution.parseableLlm() && fallbackOnInvalidLlm && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
-            System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
+            System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine because backend validation rejected LLM output");
             outcome = alertVerificationOutcomeValidator.validate(alertVerificationMockEngine.verify(alertId, promptData.get().prompt())
-                    .withAdditionalWarning("LLM response was invalid for the current MVP contract. Deterministic mock fallback was used."));
+                    .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."));
         }
         return alertRepository.verifyAlert(alertId, request, outcome);
     }
@@ -321,18 +389,29 @@ public class AlertService {
             System.out.println("[IIA][ALERT_VERIFY][LLM] LlmGateway response provider=" + provider + " model=" + model);
             System.out.println("[IIA][ALERT_VERIFY][LLM_RAW] " + (response == null ? null : response.text()));
 
-            Optional<AlertVerificationOutcome> parsedOutcome = alertVerificationLlmResponseParser.parse(
+            AlertVerificationLlmResponseParser.ParseResult parseResult = alertVerificationLlmResponseParser.parseDetailed(
                     response == null ? null : response.text(),
                     provider,
                     model);
-            if (parsedOutcome.isPresent()) {
-                logParsedOutcome(parsedOutcome.get());
-                return new AlertVerificationResolution(parsedOutcome.get(), true);
+            if (parseResult.outcome().isPresent()) {
+                logParsedOutcome(parseResult.outcome().get());
+                return new AlertVerificationResolution(parseResult.outcome().get(), true);
             }
 
-            System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine");
-            return new AlertVerificationResolution(alertVerificationMockEngine.verify(alertId, promptData.prompt())
-                    .withAdditionalWarning("LLM response was empty or not parseable. Deterministic mock fallback was used."), false);
+            System.out.println("[IIA][ALERT_VERIFY][PARSER] Failed to parse LLM JSON alertId=" + alertId
+                    + ", reason=" + parseResult.failureReason()
+                    + ", rawLength=" + parseResult.rawLength()
+                    + ", looksTruncated=" + parseResult.looksTruncated());
+            if (fallbackOnInvalidLlm) {
+                System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine because fallback-on-invalid-llm is enabled");
+                return new AlertVerificationResolution(alertVerificationMockEngine.verify(alertId, promptData.prompt())
+                        .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."), false);
+            }
+            return new AlertVerificationResolution(technicalErrorOutcome(
+                    "LLM response could not be parsed: " + parseResult.failureReason()
+                            + " (rawLength=" + parseResult.rawLength()
+                            + ", looksTruncated=" + parseResult.looksTruncated() + ").",
+                    promptRequest), false);
         } catch (ProcessingException ex) {
             String shortMessage = shortTechnicalMessage(ex);
             System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);

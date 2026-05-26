@@ -5,12 +5,16 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 @ApplicationScoped
 public class AlertVerificationPromptBuilder {
 
     @Inject
     AiConfiguration aiConfiguration;
+
+    @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "false")
+    boolean fallbackOnInvalidLlm;
 
     public LlmRequest build(AlertVerificationPromptData alert) {
         AiConfiguration.AlertVerify alertVerifyConfiguration = aiConfiguration.alertVerify();
@@ -22,7 +26,9 @@ public class AlertVerificationPromptBuilder {
                 + " temperature="
                 + temperature
                 + " maxOutputTokens="
-                + maxOutputTokens);
+                + maxOutputTokens
+                + " fallbackOnInvalidLlm="
+                + fallbackOnInvalidLlm);
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
                 systemPrompt(),

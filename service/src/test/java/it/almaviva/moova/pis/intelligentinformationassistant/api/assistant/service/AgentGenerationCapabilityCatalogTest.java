@@ -18,7 +18,15 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.permissionForSource("SERVICE_DATA")).isEqualTo("READ_SERVICE_DATA");
         assertThat(catalog.isSupportedDslOperator("CONTAINS")).isTrue();
         assertThat(catalog.isSupportedDslOperator("CONTAINS_ANY")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("CONTAINS_IGNORE_CASE")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("CONTAINS_NORMALIZED")).isTrue();
         assertThat(catalog.isSupportedDslOperator("EQUALS_NORMALIZED")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("GREATER_THAN")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("GREATER_OR_EQUAL")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("LESS_THAN")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("LESS_OR_EQUAL")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("NOT_NULL")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("NOT_EMPTY")).isTrue();
         assertThat(catalog.isSupportedDslOperator("RANDOM_OPERATOR")).isFalse();
         assertThat(catalog.isPreviewOnlyGenerationMode("JAVA_TEMPLATE")).isTrue();
         assertThat(catalog.isForbiddenCapability("EXTERNAL_HTTP")).isTrue();

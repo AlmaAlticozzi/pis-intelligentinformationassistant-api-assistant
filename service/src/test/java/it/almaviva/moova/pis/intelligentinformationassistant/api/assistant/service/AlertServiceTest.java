@@ -1,5 +1,15 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
@@ -7,11 +17,18 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import jakarta.enterprise.inject.Instance;
 import org.eclipse.microprofile.context.ManagedExecutor;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +47,42 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class AlertServiceTest {
+
+    @Test
+    void verifyParserFailureDoesNotUseMockWhenFallbackIsDisabled() {
+        AlertService service = verificationService(false);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.llmGateway.get().generateText(any())).thenReturn(
+                new LlmResponse("{\"decision\":\"VERIFIED\"", "OPENAI", "gpt-4.1-mini", null, null, null));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
+        assertThat(outcome.getValue().warnings().getFirst()).contains("looksTruncated=true");
+        verify(service.alertVerificationMockEngine, never()).verify(any(), any());
+    }
+
+    @Test
+    void verifyParserFailureUsesMockOnlyWhenFallbackIsEnabled() {
+        AlertService service = verificationService(true);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.llmGateway.get().generateText(any())).thenReturn(
+                new LlmResponse("{\"decision\":\"VERIFIED\"", "OPENAI", "gpt-4.1-mini", null, null, null));
+        when(service.alertVerificationMockEngine.verify("ALRT1", "Prompt"))
+                .thenReturn(rejectedVerificationOutcome("MOCK"));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        verify(service.alertVerificationMockEngine).verify("ALRT1", "Prompt");
+        assertThat(outcome.getValue().warnings()).contains(
+                "LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled.");
+    }
 
     @Test
     void createWithVerifyImmediatelyFalseKeepsDraftDisabled() {
@@ -547,6 +600,127 @@ class AlertServiceTest {
                 .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class)
                 .extracting(ex -> ((AlertAgentGenerationPreviewRejectedException) ex).reason())
                 .isEqualTo(AlertAgentGenerationPreviewRejectedException.Reason.MISSING_TECHNICAL_ARTIFACTS);
+    }
+
+    @Test
+    void previewWithLlmDisabledKeepsDeterministicPath() {
+        AlertRepository repository = mock(AlertRepository.class);
+        AgentGenerationPreviewMapper mapper = mock(AgentGenerationPreviewMapper.class);
+        LlmGateway gateway = mock(LlmGateway.class);
+        Instance<LlmGateway> gatewayInstance = mock(Instance.class);
+        AlertService service = new AlertService();
+        service.alertRepository = repository;
+        service.agentGenerationPreviewMapper = mapper;
+        service.llmGateway = gatewayInstance;
+        AlertAgentGenerationPreviewData data = validPreviewData();
+        when(repository.getAlertAgentGenerationPreviewData("ALRT1")).thenReturn(java.util.Optional.of(data));
+        when(mapper.toResponse(data, null)).thenReturn(new AgentGenerationPreviewResponse());
+
+        service.previewAgentGenerationForAlert("ALRT1", null);
+
+        verify(mapper).toResponse(data, null);
+        verify(gateway, never()).generateText(any());
+    }
+
+    @Test
+    void previewWithValidLlmCandidatePassesCandidateToValidatedMapperPath() {
+        AlertService service = llmPreviewService();
+        AlertAgentGenerationPreviewData data = validPreviewData();
+        when(service.alertRepository.getAlertAgentGenerationPreviewData("ALRT1")).thenReturn(java.util.Optional.of(data));
+        when(service.agentGenerationPromptBuilder.build(data, null)).thenReturn(llmRequest());
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse(
+                "{\"canGenerate\":true,\"blueprint\":{\"agentName\":\"GeneratedAgent\"},\"warnings\":[]}",
+                "FAKE", "fake-model", null, null, null));
+        when(service.agentGenerationPreviewMapper.toResponse(any(), any(), any(), any()))
+                .thenReturn(new AgentGenerationPreviewResponse());
+
+        service.previewAgentGenerationForAlert("ALRT1", null);
+
+        verify(service.agentGenerationPreviewMapper).toResponse(
+                data,
+                null,
+                Map.of("agentName", "GeneratedAgent"),
+                List.of("Agent Blueprint preview generated by LLM and validated by backend; no Agent Definition has been created."));
+    }
+
+    @Test
+    void previewWithInvalidLlmResponseFallsBackToDeterministicArtifacts() {
+        AlertService service = llmPreviewService();
+        AlertAgentGenerationPreviewData data = validPreviewData();
+        when(service.alertRepository.getAlertAgentGenerationPreviewData("ALRT1")).thenReturn(java.util.Optional.of(data));
+        when(service.agentGenerationPromptBuilder.build(data, null)).thenReturn(llmRequest());
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse(
+                "invalid-json", "FAKE", "fake-model", null, null, null));
+        when(service.agentGenerationPreviewMapper.toResponse(any(), any(), any(), any()))
+                .thenReturn(new AgentGenerationPreviewResponse());
+
+        service.previewAgentGenerationForAlert("ALRT1", null);
+
+        verify(service.agentGenerationPreviewMapper).toResponse(
+                data,
+                null,
+                null,
+                List.of("LLM Agent Blueprint generation failed or was rejected by backend validation; deterministic verified Alert artifacts were used instead."));
+    }
+
+    @SuppressWarnings("unchecked")
+    private AlertService llmPreviewService() {
+        AlertService service = new AlertService();
+        service.alertRepository = mock(AlertRepository.class);
+        service.agentGenerationPreviewMapper = mock(AgentGenerationPreviewMapper.class);
+        service.agentGenerationPromptBuilder = mock(AgentGenerationPromptBuilder.class);
+        service.agentGenerationLlmResponseParser = new AgentGenerationLlmResponseParser();
+        service.llmGateway = mock(Instance.class);
+        LlmGateway gateway = mock(LlmGateway.class);
+        when(service.llmGateway.get()).thenReturn(gateway);
+        service.agentGenerationPreviewUseLlm = true;
+        service.agentGenerationPreviewFallbackToDeterministicOnLlmError = true;
+        return service;
+    }
+
+    @SuppressWarnings("unchecked")
+    private AlertService verificationService(boolean fallbackEnabled) {
+        AlertService service = new AlertService();
+        service.alertRepository = mock(AlertRepository.class);
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData("ALRT1", "Alert", null, "Prompt")));
+        when(service.alertRepository.verifyAlert(any(), any(), any())).thenReturn(java.util.Optional.empty());
+        service.alertVerificationPromptBuilder = mock(AlertVerificationPromptBuilder.class);
+        when(service.alertVerificationPromptBuilder.build(any())).thenReturn(
+                new LlmRequest(AiUseCase.ALERT_VERIFY, "system", "user", "gpt-4.1-mini", 0.1, 5000, "ALRT1"));
+        service.alertVerificationLlmResponseParser = new AlertVerificationLlmResponseParser();
+        service.alertVerificationOutcomeValidator = mock(AlertVerificationOutcomeValidator.class);
+        when(service.alertVerificationOutcomeValidator.validate(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        service.alertVerificationMockEngine = mock(AlertVerificationMockEngine.class);
+        service.llmGateway = mock(Instance.class);
+        when(service.llmGateway.isUnsatisfied()).thenReturn(false);
+        when(service.llmGateway.get()).thenReturn(mock(LlmGateway.class));
+        service.aiConfiguration = mock(AiConfiguration.class);
+        when(service.aiConfiguration.provider()).thenReturn("openai");
+        AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);
+        when(alertVerify.simulateProviderTimeout()).thenReturn(false);
+        when(service.aiConfiguration.alertVerify()).thenReturn(alertVerify);
+        service.fallbackOnInvalidLlm = fallbackEnabled;
+        return service;
+    }
+
+    private AlertVerificationOutcome rejectedVerificationOutcome(String provider) {
+        return new AlertVerificationOutcome(
+                AlertVerificationDecision.REJECTED, "Rejected.", "Rejected.", 0.0, provider, "mock-model",
+                "alert-verify-mvp-v1", List.of(), null, null, null, null, null, List.of(), List.of(),
+                null, null, null, List.of(), List.of());
+    }
+
+    private LlmRequest llmRequest() {
+        return new LlmRequest(AiUseCase.AGENT_BLUEPRINT_GENERATE, "system", "user", "fake-model", 0.1, 2500, "ALRT1");
+    }
+
+    private AlertAgentGenerationPreviewData validPreviewData() {
+        return previewData(
+                "VERIFIED",
+                "VERIFIED",
+                Map.of("source", "SERVICE_DATA"),
+                Map.of("agentName", "Agent"));
     }
 
     private AlertCreateRequest createRequest(boolean verifyImmediately, boolean enableAfterVerification) {

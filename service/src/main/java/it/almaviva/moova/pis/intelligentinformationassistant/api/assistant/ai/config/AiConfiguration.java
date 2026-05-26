@@ -15,6 +15,8 @@ public interface AiConfiguration {
 
     AlertVerify alertVerify();
 
+    AgentBlueprintGenerate agentBlueprintGenerate();
+
     interface TextImprove {
 
         boolean enabled();
@@ -39,7 +41,7 @@ public interface AiConfiguration {
         @WithDefault("0.1")
         Double temperature();
 
-        @WithDefault("2000")
+        @WithDefault("5000")
         Integer maxOutputTokens();
 
         /**
@@ -51,5 +53,17 @@ public interface AiConfiguration {
 
         @WithDefault("false")
         boolean simulateProviderTimeout();
+    }
+
+    interface AgentBlueprintGenerate {
+
+        @WithDefault("gpt-4.1-mini")
+        String model();
+
+        @WithDefault("0.1")
+        Double temperature();
+
+        @WithDefault("2500")
+        Integer maxOutputTokens();
     }
 }

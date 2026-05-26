@@ -10,6 +10,8 @@ import java.util.Map;
 
 class AgentDslPreviewBuilder {
 
+    private static final java.util.Set<String> VALUELESS_OPERATORS = java.util.Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+
     BuildResult build(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
@@ -159,7 +161,8 @@ class AgentDslPreviewBuilder {
         return node.containsKey("field")
                 && node.containsKey("operator")
                 && (node.get("value") != null
-                || (node.get("values") instanceof List<?> values && !values.isEmpty()));
+                || (node.get("values") instanceof List<?> values && !values.isEmpty())
+                || VALUELESS_OPERATORS.contains(stringValue(node.get("operator"))));
     }
 
     private String enumValue(Object value) {

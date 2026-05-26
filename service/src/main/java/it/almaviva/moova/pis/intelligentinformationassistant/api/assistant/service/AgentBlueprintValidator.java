@@ -86,7 +86,23 @@ public class AgentBlueprintValidator {
             errors.add("Unsupported or missing conditionType: " + conditionSummary.conditionType());
         }
         if (conditionSummary.condition().isEmpty() || conditionSummary.partial()) {
-            errors.add("Condition tree cannot be rendered completely by the deterministic DSL renderer.");
+            if (conditionSummary.renderIssues().isEmpty()) {
+                errors.add("Condition tree cannot be rendered completely by the deterministic DSL renderer.");
+            } else {
+                conditionSummary.renderIssues().forEach(issue -> {
+                    String detail = "Condition tree cannot be rendered completely by the deterministic DSL renderer at "
+                            + issue.path() + ": " + issue.reason() + "; keys=" + issue.keys() + ".";
+                    errors.add(detail);
+                    System.out.println("[IIA][AGENT_DSL_RENDERER] Unsupported condition node alertId=" + alertId
+                            + ", path=" + issue.path()
+                            + ", reason=" + issue.reason()
+                            + ", operator=" + issue.operator()
+                            + ", keys=" + issue.keys()
+                            + ", node=" + issue.snippet());
+                    System.out.println("[IIA][AGENT_BLUEPRINT_VALIDATOR] Condition renderability failed alertId="
+                            + alertId + ", path=" + issue.path() + ", reason=" + issue.reason());
+                });
+            }
         }
         conditionSummary.dslOperators().stream()
                 .filter(operator -> !capabilityCatalog.isSupportedDslOperator(operator))

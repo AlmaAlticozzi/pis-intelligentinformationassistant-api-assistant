@@ -3,16 +3,23 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 class AgentPreviewConditionExtractor {
 
     private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values");
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
+    private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+    private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
+            "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 
     ConditionSummary extract(AlertAgentGenerationPreviewData data) {
         Map<String, Object> parameters = mapValue(data.agentBlueprintPreview().get("parameters"));
@@ -26,7 +33,8 @@ class AgentPreviewConditionExtractor {
                 condition.get("type"),
                 data.technicalSpecification().get("conditionType"));
         List<ConditionLeaf> leaves = new ArrayList<>();
-        boolean partial = !condition.isEmpty() && !collectLeaves(condition, leaves);
+        List<RenderIssue> renderIssues = new ArrayList<>();
+        boolean partial = !condition.isEmpty() && !collectLeaves(condition, "condition", leaves, renderIssues);
         String location = leaves.stream()
                 .filter(leaf -> leaf.field() != null && leaf.field().contains("stopPoint.nameLong"))
                 .map(ConditionLeaf::value)
@@ -38,9 +46,23 @@ class AgentPreviewConditionExtractor {
                         .filter(value -> value != null && !value.isBlank())
                         .findFirst())
                 .orElse(null);
+        location = readableLocation(location);
         List<ConditionLeaf> cancellationLeaves = leaves.stream()
                 .filter(this::isCancellationLeaf)
                 .toList();
+        List<ConditionLeaf> platformChangeLeaves = leaves.stream()
+                .filter(this::isPlatformChangeLeaf)
+                .toList();
+        boolean delay = leaves.stream().anyMatch(this::isDelayLeaf)
+                || containsDelay(data.interpretedEventNames())
+                || containsDelay(Arrays.asList(data.prompt(), stringValue(mapValue(data.agentBlueprintPreview().get("output"))
+                        .get("reasonTemplate"))));
+        String serviceType = findServiceType(leaves, data);
+        if (location == null && delay) {
+            location = extractLocationFromText(firstString(
+                    mapValue(data.agentBlueprintPreview().get("output")).get("reasonTemplate"),
+                    data.prompt()));
+        }
         Set<String> dslOperators = leaves.stream()
                 .map(ConditionLeaf::operator)
                 .filter(value -> value != null && !value.isBlank())
@@ -52,11 +74,20 @@ class AgentPreviewConditionExtractor {
                 location,
                 !cancellationLeaves.isEmpty(),
                 cancellationLeaves,
+                delay,
+                !platformChangeLeaves.isEmpty(),
+                platformChangeLeaves,
+                serviceType,
                 dslOperators,
-                partial);
+                partial,
+                List.copyOf(renderIssues));
     }
 
-    private boolean collectLeaves(Map<String, Object> node, List<ConditionLeaf> leaves) {
+    private boolean collectLeaves(
+            Map<String, Object> node,
+            String path,
+            List<ConditionLeaf> leaves,
+            List<RenderIssue> issues) {
         if (isLeaf(node)) {
             leaves.add(new ConditionLeaf(
                     stringValue(node.get("field")),
@@ -64,20 +95,41 @@ class AgentPreviewConditionExtractor {
                     values(node)));
             return LEAF_FIELDS.containsAll(node.keySet());
         }
+        if (node.containsKey("field") || node.containsKey("operator")) {
+            String operator = stringValue(node.get("operator"));
+            String reason;
+            if (!node.containsKey("field")) {
+                reason = "missing field";
+            } else if (!node.containsKey("operator")) {
+                reason = "missing operator";
+            } else {
+                reason = "missing value/values for operator " + operator;
+            }
+            issues.add(issue(path, reason, operator, node));
+            return false;
+        }
         boolean supported = GROUP_FIELDS.containsAll(node.keySet());
         boolean foundGroup = false;
         for (String group : List.of("all", "any")) {
             Object children = node.get(group);
             if (children instanceof List<?> list) {
                 foundGroup = true;
-                for (Object child : list) {
+                for (int index = 0; index < list.size(); index++) {
+                    Object child = list.get(index);
+                    String childPath = path + "." + group + "[" + index + "]";
                     if (!(child instanceof Map<?, ?> map)) {
+                        issues.add(issue(childPath, "expected condition object", null, Map.of("value", child)));
                         supported = false;
                         continue;
                     }
-                    supported &= collectLeaves(mapValue(map), leaves);
+                    supported &= collectLeaves(mapValue(map), childPath, leaves, issues);
                 }
             }
+        }
+        if (!foundGroup) {
+            issues.add(issue(path, "expected all/any or field/operator/value node", stringValue(node.get("operator")), node));
+        } else if (!supported && issues.isEmpty()) {
+            issues.add(issue(path, "unsupported condition node keys", stringValue(node.get("operator")), node));
         }
         return foundGroup && supported;
     }
@@ -86,13 +138,83 @@ class AgentPreviewConditionExtractor {
         return node.containsKey("field")
                 && node.containsKey("operator")
                 && (node.get("value") != null
-                || (node.get("values") instanceof List<?> values && !values.isEmpty()));
+                || (node.get("values") instanceof List<?> values && !values.isEmpty())
+                || VALUELESS_OPERATORS.contains(stringValue(node.get("operator"))));
+    }
+
+    private RenderIssue issue(String path, String reason, String operator, Map<String, Object> node) {
+        String snippet = String.valueOf(node);
+        if (snippet.length() > 240) {
+            snippet = snippet.substring(0, 240) + "...";
+        }
+        return new RenderIssue(path, reason, operator, List.copyOf(node.keySet()), snippet);
     }
 
     private boolean isCancellationLeaf(ConditionLeaf leaf) {
         return leaf.values().stream()
                 .map(String::toUpperCase)
                 .anyMatch(value -> value.contains("CANCELLATION") || value.contains("CANCELLED"));
+    }
+
+    private boolean isDelayLeaf(ConditionLeaf leaf) {
+        String field = leaf.field() == null ? "" : leaf.field().toUpperCase();
+        return field.contains("DELAY") || leaf.values().stream()
+                .map(String::toUpperCase)
+                .anyMatch(value -> value.contains("DELAY") || value.contains("RITARD"));
+    }
+
+    private boolean isPlatformChangeLeaf(ConditionLeaf leaf) {
+        String field = leaf.field() == null ? "" : leaf.field().toUpperCase();
+        return field.contains("PLATFORM") && field.contains("CHANGE")
+                || leaf.values().stream()
+                        .map(String::toUpperCase)
+                        .anyMatch(value -> value.contains("PLATFORM_CHANGED")
+                                || value.contains("PLATFORM_CHANGE"));
+    }
+
+    private boolean containsDelay(List<String> values) {
+        return values != null && values.stream()
+                .filter(value -> value != null)
+                .map(String::toUpperCase)
+                .anyMatch(value -> value.contains("DELAY") || value.contains("RITARD"));
+    }
+
+    private String findServiceType(List<ConditionLeaf> leaves, AlertAgentGenerationPreviewData data) {
+        boolean intercity = leaves.stream()
+                .flatMap(leaf -> leaf.values().stream())
+                .anyMatch(this::isIntercity)
+                || containsIntercity(data.prompt())
+                || containsIntercity(String.valueOf(data.agentBlueprintPreview()))
+                || containsIntercity(String.valueOf(data.technicalSpecification()));
+        return intercity ? "Intercity" : null;
+    }
+
+    private boolean isIntercity(String value) {
+        return value != null && ("INTERCITY".equalsIgnoreCase(value.trim()) || "IC".equalsIgnoreCase(value.trim()));
+    }
+
+    private boolean containsIntercity(String value) {
+        return value != null && Pattern.compile("(?i)\\bintercity\\b").matcher(value).find();
+    }
+
+    private String extractLocationFromText(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher matcher = LOCATION_IN_TEXT.matcher(text);
+        return matcher.find() ? readableLocation(matcher.group(1).trim()) : null;
+    }
+
+    private String readableLocation(String location) {
+        if (location == null || !location.equals(location.toLowerCase())) {
+            return location;
+        }
+        String[] words = location.split("\\s+");
+        return IntStream.range(0, words.length)
+                .mapToObj(index -> words[index].isEmpty()
+                        ? words[index]
+                        : Character.toUpperCase(words[index].charAt(0)) + words[index].substring(1))
+                .collect(Collectors.joining(" "));
     }
 
     private List<String> values(Map<String, Object> node) {
@@ -140,7 +262,20 @@ class AgentPreviewConditionExtractor {
             String location,
             boolean cancellation,
             List<ConditionLeaf> cancellationLeaves,
+            boolean delay,
+            boolean platformChange,
+            List<ConditionLeaf> platformChangeLeaves,
+            String serviceType,
             Set<String> dslOperators,
-            boolean partial) {
+            boolean partial,
+            List<RenderIssue> renderIssues) {
+    }
+
+    record RenderIssue(
+            String path,
+            String reason,
+            String operator,
+            List<String> keys,
+            String snippet) {
     }
 }

@@ -21,8 +21,14 @@ public class AlertVerificationLlmResponseParser {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public Optional<AlertVerificationOutcome> parse(String text, String provider, String model) {
+        return parseDetailed(text, provider, model).outcome();
+    }
+
+    public ParseResult parseDetailed(String text, String provider, String model) {
+        int rawLength = text == null ? 0 : text.length();
+        boolean looksTruncated = looksTruncated(text);
         if (text == null || text.isBlank()) {
-            return Optional.empty();
+            return new ParseResult(Optional.empty(), "LLM response is empty.", rawLength, false);
         }
 
         try {
@@ -30,13 +36,13 @@ public class AlertVerificationLlmResponseParser {
             });
             AlertVerificationDecision decision = parseDecision(asString(payload.get("decision")));
             if (decision == null) {
-                return Optional.empty();
+                return new ParseResult(Optional.empty(), "Missing or unsupported decision field.", rawLength, looksTruncated);
             }
             Map<String, Object> technicalSpecification = asMap(payload.get("technicalSpecification"));
             Map<String, Object> agentBlueprintPreview = asMap(payload.get("agentBlueprintPreview"));
             Map<String, Object> requirementCoverage = asMap(payload.get("requirementCoverage"));
 
-            return Optional.of(new AlertVerificationOutcome(
+            return new ParseResult(Optional.of(new AlertVerificationOutcome(
                     decision,
                     asString(payload.get("summary")),
                     asString(payload.get("rejectedReason")),
@@ -56,10 +62,44 @@ public class AlertVerificationLlmResponseParser {
                     agentBlueprintPreview,
                     requirementCoverage,
                     asStringList(payload.get("warnings")),
-                    asStringList(payload.get("safetyChecks"))));
+                    asStringList(payload.get("safetyChecks")))), null, rawLength, false);
         } catch (JsonProcessingException ex) {
-            return Optional.empty();
+            return new ParseResult(Optional.empty(), concise(ex.getOriginalMessage()), rawLength, looksTruncated);
         }
+    }
+
+    private boolean looksTruncated(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String trimmed = text.trim();
+        if (!trimmed.endsWith("}")) {
+            return true;
+        }
+        int braceBalance = 0;
+        boolean quoted = false;
+        boolean escaped = false;
+        for (char character : trimmed.toCharArray()) {
+            if (escaped) {
+                escaped = false;
+            } else if (character == '\\' && quoted) {
+                escaped = true;
+            } else if (character == '"') {
+                quoted = !quoted;
+            } else if (!quoted && character == '{') {
+                braceBalance++;
+            } else if (!quoted && character == '}') {
+                braceBalance--;
+            }
+        }
+        return quoted || braceBalance != 0;
+    }
+
+    private String concise(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "Invalid JSON response.";
+        }
+        return reason.length() > 240 ? reason.substring(0, 240) : reason;
     }
 
     private AlertVerificationDecision parseDecision(String decision) {
@@ -114,5 +154,12 @@ public class AlertVerificationLlmResponseParser {
             return (Map<String, Object>) map;
         }
         return null;
+    }
+
+    public record ParseResult(
+            Optional<AlertVerificationOutcome> outcome,
+            String failureReason,
+            int rawLength,
+            boolean looksTruncated) {
     }
 }
