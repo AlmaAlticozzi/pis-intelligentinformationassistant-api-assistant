@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -13,11 +14,15 @@ public class AlertVerificationPromptBuilder {
     @Inject
     AiConfiguration aiConfiguration;
 
+    @Inject
+    TemporalConfiguration temporalConfiguration;
+
     @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "false")
     boolean fallbackOnInvalidLlm;
 
     public LlmRequest build(AlertVerificationPromptData alert) {
         AiConfiguration.AlertVerify alertVerifyConfiguration = aiConfiguration.alertVerify();
+        String defaultTemporalZone = defaultTemporalZone();
         String model = alertVerifyConfiguration.model();
         Double temperature = alertVerifyConfiguration.temperature();
         Integer maxOutputTokens = alertVerifyConfiguration.maxOutputTokens();
@@ -29,17 +34,18 @@ public class AlertVerificationPromptBuilder {
                 + maxOutputTokens
                 + " fallbackOnInvalidLlm="
                 + fallbackOnInvalidLlm);
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
-                systemPrompt(),
-                userPrompt(alert),
+                systemPrompt(defaultTemporalZone),
+                userPrompt(alert, defaultTemporalZone),
                 model,
                 temperature,
                 maxOutputTokens,
                 alert.alertId());
     }
 
-    private String systemPrompt() {
+    private String systemPrompt(String defaultTemporalZone) {
         return """
                 You are verifying an Alert for the PIS Intelligent Information Assistant.
                 An Alert is a user intent for operational monitoring.
@@ -62,13 +68,15 @@ public class AlertVerificationPromptBuilder {
                 - The only allowed evaluation mode is STATELESS_EVENT_MATCH.
                 - The allowed triggerType is EVENT.
                 - Internal state is not supported.
-                - Time windows are not supported.
+                - Temporal conditions are supported only when evaluated statelessly on timestamps in one ServiceDataV2 event.
+                - Local time windows such as "tra le 02:00 e le 10:00" must use operator LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
+                - Scheduled, future-existence, event-absence and historical time reasoning are not supported.
                 - Absence of events is not supported.
                 - Audio, video, device, display, broadcast, and content sources are not supported.
                 - The MVP accepts any alert that can be expressed as a stateless boolean condition over the allowed ServiceData fields listed in the ServiceData Capability Catalog.
                 - You must only use fields and operators listed in the ServiceData Capability Catalog.
                 - If the user asks for a condition that can be mapped to one or more allowed fields/operators, decision must be VERIFIED.
-                - If the user asks for absence of events over time, historical memory, external data, audio/video/device/display/broadcast/content, or free DB/API access, decision must be REJECTED.
+                - If the user asks for absence of events over time, future existence, historical memory, external data, audio/video/device/display/broadcast/content, or free DB/API access, decision must be REJECTED.
                 - You must first decompose the user prompt into all required operational constraints.
                 - Every required constraint must be listed in requirementCoverage.requirements.
                 - The alert can be VERIFIED only if every required constraint is mappable to one or more fields in the ServiceData Capability Catalog.
@@ -87,10 +95,12 @@ public class AlertVerificationPromptBuilder {
                 - Do not return empty objects for technicalSpecification or agentBlueprintPreview.
                 - technicalSpecification.condition.type must be SERVICE_DATA_FIELD_MATCH unless using a legacy event name for backward compatibility.
                 - Prefer SERVICE_DATA_FIELD_MATCH for all newly generated results.
-                """;
+                - Copy every extracted condition, including LOCAL_TIME_BETWEEN leaves, into agentBlueprintPreview.parameters.condition.
+                - Never use activation policy or scheduler to model a supported temporal condition.
+                """.formatted(defaultTemporalZone);
     }
 
-    private String userPrompt(AlertVerificationPromptData alert) {
+    private String userPrompt(AlertVerificationPromptData alert, String defaultTemporalZone) {
         String catalog = ServiceDataCapabilityCatalog.compactPromptCatalog();
         System.out.println("[IIA][ALERT_VERIFY][CATALOG] allowedFields=" + ServiceDataCapabilityCatalog.allowedFieldCount());
         return """
@@ -114,7 +124,7 @@ public class AlertVerificationPromptBuilder {
                 - Weather/meteo requests.
                 - Requests requiring audio, video, device, display, broadcast, content, or other unsupported sources.
                 - Requests about whether ServiceData says a journey was already announced are allowed only if represented with deliveryData.wasAnnounced.
-                - Requests requiring internal state, time-window evaluation, or absence of events.
+                - Requests requiring internal state, scheduled/future evaluation, historical evaluation, or absence of events.
                 - Requests that require creating Agent Definition, Agent Run, Suggestion, executable code, or Agent Profile.
 
                 Condition rules:
@@ -126,6 +136,12 @@ public class AlertVerificationPromptBuilder {
                 - For "not stopping" / "non si ferma", use passingType EQUALS TRANSIT.
                 - For cancelled journeys, use an allowed status field with ARRIVAL_CANCELLATION or DEPARTURE_CANCELLATION.
                 - For delayed journeys, use a delay field or delay status from the catalog.
+                - Stateless temporal predicates are allowed only on payload.ongroundServiceEvent.eventGenerationTime, payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime, and payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].arrivalTime.
+                - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
+                - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
+                - "parte da Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS DEPARTED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
+                - "arriva a Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS ARRIVED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
+                - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
                 - requiredSources must be only SERVICE_DATA.
                 - interpreterType must be EVENT_INTERPRETER.
                 - evaluationMode must be STATELESS_EVENT_MATCH.
@@ -170,6 +186,19 @@ public class AlertVerificationPromptBuilder {
                 - parte da Genova -> mappable using stopPoint / origin context.
                 - è rosso -> not mappable because no train color field exists in the catalog.
                 Decision: REJECTED
+
+                Valid temporal example:
+                Prompt: "Fammi sapere quando una corsa parte da Genova tra le 02:00 e le 10:00"
+                Condition all leaves:
+                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"}
+                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
+                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
+                Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
+                Decision: VERIFIED
+
+                Rejected temporal example:
+                Prompt: "Domani ci partono autobus da Pisa Centrale"
+                Decision: REJECTED because it asks for future existence rather than matching a received ServiceDataV2 event.
 
                 Expected JSON schema:
                 {
@@ -261,10 +290,21 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.name()),
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()),
-                catalog);
+                catalog,
+                defaultTemporalZone,
+                defaultTemporalZone);
     }
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String defaultTemporalZone() {
+        if (temporalConfiguration == null
+                || temporalConfiguration.defaultZone() == null
+                || temporalConfiguration.defaultZone().isBlank()) {
+            return "Europe/Rome";
+        }
+        return temporalConfiguration.defaultZone();
     }
 }

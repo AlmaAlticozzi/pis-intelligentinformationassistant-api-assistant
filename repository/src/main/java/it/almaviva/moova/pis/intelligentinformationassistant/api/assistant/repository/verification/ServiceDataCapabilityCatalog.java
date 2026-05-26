@@ -12,6 +12,15 @@ import java.util.stream.Collectors;
 public final class ServiceDataCapabilityCatalog {
 
     private static final List<FieldCapability> FIELDS = List.of(
+            field("payload.ongroundServiceEvent.eventsType", FieldType.ENUM_ARRAY,
+                    ops("CONTAINS", "CONTAINS_ANY"), List.of("DEPARTED", "ARRIVED"),
+                    "Current event operational type.", "parte", "partenza", "arriva", "arrivo"),
+            field("payload.ongroundServiceEvent.stopPoint.nameLong", FieldType.STRING,
+                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    "Current event stop point long name.", "event stop point", "Genova", "Firenze"),
+            field("payload.ongroundServiceEvent.eventGenerationTime", FieldType.TEMPORAL,
+                    ops("LOCAL_TIME_BETWEEN"), List.of(),
+                    "Timestamp of the current operational event.", "tra le 02:00 e le 10:00", "event time"),
             field("payload.stopPointJourney.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Current stop point long name.", "station name", "fermata", "stazione", "Genova P.P.", "Firenze"),
@@ -78,6 +87,10 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].passingType", FieldType.ENUM_ARRAY,
                     ops("CONTAINS", "CONTAINS_ANY"), List.of("DESTINATION", "ORIGIN", "TRANSIT", "STOP"),
                     "Next call passing types.", "next transit", "future stops"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime", FieldType.TEMPORAL,
+                    ops("LOCAL_TIME_BETWEEN"), List.of(), "Next call departure timestamp.", "next departure time"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].arrivalTime", FieldType.TEMPORAL,
+                    ops("LOCAL_TIME_BETWEEN"), List.of(), "Next call arrival timestamp.", "next arrival time"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls", FieldType.ARRAY,
                     ops("NOT_EMPTY", "SIZE_GREATER_OR_EQUAL", "SIZE_EQUALS"), List.of(),
                     "Next calls array.", "has next calls", "route length"),
@@ -215,7 +228,8 @@ public final class ServiceDataCapabilityCatalog {
         ENUM,
         ENUM_ARRAY,
         ARRAY,
-        OBJECT
+        OBJECT,
+        TEMPORAL
     }
 
     public record FieldCapability(

@@ -51,6 +51,8 @@ quarkus:
 
 
 iia:
+  temporal:
+    default-zone: ${IIA_TEMPORAL_DEFAULT_ZONE:Europe/Rome}
   alert-verification:
     # Dev/test fallback for invalid but parseable LLM JSON. Production should set this to false.
     fallback-on-invalid-llm: ${IIA_ALERT_VERIFICATION_FALLBACK_ON_INVALID_LLM:false}

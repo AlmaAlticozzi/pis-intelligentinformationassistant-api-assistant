@@ -145,6 +145,112 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(validated.rejectedReason()).contains("does not cover");
     }
 
+    @Test
+    void acceptsStatelessEventGenerationTimeWindowAndAppliesDefaultTimezone() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00:00",
+                "end", "10:00:00"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(temporalValue(validated.technicalSpecification())).containsEntry("timezone", "Europe/Rome");
+        assertThat(temporalValueFromBlueprint(validated.agentBlueprintPreview())).containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void rejectsTemporalOperatorOnNonTemporalField() {
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(
+                Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "LOCAL_TIME_BETWEEN",
+                                "value", Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome")))),
+                temporalDepartureCondition(Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("temporal condition is not supported");
+    }
+
+    @Test
+    void rejectsInvalidTemporalClockValue() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "25:00",
+                "end", "10:00:00",
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("HH:mm");
+    }
+
+    @Test
+    void rejectsInventedTemporalOperator() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                        "operator", "TIME_WINDOW",
+                        "value", Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome"))));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("temporal condition is not supported");
+    }
+
+    @Test
+    void rejectsTemporalTechnicalConditionMissingFromBlueprint() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00",
+                "end", "10:00",
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, null));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("agentBlueprintPreview.parameters.condition");
+    }
+
+    @Test
+    void rejectsTemporalConditionPresentOnlyInBlueprint() {
+        Map<String, Object> ordinaryCondition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                        "operator", "EQUALS_NORMALIZED",
+                        "value", "Genova")));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(
+                ordinaryCondition,
+                temporalDepartureCondition(Map.of("start", "02:00", "end", "10:00", "timezone", "Europe/Rome"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("not represented in technicalSpecification");
+    }
+
+    @Test
+    void rejectsActivationPolicyFromTemporalBlueprint() {
+        Map<String, Object> condition = temporalDepartureCondition(Map.of(
+                "start", "02:00",
+                "end", "10:00",
+                "timezone", "Europe/Rome"));
+        AlertVerificationOutcome base = temporalOutcome(condition, condition);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        blueprint.put("activationPolicy", Map.of("type", "DAILY_WINDOW"));
+
+        AlertVerificationOutcome validated = validator.validate(new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("activation policy or scheduler");
+    }
+
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
         return outcomeWithConditionAndCoverage(
                 condition,
@@ -201,5 +307,67 @@ class AlertVerificationOutcomeValidatorTest {
                         "No executable code generated.",
                         "No Agent Definition created.",
                         "No Suggestion created."));
+    }
+
+    private Map<String, Object> temporalDepartureCondition(Map<String, Object> temporalValue) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTED"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                                "operator", "LOCAL_TIME_BETWEEN",
+                                "value", temporalValue)));
+    }
+
+    private AlertVerificationOutcome temporalOutcome(Map<String, Object> condition, Map<String, Object> blueprintCondition) {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "partenza evento",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.ongroundServiceEvent.eventsType")),
+                        Map.of(
+                                "text", "Genova",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.ongroundServiceEvent.stopPoint.nameLong")),
+                        Map.of(
+                                "text", "tra le 02:00 e le 10:00",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.ongroundServiceEvent.eventGenerationTime"))),
+                "allRequiredRequirementsMapped", true);
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        if (blueprintCondition != null) {
+            blueprint.put("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", blueprintCondition));
+        }
+        return new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> temporalValue(Map<String, Object> technicalSpecification) {
+        Map<String, Object> condition = (Map<String, Object>) technicalSpecification.get("condition");
+        List<Map<String, Object>> all = (List<Map<String, Object>>) condition.get("all");
+        return (Map<String, Object>) all.get(2).get("value");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> temporalValueFromBlueprint(Map<String, Object> blueprint) {
+        Map<String, Object> parameters = (Map<String, Object>) blueprint.get("parameters");
+        return temporalValue(Map.of("condition", parameters.get("condition")));
     }
 }

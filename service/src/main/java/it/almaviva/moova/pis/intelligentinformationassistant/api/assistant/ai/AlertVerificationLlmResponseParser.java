@@ -41,6 +41,9 @@ public class AlertVerificationLlmResponseParser {
             Map<String, Object> technicalSpecification = asMap(payload.get("technicalSpecification"));
             Map<String, Object> agentBlueprintPreview = asMap(payload.get("agentBlueprintPreview"));
             Map<String, Object> requirementCoverage = asMap(payload.get("requirementCoverage"));
+            int temporalConditionCount = countTemporalConditions(technicalSpecification)
+                    + countTemporalConditions(agentBlueprintPreview);
+            System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal conditions found by parser=" + temporalConditionCount);
 
             return new ParseResult(Optional.of(new AlertVerificationOutcome(
                     decision,
@@ -154,6 +157,17 @@ public class AlertVerificationLlmResponseParser {
             return (Map<String, Object>) map;
         }
         return null;
+    }
+
+    private int countTemporalConditions(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            int current = "LOCAL_TIME_BETWEEN".equals(String.valueOf(map.get("operator"))) ? 1 : 0;
+            return current + map.values().stream().mapToInt(this::countTemporalConditions).sum();
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().mapToInt(this::countTemporalConditions).sum();
+        }
+        return 0;
     }
 
     public record ParseResult(
