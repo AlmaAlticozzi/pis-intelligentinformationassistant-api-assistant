@@ -44,6 +44,44 @@ class AlertVerificationPromptBuilderTest {
                 .contains("EXISTS on passingTime is not needed and not allowed");
     }
 
+    @Test
+    void promptContainsChangeEnumMappings() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("\"cambia origine\", \"cambio origine\" and \"origine cambiata\" mean changes CONTAINS CHANGED_ORIGIN")
+                .contains("\"cambia destinazione\", \"cambio destinazione\" and \"destinazione cambiata\" mean changes CONTAINS CHANGED_DESTINATION")
+                .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" mean changes CONTAINS PLATFORM_CHANGED")
+                .contains("\"field\":\"changes\",\"operator\":\"CONTAINS\",\"value\":\"CHANGED_ORIGIN\"")
+                .contains("Do not reject change prompts as stateful comparison when the requested change is directly represented by the ServiceData changes enum");
+    }
+
+    @Test
+    void promptStatesInRequiresValuesArray() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("For operator IN, always use \"values\": [...] and never \"value\"")
+                .contains("Do not generate IN with empty values")
+                .contains("If multiple enum values are acceptable, use IN with non-empty values")
+                .contains("{\"field\":\"replacementType\",\"operator\":\"IN\",\"values\":[]}")
+                .contains("{\"field\":\"replacementType\",\"operator\":\"IN\",\"value\":\"DEPARTURE\"}");
+    }
+
+    @Test
+    void promptContainsReplacementWeekdayExample() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("\"corsa sostitutiva\" can be represented as isReplacementOf NOT_EMPTY")
+                .contains("\"fermata sostitutiva in partenza\" can be represented with replacement.stopPointReplacements[]")
+                .contains("\"nei feriali\" on a replacement departure means LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY on replacement.stopPointReplacements[].departureTime")
+                .contains("Prompt: \"Avvertimi quando una corsa sostitutiva ha una fermata sostitutiva in partenza nei feriali\"")
+                .contains("{\"field\":\"isReplacementOf\",\"operator\":\"NOT_EMPTY\"}")
+                .contains("{\"field\":\"replacementType\",\"operator\":\"IN\",\"values\":[\"DEPARTURE\",\"ARRIVALDEPARTURE\"]}")
+                .contains("{\"field\":\"departureTime\",\"operator\":\"LOCAL_DAY_OF_WEEK_NOT_IN\"");
+    }
+
     private AlertVerificationPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);

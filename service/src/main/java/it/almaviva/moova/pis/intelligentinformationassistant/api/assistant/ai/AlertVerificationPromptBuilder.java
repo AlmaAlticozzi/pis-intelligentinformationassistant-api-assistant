@@ -172,6 +172,16 @@ public class AlertVerificationPromptBuilder {
                 - "transitera a <stop> il martedi" means use anyElement on nextTransitCalls[] with stopPoint.nameLong and passingTime LOCAL_DAY_OF_WEEK_IN TUESDAY.
                 - "transitera a <stop> tra le 11:00 e le 12:00" means use passingTime LOCAL_TIME_BETWEEN because the temporal predicate refers to the transit time.
                 - "parte da <origin> nei feriali e transitera a <stop>" means the weekday predicate applies to timetabledCallStart.departureTime, while the transit stop is represented by nextTransitCalls[].stopPoint.nameLong.
+                - "cambia origine", "cambio origine" and "origine cambiata" mean changes CONTAINS CHANGED_ORIGIN.
+                - "cambia destinazione", "cambio destinazione" and "destinazione cambiata" mean changes CONTAINS CHANGED_DESTINATION.
+                - "cambia binario", "cambio binario" and "platform changed" mean changes CONTAINS PLATFORM_CHANGED, or an arrival/departure status PLATFORM_CHANGED when the user is specifically referring to arrival or departure status.
+                - "corsa cancellata", "soppressione" and "cancellazione" mean changes CONTAINS CANCELLATION, or arrival/departure cancellation status fields when those are more specific to the user wording.
+                - "corsa parzialmente cancellata" means changes CONTAINS PARTIALLY_CANCELLATION.
+                - Do not reject change prompts as stateful comparison when the requested change is directly represented by the ServiceData changes enum. It is a stateless predicate over the single ServiceData event.
+                - "corsa sostitutiva" can be represented as isReplacementOf NOT_EMPTY when the current journey is a replacement of another journey.
+                - "fermata sostitutiva in partenza" can be represented with replacement.stopPointReplacements[] and replacementType DEPARTURE or ARRIVALDEPARTURE.
+                - "nei feriali" on a replacement departure means LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY on replacement.stopPointReplacements[].departureTime.
+                - For replacement stop point replacements, use nested anyElement: outer path payload.stopPointJourney.stopPointsJourneyDetails[] and inner path replacement.stopPointReplacements[].
                 - Use timezone %s unless the user explicitly supplies another valid timezone.
                 """.formatted(defaultTemporalZone);
     }
@@ -188,6 +198,12 @@ public class AlertVerificationPromptBuilder {
                 - Do not use EXISTS on timestamp fields such as passingTime, departureTime, arrivalTime, eventGenerationTime or timetabledCallStart.departureTime.
                 - The existence of an array element is represented by anyElement, not by EXISTS on a timestamp field.
                 - If the user only asks that a route contains/transits at a stop, use anyElement with stopPoint.nameLong; do not add a timestamp condition unless the user requests a time/day/date predicate.
+                - For operator IN, always use "values": [...] and never "value".
+                - For operator CONTAINS, use "value".
+                - For operator CONTAINS_ANY, use "values": [...].
+                - Do not generate IN with empty values.
+                - If only one enum value is needed, prefer EQUALS unless the catalog or semantics require IN.
+                - If multiple enum values are acceptable, use IN with non-empty values.
                 - For EXISTS, NOT_NULL, NOT_EMPTY no value is required when the operator is allowed by the catalog.
                 - For SIZE_* operators, value must be numeric.
                 - For enum checks, values must be one of the enumValues listed in the catalog.
@@ -222,7 +238,7 @@ public class AlertVerificationPromptBuilder {
                 - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
                 - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
                 - Outer path must be payload.stopPointJourney.stopPointsJourneyDetails[].
-                - Inner path must be relative, for example nextTransitCalls[] or nextCalls[].
+                - Inner path must be relative, for example nextTransitCalls[], nextCalls[] or replacement.stopPointReplacements[].
                 - Do not generate sibling anyElement nodes where one path is payload.stopPointJourney.stopPointsJourneyDetails[] and another path is payload.stopPointJourney.stopPointsJourneyDetails[].<childArray>[]; that loses same stopPointsJourneyDetails correlation.
                 - anyElement on nextTransitCalls[] with stopPoint.nameLong already represents existence of a matching transit call.
                 """;
@@ -312,10 +328,58 @@ public class AlertVerificationPromptBuilder {
                 }
                 Decision: VERIFIED
 
+                Positive example - change flag represented by ServiceData changes enum:
+                Prompt: "Avvertimi quando una corsa cambia origine"
+                Expected condition:
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "anyElement": {
+                    "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                    "conditions": {
+                      "all": [
+                        {"field":"changes","operator":"CONTAINS","value":"CHANGED_ORIGIN"}
+                      ]
+                    }
+                  }
+                }
+                Decision: VERIFIED
+
+                Positive example - replacement departure stop point on weekdays:
+                Prompt: "Avvertimi quando una corsa sostitutiva ha una fermata sostitutiva in partenza nei feriali"
+                Expected condition:
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "anyElement": {
+                    "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                    "conditions": {
+                      "all": [
+                        {"field":"isReplacementOf","operator":"NOT_EMPTY"},
+                        {"anyElement":{"path":"replacement.stopPointReplacements[]","conditions":{"all":[
+                          {"field":"replacementType","operator":"IN","values":["DEPARTURE","ARRIVALDEPARTURE"]},
+                          {"field":"departureTime","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
+                        ]}}}
+                      ]
+                    }
+                  }
+                }
+                Decision: VERIFIED
+
                 Negative example - do not add timestamp existence for transit stop:
                 Do not generate:
                 {"field":"passingTime","operator":"EXISTS"}
                 Explanation: EXISTS on passingTime is not needed and not allowed. anyElement on nextTransitCalls[] with the requested stopPoint already represents existence of a matching transit call.
+
+                Negative example - invalid IN shape:
+                Do not generate IN without values:
+                {"field":"replacementType","operator":"IN"}
+                Do not generate IN with empty values:
+                {"field":"replacementType","operator":"IN","values":[]}
+                Do not generate IN with value instead of values:
+                {"field":"replacementType","operator":"IN","value":"DEPARTURE"}
+
+                Negative example - do not reject catalog-backed changes:
+                Prompt: "Avvertimi quando una corsa cambia origine"
+                Do not reject as stateful comparison when changes CHANGED_ORIGIN is available in the catalog.
 
                 Negative example - activation policy:
                 Prompt: "Attiva questo alert solo il weekend"
@@ -337,6 +401,7 @@ public class AlertVerificationPromptBuilder {
                 Decision: REJECTED
                 rejectedReason: "Train color is not available in the ServiceData Capability Catalog."
                 """.formatted(
+                defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,

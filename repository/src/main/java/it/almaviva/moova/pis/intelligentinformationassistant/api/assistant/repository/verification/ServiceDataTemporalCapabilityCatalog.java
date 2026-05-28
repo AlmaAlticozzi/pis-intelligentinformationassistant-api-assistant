@@ -32,7 +32,11 @@ public final class ServiceDataTemporalCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].passingTime"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].isReplacementOf[].timetabledCallStart"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].isReplacementOf[].timetabledCallEnd"));
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].isReplacementOf[].timetabledCallEnd"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].arrivalTime"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].departureTime"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].arrivalTime"),
+            field("payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].departureTime"));
 
     private static final Map<String, TemporalFieldCapability> FIELD_BY_PATH = FIELDS.stream()
             .collect(Collectors.toUnmodifiableMap(TemporalFieldCapability::field, Function.identity()));
