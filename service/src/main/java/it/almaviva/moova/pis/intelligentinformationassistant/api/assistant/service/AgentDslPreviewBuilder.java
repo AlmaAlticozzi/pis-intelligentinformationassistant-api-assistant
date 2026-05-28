@@ -139,7 +139,7 @@ class AgentDslPreviewBuilder {
             return false;
         }
         appendLine(output, indent, (listItem ? "- " : "") + "anyElement:");
-        int propertyIndent = indent + 2;
+        int propertyIndent = indent + (listItem ? 4 : 2);
         appendLine(output, propertyIndent, "path: " + path);
         boolean rendered = false;
         boolean supported = true;

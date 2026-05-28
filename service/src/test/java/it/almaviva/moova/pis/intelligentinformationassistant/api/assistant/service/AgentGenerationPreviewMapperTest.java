@@ -229,10 +229,10 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
         assertThat(response.getDslPreview().getDsl())
                 .contains("operator: LOCAL_TIME_BETWEEN")
-                .contains("- anyElement:\n      path: payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]")
-                .contains("field: stopPoint.nameLong\n          operator: EQUALS_NORMALIZED\n          value: Gorla")
-                .contains("field: departureTime\n          operator: LOCAL_TIME_BETWEEN")
-                .contains("start: \"11:30:00\"\n            end: \"12:35:00\"\n            timezone: Europe/Rome")
+                .contains("- anyElement:\n        path: payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]")
+                .contains("field: stopPoint.nameLong\n            operator: EQUALS_NORMALIZED\n            value: Gorla")
+                .contains("field: departureTime\n            operator: LOCAL_TIME_BETWEEN")
+                .contains("start: \"11:30:00\"\n              end: \"12:35:00\"\n              timezone: Europe/Rome")
                 .contains("supportedByRuntime: true");
         assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
                 .contains("same next call", "Gorla", "departureTime", "11:30:00-12:35:00");
@@ -253,7 +253,7 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getDslPreview().getDsl())
                 .contains("operator: LOCAL_TIME_BETWEEN")
                 .contains("operator: LOCAL_DAY_OF_WEEK_NOT_IN")
-                .contains("days:\n              - SATURDAY\n              - SUNDAY")
+                .contains("days:\n                - SATURDAY\n                - SUNDAY")
                 .contains("timezone: Europe/Rome")
                 .contains("supportedByRuntime: true");
         assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
@@ -272,16 +272,28 @@ class AgentGenerationPreviewMapperTest {
         AgentGenerationPreviewResponse response = mapper.toResponse(nestedTransitTuesdayPreviewData(), null);
 
         assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getBlueprint().getAgentName())
+                .isEqualTo("GenovaPPToGenovaNerviTuesdayTransitAgent");
         assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
         assertThat(response.getDslPreview().getDsl())
                 .contains("anyElement:\n    path: payload.stopPointJourney.stopPointsJourneyDetails[]")
-                .contains("- anyElement:\n        path: nextTransitCalls[]")
-                .contains("field: stopPoint.nameLong\n            operator: CONTAINS_NORMALIZED\n            value: Genova Nervi")
-                .contains("field: passingTime\n            operator: LOCAL_DAY_OF_WEEK_IN")
-                .contains("days:\n                - TUESDAY")
+                .contains("- anyElement:\n          path: nextTransitCalls[]\n          all:")
+                .contains("field: stopPoint.nameLong\n              operator: CONTAINS_NORMALIZED\n              value: Genova Nervi")
+                .contains("field: passingTime\n              operator: LOCAL_DAY_OF_WEEK_IN")
+                .contains("days:\n                  - TUESDAY")
                 .contains("supportedByRuntime: true");
         assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
-                .contains("same next transit call", "Genova Nervi", "TUESDAY");
+                .contains("same stopPointsJourneyDetails element has origin stopPoint Genova P.P")
+                .contains("contains a same nextTransitCalls element with stopPoint Genova Nervi")
+                .contains("passingTime local day included in [TUESDAY]");
+        assertThat(response.getValidationPlan().getNegativeExamples())
+                .extracting(example -> example.getDescription())
+                .anyMatch(description -> description.contains("origin stopPoint different from Genova P.P")
+                        && description.contains("nextTransitCalls element for Genova Nervi"))
+                .anyMatch(description -> description.contains("origin stopPoint Genova P.P")
+                        && description.contains("no nextTransitCalls element for Genova Nervi"))
+                .anyMatch(description -> description.contains("nextTransitCalls stopPoint Genova Nervi")
+                        && description.contains("passingTime local day is not included in [TUESDAY]"));
     }
 
     @Test

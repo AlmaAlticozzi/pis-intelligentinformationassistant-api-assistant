@@ -104,6 +104,10 @@ class AgentValidationPlanBuilder {
     }
 
     private AgentValidationPlan temporalPlan(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        AgentValidationPlan nestedTransitPlan = nestedTransitTemporalPlan(conditionSummary);
+        if (nestedTransitPlan != null) {
+            return nestedTransitPlan;
+        }
         AgentPreviewConditionExtractor.ArrayElementCondition correlated =
                 conditionSummary.arrayConditions().stream()
                         .filter(condition -> condition.leaves().stream().anyMatch(this::isTemporalLeaf))
@@ -152,6 +156,65 @@ class AgentValidationPlanBuilder {
                         "ServiceData event with " + field + " where " + negativeTemporalRequirement(temporalLeaf) + ".",
                         AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                 .edgeCases(List.of("ServiceData event without " + field + " does not match the temporal condition."));
+    }
+
+    private AgentValidationPlan nestedTransitTemporalPlan(
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        AgentPreviewConditionExtractor.ArrayElementCondition journeyDetail =
+                conditionSummary.arrayConditions().stream()
+                        .filter(condition -> condition.path().endsWith("stopPointsJourneyDetails[]"))
+                        .filter(condition -> condition.leaves().stream().anyMatch(this::isTemporalLeaf))
+                        .findFirst()
+                        .orElse(null);
+        AgentPreviewConditionExtractor.ArrayElementCondition nextTransit =
+                conditionSummary.arrayConditions().stream()
+                        .filter(condition -> condition.path().endsWith("nextTransitCalls[]"))
+                        .filter(condition -> condition.leaves().stream().anyMatch(this::isTemporalLeaf))
+                        .findFirst()
+                        .orElse(null);
+        if (journeyDetail == null || nextTransit == null) {
+            return null;
+        }
+        AgentPreviewConditionExtractor.ConditionLeaf originLeaf = journeyDetail.leaves().stream()
+                .filter(leaf -> "timetabledCallStart.stopPoint.nameLong".equals(leaf.field()))
+                .findFirst()
+                .orElse(null);
+        AgentPreviewConditionExtractor.ConditionLeaf transitStopLeaf = nextTransit.leaves().stream()
+                .filter(leaf -> "stopPoint.nameLong".equals(leaf.field()))
+                .findFirst()
+                .orElse(null);
+        List<AgentPreviewConditionExtractor.ConditionLeaf> temporalLeaves = nextTransit.leaves().stream()
+                .filter(this::isTemporalLeaf)
+                .toList();
+        if (originLeaf == null || transitStopLeaf == null || temporalLeaves.isEmpty()) {
+            return null;
+        }
+        AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = temporalLeaves.getFirst();
+        String origin = originLeaf.value();
+        String transitStop = transitStopLeaf.value();
+        String temporalRequirement = temporalRequirement(temporalLeaves);
+        return new AgentValidationPlan()
+                .positiveExamples(List.of(example(
+                        "ServiceData event whose same stopPointsJourneyDetails element has origin stopPoint "
+                                + origin + " and contains a same nextTransitCalls element with stopPoint "
+                                + transitStop + " and " + temporalRequirement + ".",
+                        AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
+                .negativeExamples(List.of(
+                        example("ServiceData event with origin stopPoint different from " + origin
+                                        + " but a nextTransitCalls element for " + transitStop
+                                        + " satisfying " + temporalRequirement + ".",
+                                AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
+                        example("ServiceData event whose same stopPointsJourneyDetails element has origin stopPoint "
+                                        + origin + " but no nextTransitCalls element for " + transitStop + ".",
+                                AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
+                        example("ServiceData event whose same stopPointsJourneyDetails element has origin stopPoint "
+                                        + origin + " and nextTransitCalls stopPoint " + transitStop
+                                        + " but " + negativeTemporalRequirement(temporalLeaf) + ".",
+                                AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
+                .edgeCases(List.of(
+                        "Origin and nextTransitCalls predicates on different stopPointsJourneyDetails elements do not satisfy nested anyElement.",
+                        "A nextTransitCalls element without " + temporalLeaf.field()
+                                + " does not match the temporal condition."));
     }
 
     private List<AgentPreviewConditionExtractor.ConditionLeaf> findTemporalLeaves(Object node) {
