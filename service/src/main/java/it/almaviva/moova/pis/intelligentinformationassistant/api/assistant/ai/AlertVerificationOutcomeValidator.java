@@ -36,6 +36,17 @@ public class AlertVerificationOutcomeValidator {
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final String STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH =
+            "payload.stopPointJourney.stopPointsJourneyDetails[]";
+    private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
+            STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH + ".";
+    private static final Set<String> STOP_POINTS_CHILD_ARRAY_PATHS = Set.of(
+            "nextCalls[]",
+            "nextTransitCalls[]",
+            "nextCancelledCalls[]",
+            "isReplacementOf[]",
+            "replacement.stopPointReplacements[]",
+            "externalReplacement.stopPointReplacements[]");
     private static final String ACTIVATION_WINDOW_REJECTION_REASON =
             "Activation time windows are not supported in the current Alert Verify MVP. "
                     + "Only stateless temporal predicates evaluated on ServiceData event timestamps are supported.";
@@ -305,7 +316,7 @@ public class AlertVerificationOutcomeValidator {
         }
         if (anyElement != null) {
             hasComposite = true;
-            validateAnyElement(context, anyElement, path + ".anyElement");
+            validateAnyElement(context, anyElement, path + ".anyElement", null);
             if (context.failureReason != null) {
                 return;
             }
@@ -324,6 +335,11 @@ public class AlertVerificationOutcomeValidator {
     private void validateConditionArray(ValidationContext context, Object nodes, String path) {
         if (!(nodes instanceof List<?> list) || list.isEmpty()) {
             context.fail("Verified alert condition " + path + " must be a non-empty array.");
+            return;
+        }
+        if (path.endsWith(".all") && hasFlattenedStopPointChildAnyElementCorrelation(list)) {
+            rejectTemporalCorrelation(context,
+                    "nested anyElement is required to preserve correlation on the same stopPointsJourneyDetails element.");
             return;
         }
         for (int index = 0; index < list.size(); index++) {
@@ -381,15 +397,17 @@ public class AlertVerificationOutcomeValidator {
         validateConditionValue(context, capability, operator, leaf, field);
     }
 
-    private void validateAnyElement(ValidationContext context, Object anyElement, String path) {
+    private void validateAnyElement(ValidationContext context, Object anyElement, String path, String parentArrayPath) {
         if (!(anyElement instanceof Map<?, ?> anyElementMap)) {
             rejectArrayCondition(context, null, "anyElement must be an object.");
             return;
         }
-        String arrayPath = stringValue(anyElementMap.get("path"));
-        System.out.println("[IIA][ALERT_VERIFY][ARRAY] anyElement path found=" + arrayPath);
+        String rawArrayPath = stringValue(anyElementMap.get("path"));
+        String arrayPath = resolveAnyElementPath(rawArrayPath, parentArrayPath);
+        System.out.println("[IIA][ALERT_VERIFY][ARRAY] anyElement path found=" + rawArrayPath
+                + " resolvedPath=" + arrayPath);
         if (!isAllowedAnyElementPath(arrayPath)) {
-            rejectArrayCondition(context, arrayPath, "path is not allowed.");
+            rejectArrayCondition(context, rawArrayPath, "path is not allowed.");
             return;
         }
         Object conditions = anyElementMap.get("conditions");
@@ -419,7 +437,12 @@ public class AlertVerificationOutcomeValidator {
             String path,
             String arrayPath) {
         if (conditionNode.containsKey("anyElement")) {
-            rejectArrayCondition(context, arrayPath, "nested anyElement is not supported.");
+            if (!isAllowedNestedAnyElement(conditionNode, arrayPath)) {
+                rejectArrayCondition(context, arrayPath,
+                        "nested anyElement is supported only for relative child arrays under stopPointsJourneyDetails[].");
+                return;
+            }
+            validateAnyElement(context, conditionNode.get("anyElement"), path + ".anyElement", arrayPath);
             return;
         }
         boolean hasComposite = false;
@@ -487,6 +510,65 @@ public class AlertVerificationOutcomeValidator {
         return ServiceDataCapabilityCatalog.fields().stream()
                 .map(ServiceDataCapabilityCatalog.FieldCapability::field)
                 .anyMatch(field -> field.startsWith(prefix));
+    }
+
+    private String resolveAnyElementPath(String rawArrayPath, String parentArrayPath) {
+        if (rawArrayPath == null || rawArrayPath.isBlank()) {
+            return null;
+        }
+        if (parentArrayPath == null || rawArrayPath.startsWith("payload.")) {
+            return rawArrayPath;
+        }
+        if (STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(parentArrayPath)
+                && STOP_POINTS_CHILD_ARRAY_PATHS.contains(rawArrayPath)) {
+            return parentArrayPath + "." + rawArrayPath;
+        }
+        return null;
+    }
+
+    private boolean isAllowedNestedAnyElement(Map<?, ?> conditionNode, String parentArrayPath) {
+        if (!STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(parentArrayPath)) {
+            return false;
+        }
+        Object nestedAnyElement = conditionNode.get("anyElement");
+        if (!(nestedAnyElement instanceof Map<?, ?> anyElementMap)) {
+            return false;
+        }
+        String nestedPath = stringValue(anyElementMap.get("path"));
+        return STOP_POINTS_CHILD_ARRAY_PATHS.contains(nestedPath);
+    }
+
+    private boolean hasFlattenedStopPointChildAnyElementCorrelation(List<?> children) {
+        boolean hasStopPointsJourneyDetailsAnyElement = false;
+        boolean hasChildArrayAnyElement = false;
+        for (Object child : children) {
+            if (!(child instanceof Map<?, ?> childMap)) {
+                continue;
+            }
+            String path = directAnyElementPath(childMap);
+            if (STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(path)) {
+                hasStopPointsJourneyDetailsAnyElement = true;
+            } else if (isAbsoluteStopPointsChildArrayPath(path)) {
+                hasChildArrayAnyElement = true;
+            }
+        }
+        return hasStopPointsJourneyDetailsAnyElement && hasChildArrayAnyElement;
+    }
+
+    private String directAnyElementPath(Map<?, ?> node) {
+        Object anyElement = node.get("anyElement");
+        if (!(anyElement instanceof Map<?, ?> anyElementMap)) {
+            return null;
+        }
+        return stringValue(anyElementMap.get("path"));
+    }
+
+    private boolean isAbsoluteStopPointsChildArrayPath(String path) {
+        if (path == null || !path.startsWith(STOP_POINTS_JOURNEY_DETAILS_PREFIX)) {
+            return false;
+        }
+        String relativePath = path.substring(STOP_POINTS_JOURNEY_DETAILS_PREFIX.length());
+        return STOP_POINTS_CHILD_ARRAY_PATHS.contains(relativePath);
     }
 
     private int countConditionLeaves(Object node) {
@@ -934,6 +1016,11 @@ public class AlertVerificationOutcomeValidator {
     private void rejectArrayCondition(ValidationContext context, String path, String reason) {
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] rejected path=" + path + " reason=" + reason);
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL][REJECT] anyElement path=" + path + " reason=" + reason);
+        context.fail("Verified alert anyElement condition is not supported: " + reason);
+    }
+
+    private void rejectTemporalCorrelation(ValidationContext context, String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL][CORRELATION] rejected reason=" + reason);
         context.fail("Verified alert anyElement condition is not supported: " + reason);
     }
 

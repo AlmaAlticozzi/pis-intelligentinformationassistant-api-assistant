@@ -120,24 +120,25 @@ class AgentValidationPlanBuilder {
                     .findFirst()
                     .orElse("the requested stop point");
             String temporalRequirement = temporalRequirement(temporalLeaves);
-            String elementLabel = correlated.path().endsWith("nextCalls[]") ? "same nextCall" : "same array element";
+            String elementLabel = elementLabel(correlated.path());
+            String callLabel = callLabel(correlated.path());
             return new AgentValidationPlan()
                     .positiveExamples(List.of(example(
                             "ServiceData event whose " + elementLabel + " has stopPoint " + stopPoint
                                     + " and " + temporalRequirement + ".",
                             AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
                     .negativeExamples(List.of(
-                            example("ServiceData event with a nextCall for " + stopPoint
+                            example("ServiceData event with a " + callLabel + " for " + stopPoint
                                             + " but " + negativeTemporalRequirement(temporalLeaf) + ".",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
-                            example("ServiceData event with a nextCall satisfying " + temporalRequirement
+                            example("ServiceData event with a " + callLabel + " satisfying " + temporalRequirement
                                             + " but for a stop point different from " + stopPoint + ".",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                     .edgeCases(List.of(
                             "A matching stop point and matching temporal predicate on different "
-                                    + (correlated.path().endsWith("nextCalls[]") ? "nextCalls" : "array elements")
+                                    + elementPluralLabel(correlated.path())
                                     + " do not satisfy anyElement.",
-                            "A nextCall without " + temporalLeaf.field() + " does not match the temporal condition."));
+                            "A " + callLabel + " without " + temporalLeaf.field() + " does not match the temporal condition."));
         }
         List<AgentPreviewConditionExtractor.ConditionLeaf> temporalLeaves = findTemporalLeaves(conditionSummary.condition());
         AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = temporalLeaves.isEmpty() ? null : temporalLeaves.getFirst();
@@ -181,6 +182,54 @@ class AgentValidationPlanBuilder {
 
     private boolean isTemporalLeaf(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
         return ServiceDataTemporalCapabilityCatalog.isTemporalOperator(leaf.operator());
+    }
+
+    private String elementLabel(String path) {
+        if (path == null) {
+            return "same array element";
+        }
+        if (path.endsWith("nextCalls[]")) {
+            return "same next call";
+        }
+        if (path.endsWith("nextTransitCalls[]")) {
+            return "same next transit call";
+        }
+        if (path.endsWith("stopPointsJourneyDetails[]")) {
+            return "same stopPointsJourneyDetails element";
+        }
+        return "same array element";
+    }
+
+    private String callLabel(String path) {
+        if (path == null) {
+            return "journey detail element";
+        }
+        if (path.endsWith("nextCalls[]")) {
+            return "next call";
+        }
+        if (path.endsWith("nextTransitCalls[]")) {
+            return "next transit call";
+        }
+        if (path.endsWith("stopPointsJourneyDetails[]")) {
+            return "journey detail element";
+        }
+        return "array element";
+    }
+
+    private String elementPluralLabel(String path) {
+        if (path == null) {
+            return "array elements";
+        }
+        if (path.endsWith("nextCalls[]")) {
+            return "next calls";
+        }
+        if (path.endsWith("nextTransitCalls[]")) {
+            return "next transit calls";
+        }
+        if (path.endsWith("stopPointsJourneyDetails[]")) {
+            return "stopPointsJourneyDetails elements";
+        }
+        return "array elements";
     }
 
     private String temporalRequirement(List<AgentPreviewConditionExtractor.ConditionLeaf> leaves) {

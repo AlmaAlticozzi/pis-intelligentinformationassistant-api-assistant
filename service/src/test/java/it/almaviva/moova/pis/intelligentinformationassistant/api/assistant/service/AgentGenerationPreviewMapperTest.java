@@ -235,13 +235,13 @@ class AgentGenerationPreviewMapperTest {
                 .contains("start: \"11:30:00\"\n            end: \"12:35:00\"\n            timezone: Europe/Rome")
                 .contains("supportedByRuntime: true");
         assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
-                .contains("same nextCall", "Gorla", "departureTime", "11:30:00-12:35:00");
+                .contains("same next call", "Gorla", "departureTime", "11:30:00-12:35:00");
         assertThat(response.getValidationPlan().getNegativeExamples())
                 .extracting(example -> example.getDescription())
                 .anyMatch(description -> description.contains("Gorla") && description.contains("outside"))
                 .anyMatch(description -> description.contains("different from Gorla"));
         assertThat(response.getValidationPlan().getEdgeCases())
-                .anyMatch(description -> description.contains("different nextCalls"));
+                .anyMatch(description -> description.contains("different next calls"));
     }
 
     @Test
@@ -262,6 +262,26 @@ class AgentGenerationPreviewMapperTest {
                 .extracting(example -> example.getDescription())
                 .anyMatch(description -> description.contains("outside 11:20:00-11:25:00")
                         || description.contains("excluded by [SATURDAY, SUNDAY]"));
+        assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
+                .doesNotContain("nextCall")
+                .contains("same stopPointsJourneyDetails element");
+    }
+
+    @Test
+    void nestedAnyElementConditionProducesRuntimeSupportedDslAndPlan() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(nestedTransitTuesdayPreviewData(), null);
+
+        assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("anyElement:\n    path: payload.stopPointJourney.stopPointsJourneyDetails[]")
+                .contains("- anyElement:\n        path: nextTransitCalls[]")
+                .contains("field: stopPoint.nameLong\n            operator: CONTAINS_NORMALIZED\n            value: Genova Nervi")
+                .contains("field: passingTime\n            operator: LOCAL_DAY_OF_WEEK_IN")
+                .contains("days:\n                - TUESDAY")
+                .contains("supportedByRuntime: true");
+        assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
+                .contains("same next transit call", "Genova Nervi", "TUESDAY");
     }
 
     @Test
@@ -660,6 +680,54 @@ class AgentGenerationPreviewMapperTest {
         return new AlertAgentGenerationPreviewData(
                 "ALRT1", "Temporal weekday departure", "VERIFIED", "VERIFIED", false, null, 1,
                 "Avvertimi quando una corsa parte da Genova P.P tra le 11:20 e le 11:25 non il weekend",
+                "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION", technicalSpecification, blueprint,
+                List.of("SERVICE_DATA_FIELD_MATCH"), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData nestedTransitTuesdayPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of(
+                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova P.P"),
+                                Map.of(
+                                        "anyElement", Map.of(
+                                                "path", "nextTransitCalls[]",
+                                                "conditions", Map.of("all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "CONTAINS_NORMALIZED",
+                                                                "value", "Genova Nervi"),
+                                                        Map.of(
+                                                                "field", "passingTime",
+                                                                "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                                                "value", Map.of(
+                                                                        "days", List.of("TUESDAY"),
+                                                                        "timezone", "Europe/Rome"))))))))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "DepartureGenovaTransitNerviTuesdayAgent",
+                "description", "Detects Tuesday transits at Genova Nervi for departures from Genova P.P.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT1", "Temporal transit Tuesday", "VERIFIED", "VERIFIED", false, null, 1,
+                "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi",
                 "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
                 "AgentOutput.CANDIDATE_SUGGESTION", technicalSpecification, blueprint,
                 List.of("SERVICE_DATA_FIELD_MATCH"), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));

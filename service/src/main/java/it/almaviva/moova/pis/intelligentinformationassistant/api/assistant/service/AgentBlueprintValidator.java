@@ -24,6 +24,17 @@ public class AgentBlueprintValidator {
 
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
+    private static final String STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH =
+            "payload.stopPointJourney.stopPointsJourneyDetails[]";
+    private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
+            STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH + ".";
+    private static final Set<String> STOP_POINTS_CHILD_ARRAY_PATHS = Set.of(
+            "nextCalls[]",
+            "nextTransitCalls[]",
+            "nextCancelledCalls[]",
+            "isReplacementOf[]",
+            "replacement.stopPointReplacements[]",
+            "externalReplacement.stopPointReplacements[]");
     private static final Set<String> DAY_OF_WEEK_OPERATORS = Set.of(
             "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
@@ -191,11 +202,12 @@ public class AgentBlueprintValidator {
             String arrayPath,
             List<String> errors) {
         if (node.containsKey("anyElement")) {
-            if (arrayPath != null) {
-                rejectArray(errors, path, "nested anyElement is not supported.");
+            if (arrayPath != null && !isAllowedNestedAnyElement(node, arrayPath)) {
+                rejectArray(errors, path,
+                        "nested anyElement is supported only for relative child arrays under stopPointsJourneyDetails[].");
                 return;
             }
-            validateAnyElement(node.get("anyElement"), path + ".anyElement", errors);
+            validateAnyElement(node.get("anyElement"), path + ".anyElement", arrayPath, errors);
             return;
         }
         if (node.containsKey("field") || node.containsKey("operator")) {
@@ -204,6 +216,11 @@ public class AgentBlueprintValidator {
         }
         for (String group : List.of("all", "any")) {
             if (!(node.get(group) instanceof List<?> children)) {
+                continue;
+            }
+            if ("all".equals(group) && hasFlattenedStopPointChildAnyElementCorrelation(children)) {
+                rejectTemporalCorrelation(errors, path + "." + group,
+                        "nested anyElement is required to preserve correlation on the same stopPointsJourneyDetails element.");
                 continue;
             }
             for (int index = 0; index < children.size(); index++) {
@@ -215,12 +232,14 @@ public class AgentBlueprintValidator {
         }
     }
 
-    private void validateAnyElement(Object value, String path, List<String> errors) {
+    private void validateAnyElement(Object value, String path, String parentArrayPath, List<String> errors) {
         Map<String, Object> anyElement = mapValue(value);
-        String arrayPath = stringValue(anyElement.get("path"));
-        System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating anyElement path=" + arrayPath);
+        String rawArrayPath = stringValue(anyElement.get("path"));
+        String arrayPath = resolveAnyElementPath(rawArrayPath, parentArrayPath);
+        System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating anyElement path=" + rawArrayPath
+                + " resolvedPath=" + arrayPath);
         if (!capabilityCatalog.isSupportedArrayPath(arrayPath)) {
-            rejectArray(errors, path, "path is not supported: " + arrayPath);
+            rejectArray(errors, path, "path is not supported: " + rawArrayPath);
             return;
         }
         Map<String, Object> conditions = mapValue(anyElement.get("conditions"));
@@ -414,6 +433,62 @@ public class AgentBlueprintValidator {
                 && operators.contains(stringValue(map.get("operator")));
     }
 
+    private String resolveAnyElementPath(String rawArrayPath, String parentArrayPath) {
+        if (rawArrayPath == null || rawArrayPath.isBlank()) {
+            return null;
+        }
+        if (parentArrayPath == null || rawArrayPath.startsWith("payload.")) {
+            return rawArrayPath;
+        }
+        if (STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(parentArrayPath)
+                && STOP_POINTS_CHILD_ARRAY_PATHS.contains(rawArrayPath)) {
+            return parentArrayPath + "." + rawArrayPath;
+        }
+        return null;
+    }
+
+    private boolean isAllowedNestedAnyElement(Map<String, Object> node, String parentArrayPath) {
+        if (!STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(parentArrayPath)) {
+            return false;
+        }
+        Map<String, Object> anyElement = mapValue(node.get("anyElement"));
+        String nestedPath = stringValue(anyElement.get("path"));
+        return STOP_POINTS_CHILD_ARRAY_PATHS.contains(nestedPath);
+    }
+
+    private boolean hasFlattenedStopPointChildAnyElementCorrelation(List<?> children) {
+        boolean hasStopPointsJourneyDetailsAnyElement = false;
+        boolean hasChildArrayAnyElement = false;
+        for (Object child : children) {
+            if (!(child instanceof Map<?, ?> childMap)) {
+                continue;
+            }
+            String path = directAnyElementPath(childMap);
+            if (STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH.equals(path)) {
+                hasStopPointsJourneyDetailsAnyElement = true;
+            } else if (isAbsoluteStopPointsChildArrayPath(path)) {
+                hasChildArrayAnyElement = true;
+            }
+        }
+        return hasStopPointsJourneyDetailsAnyElement && hasChildArrayAnyElement;
+    }
+
+    private String directAnyElementPath(Map<?, ?> node) {
+        Object anyElement = node.get("anyElement");
+        if (!(anyElement instanceof Map<?, ?> anyElementMap)) {
+            return null;
+        }
+        return stringValue(anyElementMap.get("path"));
+    }
+
+    private boolean isAbsoluteStopPointsChildArrayPath(String path) {
+        if (path == null || !path.startsWith(STOP_POINTS_JOURNEY_DETAILS_PREFIX)) {
+            return false;
+        }
+        String relativePath = path.substring(STOP_POINTS_JOURNEY_DETAILS_PREFIX.length());
+        return STOP_POINTS_CHILD_ARRAY_PATHS.contains(relativePath);
+    }
+
     private void rejectTemporal(List<String> errors, String path, String reason) {
         System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] rejected path=" + path + " reason=" + reason);
         errors.add("Unsupported temporal condition at " + path + ": " + reason);
@@ -421,6 +496,12 @@ public class AgentBlueprintValidator {
 
     private void rejectArray(List<String> errors, String path, String reason) {
         System.out.println("[IIA][AGENT_PREVIEW][ARRAY] rejected path=" + path + " reason=" + reason);
+        errors.add("Unsupported anyElement condition at " + path + ": " + reason);
+    }
+
+    private void rejectTemporalCorrelation(List<String> errors, String path, String reason) {
+        System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL][CORRELATION] rejected path=" + path
+                + " reason=" + reason);
         errors.add("Unsupported anyElement condition at " + path + ": " + reason);
     }
 

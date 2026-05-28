@@ -165,6 +165,8 @@ public class AlertVerificationPromptBuilder {
                 - For a future stop described within the received journey payload, use an anyElement node with path payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].
                 - If multiple constraints must match the same element of a ServiceData array, use anyElement with that array path and relative fields inside conditions; never flatten correlated array conditions into independent leaves.
                 - Inside anyElement, fields are relative to the same array item.
+                - If you must correlate fields of payload.stopPointJourney.stopPointsJourneyDetails[] with fields of child arrays such as nextCalls[], nextTransitCalls[], nextCancelledCalls[], isReplacementOf[], replacement.stopPointReplacements[] or externalReplacement.stopPointReplacements[], use nested anyElement nodes: the outer path must be payload.stopPointJourney.stopPointsJourneyDetails[] and the inner path must be relative, for example nextTransitCalls[].
+                - Never place sibling anyElement nodes under the same all where one path is payload.stopPointJourney.stopPointsJourneyDetails[] and another path is payload.stopPointJourney.stopPointsJourneyDetails[].<childArray>[]; this loses same stopPointsJourneyDetails correlation.
                 - Do not use activation windows, activationPolicy, scheduler or SCHEDULED_INTERPRETER for day-of-week predicates that can be mapped to a ServiceData timestamp.
                 - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
                 - Reject dates relative to evaluation time such as oggi, domani, or dopodomani: a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
@@ -289,6 +291,19 @@ public class AlertVerificationPromptBuilder {
                 Valid correlated transit local-day example:
                 Prompt: "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi"
                 Condition:
+                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                    {"anyElement":{"path":"nextTransitCalls[]","conditions":{"all":[
+                      {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"},
+                      {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
+                    ]}}}
+                  ]}}}
+                The Genova P.P origin constraint, Genova Nervi transit constraint and passingTime day predicate must preserve correlation with the same stopPointsJourneyDetails element by nesting the nextTransitCalls anyElement with a relative path.
+                Decision: VERIFIED
+
+                Rejected flattened sibling anyElement correlation example:
+                Prompt: "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi"
+                Invalid condition shape:
                 - {"all":[
                     {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
                       {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"}
@@ -298,8 +313,8 @@ public class AlertVerificationPromptBuilder {
                       {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
                     ]}}}
                   ]}
-                The Genova Nervi stop constraint and passingTime day predicate must be inside the same nextTransitCalls anyElement.
-                Decision: VERIFIED
+                Decision: REJECTED
+                rejectedReason: "nested anyElement is required to preserve correlation on the same stopPointsJourneyDetails element."
 
                 Rejected scheduled lookup example:
                 Prompt: "Segnalami se domani ci partono dall'origine autobus da Pisa Centrale"

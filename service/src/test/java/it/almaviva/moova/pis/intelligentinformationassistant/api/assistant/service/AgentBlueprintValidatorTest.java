@@ -252,6 +252,27 @@ class AgentBlueprintValidatorTest {
         assertThat(result.errors()).anyMatch(error -> error.contains("correlate stopPoint.nameLong"));
     }
 
+    @Test
+    void acceptsNestedStopPointJourneyDetailsChildArrayAnyElement() {
+        AlertAgentGenerationPreviewData data = previewData(nestedTransitTuesdayCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+    }
+
+    @Test
+    void rejectsFlattenedSiblingAnyElementsAcrossStopPointJourneyDetailsAndChildArray() {
+        AlertAgentGenerationPreviewData data = previewData(flattenedTransitTuesdayCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("nested anyElement is required")
+                && error.contains("same stopPointsJourneyDetails element"));
+    }
+
     private AgentBlueprintValidationResult validate(
             AlertAgentGenerationPreviewData data,
             AgentBlueprint blueprint,
@@ -438,6 +459,59 @@ class AgentBlueprintValidatorTest {
                                                         "operator", "LOCAL_DAY_OF_WEEK_IN",
                                                         "value", Map.of(
                                                                 "days", List.of("SATURDAY", "SUNDAY"),
+                                                                "timezone", "Europe/Rome"))))))));
+    }
+
+    private Map<String, Object> nestedTransitTuesdayCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of(
+                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova P.P"),
+                                Map.of(
+                                        "anyElement", Map.of(
+                                                "path", "nextTransitCalls[]",
+                                                "conditions", Map.of("all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "CONTAINS_NORMALIZED",
+                                                                "value", "Genova Nervi"),
+                                                        Map.of(
+                                                                "field", "passingTime",
+                                                                "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                                                "value", Map.of(
+                                                                        "days", List.of("TUESDAY"),
+                                                                        "timezone", "Europe/Rome"))))))))));
+    }
+
+    private Map<String, Object> flattenedTransitTuesdayCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(Map.of(
+                                                "field", "timetabledCallStart.stopPoint.nameLong",
+                                                "operator", "EQUALS_NORMALIZED",
+                                                "value", "Genova P.P"))))),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "stopPoint.nameLong",
+                                                        "operator", "CONTAINS_NORMALIZED",
+                                                        "value", "Genova Nervi"),
+                                                Map.of(
+                                                        "field", "passingTime",
+                                                        "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                                        "value", Map.of(
+                                                                "days", List.of("TUESDAY"),
                                                                 "timezone", "Europe/Rome"))))))));
     }
 }
