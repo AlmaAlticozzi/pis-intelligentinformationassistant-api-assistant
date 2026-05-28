@@ -35,6 +35,8 @@ public class AlertVerificationPromptBuilder {
                 + " fallbackOnInvalidLlm="
                 + fallbackOnInvalidLlm);
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT] includes temporal day-of-week support operators="
+                + "LOCAL_DAY_OF_WEEK_IN,LOCAL_DAY_OF_WEEK_NOT_IN");
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
                 systemPrompt(defaultTemporalZone),
@@ -71,6 +73,8 @@ public class AlertVerificationPromptBuilder {
                 - Temporal conditions are supported only when evaluated statelessly on timestamps in one ServiceDataV2 event.
                 - Local time windows such as "tra le 02:00 e le 10:00" must use operator LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
                 - Local day predicates such as "martedi", "weekend" or "non il weekend" must use LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN on an allowed ServiceData timestamp, with value.days using english enum values MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY.
+                - Weekday words such as lunedi, martedi, mercoledi, giovedi, venerdi, sabato and domenica are supported temporal predicates on ServiceData timestamps; do not reject them as scheduled evaluation when they refer to the timestamp inside the received event.
+                - Weekend/fine settimana means SATURDAY plus SUNDAY. Non il weekend, escluso weekend and nei giorni feriali mean LOCAL_DAY_OF_WEEK_NOT_IN with SATURDAY plus SUNDAY.
                 - Time expressions such as "tra le 2 e le 10", "tra le 2:00 e le 10", or "tra le 02 e le 10:30" must be normalized to HH:mm:ss; a single hour means the beginning of that hour ("2" becomes "02:00:00", "10" becomes "10:00:00").
                 - Scheduled, future-existence, event-absence and historical time reasoning are not supported.
                 - Alert or Agent activation time windows are not temporal predicates: reject requests such as "Attiva questo alert solo tra le 11:30 e le 12:35..." and never represent them with activationPolicy or a scheduler.
@@ -142,9 +146,17 @@ public class AlertVerificationPromptBuilder {
                 - For delayed journeys, use a delay field or delay status from the catalog.
                 - Stateless temporal predicates are allowed only on timestamp fields listed in the ServiceData Capability Catalog.
                 - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
+                - Supported day-of-week operators: LOCAL_DAY_OF_WEEK_IN and LOCAL_DAY_OF_WEEK_NOT_IN.
                 - Use operator LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN with value {"days":["TUESDAY"],"timezone":"%s"} for local day checks.
+                - Required LOCAL_DAY_OF_WEEK_IN JSON shape:
+                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
+                - Required LOCAL_DAY_OF_WEEK_NOT_IN JSON shape:
+                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"Europe/Rome"}}
+                - Italian day normalization: lunedi -> MONDAY; martedi -> TUESDAY; mercoledi -> WEDNESDAY; giovedi -> THURSDAY; venerdi -> FRIDAY; sabato -> SATURDAY; domenica -> SUNDAY.
                 - "weekend" must be represented as days ["SATURDAY","SUNDAY"].
+                - "fine settimana" must be represented as days ["SATURDAY","SUNDAY"].
                 - "non il weekend" must be represented as LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
+                - "escluso weekend" and "nei giorni feriali" must be represented as LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
                 - "martedi" must be represented as TUESDAY.
                 - Normalize natural clock expressions: "tra le 2 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 2:00 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 02 e le 10:30" -> start 02:00:00 and end 10:30:00.
                 - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
@@ -153,9 +165,11 @@ public class AlertVerificationPromptBuilder {
                 - For a future stop described within the received journey payload, use an anyElement node with path payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].
                 - If multiple constraints must match the same element of a ServiceData array, use anyElement with that array path and relative fields inside conditions; never flatten correlated array conditions into independent leaves.
                 - Inside anyElement, fields are relative to the same array item.
+                - Do not use activation windows, activationPolicy, scheduler or SCHEDULED_INTERPRETER for day-of-week predicates that can be mapped to a ServiceData timestamp.
                 - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
                 - Reject dates relative to evaluation time such as oggi, domani, or dopodomani: a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
                 - Reject prediction, absence of events, or historical observation windows even if a nearby stop point or clock time appears mappable.
+                - Return only raw JSON. Do not wrap the response in markdown or explanatory text.
                 - requiredSources must be only SERVICE_DATA.
                 - interpreterType must be EVENT_INTERPRETER.
                 - evaluationMode must be STATELESS_EVENT_MATCH.
@@ -252,7 +266,7 @@ public class AlertVerificationPromptBuilder {
                 Decision: VERIFIED
 
                 Valid correlated local-day example:
-                Prompt: "Fammi sapere quando una corsa parte da Genova P.P nel weekend"
+                Prompt: "Avvertimi quando una corsa che parte da Genova P.P il weekend"
                 Condition:
                 - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
                     {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
@@ -261,15 +275,56 @@ public class AlertVerificationPromptBuilder {
                 Copy this anyElement tree into both persisted condition objects.
                 Decision: VERIFIED
 
+                Valid correlated local-time and non-weekend example:
+                Prompt: "Avvertimi quando una corsa parte da Genova P.P tra le 11:20 e le 11:25 non il weekend"
+                Condition:
+                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:20:00","end":"11:25:00","timezone":"Europe/Rome"}},
+                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"Europe/Rome"}}
+                  ]}}}
+                Copy this anyElement tree into both persisted condition objects.
+                Decision: VERIFIED
+
+                Valid correlated transit local-day example:
+                Prompt: "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi"
+                Condition:
+                - {"all":[
+                    {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                      {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"}
+                    ]}}},
+                    {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]","conditions":{"all":[
+                      {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"},
+                      {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
+                    ]}}}
+                  ]}
+                The Genova Nervi stop constraint and passingTime day predicate must be inside the same nextTransitCalls anyElement.
+                Decision: VERIFIED
+
                 Rejected scheduled lookup example:
                 Prompt: "Segnalami se domani ci partono dall'origine autobus da Pisa Centrale"
                 Decision: REJECTED
                 rejectedReason: "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event."
 
+                Rejected activation-policy weekend example:
+                Prompt: "Attiva questo alert solo il weekend"
+                Decision: REJECTED
+                rejectedReason: "Activation time windows are not supported in the current Alert Verify MVP. Only stateless temporal predicates evaluated on ServiceData event timestamps are supported."
+
                 Rejected absence example:
                 Prompt: "Avvisami se domani non parte nessuna corsa da Genova"
                 Decision: REJECTED
                 rejectedReason: "The request requires absence-of-events evaluation, which is not evaluable on a single ServiceData event."
+
+                Rejected weekend absence example:
+                Prompt: "Avvisami se nel weekend non passano corse a Genova Nervi"
+                Decision: REJECTED
+                rejectedReason: "The request requires absence-of-events evaluation, state or an observation window, which is not evaluable on a single ServiceData event."
+
+                Rejected future lookup example:
+                Prompt: "Avvisami domani se parte una corsa da Genova"
+                Decision: REJECTED
+                rejectedReason: "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event."
 
                 Rejected historical absence example:
                 Prompt: "Avvisami se negli ultimi 30 minuti non sono arrivati treni"
