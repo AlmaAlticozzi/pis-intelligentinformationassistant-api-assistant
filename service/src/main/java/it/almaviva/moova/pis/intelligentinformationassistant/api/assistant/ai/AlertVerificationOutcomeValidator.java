@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalCondition;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalOperator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalScope;
@@ -12,6 +13,7 @@ import jakarta.inject.Inject;
 
 import java.text.Normalizer;
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -37,7 +39,6 @@ public class AlertVerificationOutcomeValidator {
     private static final String ACTIVATION_WINDOW_REJECTION_REASON =
             "Activation time windows are not supported in the current Alert Verify MVP. "
                     + "Only stateless temporal predicates evaluated on ServiceData event timestamps are supported.";
-    private static final String NEXT_CALLS_ARRAY_PATH = "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
     private static final String DEFAULT_REJECTED_REASON = "The alert cannot be verified with the current MVP constraints.";
     private static final Set<String> LEGACY_CONDITION_TYPES = Set.of(
@@ -45,12 +46,6 @@ public class AlertVerificationOutcomeValidator {
             "JOURNEY_DELAYED",
             "PLATFORM_EVENT",
             "GENERIC_SERVICE_DATA_EVENT");
-    private static final Map<String, Set<String>> NEXT_CALL_RELATIVE_OPERATORS = Map.of(
-            "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"),
-            "departureTime", Set.of(LOCAL_TIME_BETWEEN),
-            "arrivalTime", Set.of(LOCAL_TIME_BETWEEN),
-            "passingType", Set.of("EQUALS", "CONTAINS"));
-
     @Inject
     TemporalConfiguration temporalConfiguration;
 
@@ -216,12 +211,6 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         int technicalTemporalConditionCount = context.temporalConditions.size();
-        if (technicalTemporalConditionCount > 0
-                && !hasCurrentEventAnchor(context.technicalSpecification.get("condition"))) {
-            rejectTemporalRequest(context,
-                    "The temporal condition has no supported current-event type and stop-point anchor in the single ServiceData event.");
-            return;
-        }
         if (technicalTemporalConditionCount > 0 || containsPotentialTemporalOperator(context.agentBlueprintPreview)) {
             validateBlueprintTemporalCondition(context);
             if (context.failureReason != null) {
@@ -385,8 +374,8 @@ public class AlertVerificationOutcomeValidator {
         }
 
         context.conditionFields.add(field);
-        if (LOCAL_TIME_BETWEEN.equals(operator)) {
-            validateTemporalCondition(context, leaf, field, false);
+        if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator)) {
+            validateTemporalCondition(context, leaf, field, operator, false);
             return;
         }
         validateConditionValue(context, capability, operator, leaf, field);
@@ -399,7 +388,7 @@ public class AlertVerificationOutcomeValidator {
         }
         String arrayPath = stringValue(anyElementMap.get("path"));
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] anyElement path found=" + arrayPath);
-        if (!NEXT_CALLS_ARRAY_PATH.equals(arrayPath)) {
+        if (!isAllowedAnyElementPath(arrayPath)) {
             rejectArrayCondition(context, arrayPath, "path is not allowed.");
             return;
         }
@@ -417,6 +406,7 @@ public class AlertVerificationOutcomeValidator {
         validateAnyElementConditionNode(context, conditionMap, path + ".conditions", arrayPath);
         if (context.failureReason == null
                 && containsPotentialTemporalOperator(conditionMap)
+                && arrayPath.endsWith("nextCalls[]")
                 && !hasCorrelatedStopAndTime(conditionMap)) {
             rejectArrayCondition(context, arrayPath,
                     "temporal nextCalls constraints must correlate stopPoint.nameLong and departureTime/arrivalTime in the same all group.");
@@ -469,29 +459,34 @@ public class AlertVerificationOutcomeValidator {
         String operator = stringValue(leaf.get("operator"));
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] validating relative field=" + relativeField
                 + " operator=" + operator + " path=" + arrayPath);
-        Set<String> allowedOperators = NEXT_CALL_RELATIVE_OPERATORS.get(relativeField);
-        if (allowedOperators == null) {
-            rejectArrayCondition(context, arrayPath, "relative field is not allowed: " + relativeField);
-            return;
-        }
-        if (!allowedOperators.contains(operator)) {
-            rejectArrayCondition(context, arrayPath,
-                    "operator is not allowed for relative field " + relativeField + ": " + operator);
-            return;
-        }
         String absoluteField = arrayPath + "." + relativeField;
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
                 .orElse(null);
         if (capability == null) {
-            rejectArrayCondition(context, arrayPath, "relative field has no catalog mapping: " + relativeField);
+            rejectArrayCondition(context, arrayPath, "relative field is not allowed: " + relativeField);
+            return;
+        }
+        if (!capability.supportsOperator(operator)) {
+            rejectArrayCondition(context, arrayPath,
+                    "operator is not allowed for relative field " + relativeField + ": " + operator);
             return;
         }
         context.conditionFields.add(absoluteField);
-        if (LOCAL_TIME_BETWEEN.equals(operator)) {
-            validateTemporalCondition(context, leaf, absoluteField, true);
+        if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator)) {
+            validateTemporalCondition(context, leaf, absoluteField, operator, true);
             return;
         }
         validateConditionValue(context, capability, operator, leaf, absoluteField);
+    }
+
+    private boolean isAllowedAnyElementPath(String arrayPath) {
+        if (arrayPath == null || !arrayPath.endsWith("[]") || ServiceDataCapabilityCatalog.isSuspiciousFieldName(arrayPath)) {
+            return false;
+        }
+        String prefix = arrayPath + ".";
+        return ServiceDataCapabilityCatalog.fields().stream()
+                .map(ServiceDataCapabilityCatalog.FieldCapability::field)
+                .anyMatch(field -> field.startsWith(prefix));
     }
 
     private int countConditionLeaves(Object node) {
@@ -510,23 +505,53 @@ public class AlertVerificationOutcomeValidator {
             ValidationContext context,
             Map<?, ?> leaf,
             String field,
+            String operator,
             boolean withinAnyElement) {
         TemporalScope scope = TemporalScope.fromField(field).orElse(null);
-        if (scope == null) {
-            rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN, "field is not an allowed temporal scope.");
+        if (scope == null || !ServiceDataTemporalCapabilityCatalog.isAllowedTemporalField(field)) {
+            rejectTemporalCondition(context, field, operator, "field is not an allowed temporal scope.");
             return;
         }
-        if (!withinAnyElement && scope != TemporalScope.EVENT_GENERATION_TIME) {
-            rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN,
-                    "nextCalls temporal fields must be represented inside a correlated anyElement node.");
+        if (!ServiceDataTemporalCapabilityCatalog.isAllowedOperator(field, operator)) {
+            rejectTemporalCondition(context, field, operator, "operator is not supported on this temporal field.");
+            return;
+        }
+        if (!withinAnyElement && field.contains("[]")) {
+            rejectTemporalCondition(context, field, operator,
+                    "array temporal fields must be represented inside a correlated anyElement node.");
             return;
         }
         Object value = leaf.get("value");
         if (!(value instanceof Map<?, ?> rawValue)) {
-            rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN, "value must contain start, end and timezone.");
+            rejectTemporalCondition(context, field, operator, "value must be an object.");
             return;
         }
         Map<String, Object> temporalValue = (Map<String, Object>) rawValue;
+        String timezone = stringValue(temporalValue.get("timezone"));
+        if (timezone == null) {
+            timezone = context.defaultTemporalZone;
+            temporalValue.put("timezone", timezone);
+        }
+        try {
+            ZoneId.of(timezone);
+        } catch (DateTimeException exception) {
+            rejectTemporalCondition(context, field, operator, "timezone is not a valid zone id.");
+            return;
+        }
+
+        if (LOCAL_TIME_BETWEEN.equals(operator)) {
+            validateLocalTimeBetween(context, temporalValue, field, scope, timezone);
+            return;
+        }
+        validateLocalDayOfWeek(context, temporalValue, field, operator, scope, timezone);
+    }
+
+    private void validateLocalTimeBetween(
+            ValidationContext context,
+            Map<String, Object> temporalValue,
+            String field,
+            TemporalScope scope,
+            String timezone) {
         String startText = stringValue(temporalValue.get("start"));
         String endText = stringValue(temporalValue.get("end"));
         String normalizedStart = normalizeLocalTime(startText);
@@ -540,24 +565,13 @@ public class AlertVerificationOutcomeValidator {
         logAndApplyTimeNormalization(temporalValue, "end", endText, normalizedEnd, field);
         LocalTime start = LocalTime.parse(normalizedStart, HOUR_MINUTE_SECOND);
         LocalTime end = LocalTime.parse(normalizedEnd, HOUR_MINUTE_SECOND);
-        String timezone = stringValue(temporalValue.get("timezone"));
-        if (timezone == null) {
-            timezone = context.defaultTemporalZone;
-            temporalValue.put("timezone", timezone);
-        }
-        try {
-            ZoneId.of(timezone);
-        } catch (DateTimeException exception) {
-            rejectTemporalCondition(context, field, LOCAL_TIME_BETWEEN, "timezone is not a valid zone id.");
-            return;
-        }
-
         TemporalCondition condition = new TemporalCondition(
                 scope,
                 field,
                 TemporalOperator.LOCAL_TIME_BETWEEN,
                 start,
                 end,
+                List.of(),
                 timezone,
                 null,
                 null);
@@ -566,6 +580,53 @@ public class AlertVerificationOutcomeValidator {
                 + " operator=" + condition.operator()
                 + " start=" + normalizedStart
                 + " end=" + normalizedEnd
+                + " timezone=" + condition.timezone());
+    }
+
+    private void validateLocalDayOfWeek(
+            ValidationContext context,
+            Map<String, Object> temporalValue,
+            String field,
+            String operator,
+            TemporalScope scope,
+            String timezone) {
+        Object rawDays = temporalValue.get("days");
+        if (!(rawDays instanceof List<?> dayValues) || dayValues.isEmpty()) {
+            rejectTemporalCondition(context, field, operator, "value.days must be a non-empty array.");
+            return;
+        }
+        List<DayOfWeek> days = new ArrayList<>();
+        List<String> normalizedDays = new ArrayList<>();
+        for (Object rawDay : dayValues) {
+            String dayText = stringValue(rawDay);
+            if (dayText == null) {
+                rejectTemporalCondition(context, field, operator, "days must contain valid english day names.");
+                return;
+            }
+            try {
+                DayOfWeek day = DayOfWeek.valueOf(dayText.toUpperCase(Locale.ROOT));
+                days.add(day);
+                normalizedDays.add(day.name());
+            } catch (IllegalArgumentException exception) {
+                rejectTemporalCondition(context, field, operator, "day is not valid: " + dayText);
+                return;
+            }
+        }
+        temporalValue.put("days", normalizedDays);
+        TemporalCondition condition = new TemporalCondition(
+                scope,
+                field,
+                TemporalOperator.valueOf(operator),
+                null,
+                null,
+                List.copyOf(days),
+                timezone,
+                null,
+                null);
+        context.temporalConditions.add(condition);
+        System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] validated field=" + condition.field()
+                + " operator=" + condition.operator()
+                + " days=" + normalizedDays
                 + " timezone=" + condition.timezone());
     }
 
@@ -730,7 +791,13 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private boolean isPotentialTemporalOperator(String operator) {
-        return operator != null && operator.toUpperCase(Locale.ROOT).contains("TIME");
+        if (operator == null) {
+            return false;
+        }
+        String normalized = operator.toUpperCase(Locale.ROOT);
+        return ServiceDataTemporalCapabilityCatalog.isTemporalOperator(normalized)
+                || normalized.contains("TIME")
+                || normalized.contains("DAY_OF_WEEK");
     }
 
     private boolean containsPotentialTemporalOperator(Object value) {
@@ -814,12 +881,6 @@ public class AlertVerificationOutcomeValidator {
         return scalar != null && containsAny(scalar, "external_http", "central_api", "database_query", "api_query");
     }
 
-    private boolean hasCurrentEventAnchor(Object value) {
-        return hasLeaf(value, "payload.ongroundServiceEvent.eventsType", "CONTAINS", Set.of("DEPARTED", "ARRIVED"))
-                && hasLeaf(value, "payload.ongroundServiceEvent.stopPoint.nameLong",
-                "EQUALS_NORMALIZED", null);
-    }
-
     private boolean hasCorrelatedStopAndTime(Object node) {
         if (!(node instanceof Map<?, ?> map)) {
             return false;
@@ -844,28 +905,6 @@ public class AlertVerificationOutcomeValidator {
         }
         return field.equals(stringValue(map.get("field")))
                 && operators.contains(stringValue(map.get("operator")));
-    }
-
-    private boolean hasLeaf(Object node, String field, String operator, Set<String> allowedValues) {
-        if (node instanceof Map<?, ?> map) {
-            if (field.equals(stringValue(map.get("field")))
-                    && operator.equals(stringValue(map.get("operator")))) {
-                if (allowedValues == null) {
-                    return map.get("value") != null;
-                }
-                Object rawValues = map.get("values");
-                if (allowedValues.contains(stringValue(map.get("value")))) {
-                    return true;
-                }
-                return rawValues instanceof Collection<?> values
-                        && values.stream().map(this::stringValue).anyMatch(allowedValues::contains);
-            }
-            return map.values().stream().anyMatch(item -> hasLeaf(item, field, operator, allowedValues));
-        }
-        if (node instanceof Collection<?> collection) {
-            return collection.stream().anyMatch(item -> hasLeaf(item, field, operator, allowedValues));
-        }
-        return false;
     }
 
     private boolean containsAny(String value, String... tokens) {

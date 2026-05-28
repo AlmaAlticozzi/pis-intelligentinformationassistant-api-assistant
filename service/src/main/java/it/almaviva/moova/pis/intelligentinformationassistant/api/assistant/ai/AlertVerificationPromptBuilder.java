@@ -70,6 +70,7 @@ public class AlertVerificationPromptBuilder {
                 - Internal state is not supported.
                 - Temporal conditions are supported only when evaluated statelessly on timestamps in one ServiceDataV2 event.
                 - Local time windows such as "tra le 02:00 e le 10:00" must use operator LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
+                - Local day predicates such as "martedi", "weekend" or "non il weekend" must use LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN on an allowed ServiceData timestamp, with value.days using english enum values MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY.
                 - Time expressions such as "tra le 2 e le 10", "tra le 2:00 e le 10", or "tra le 02 e le 10:30" must be normalized to HH:mm:ss; a single hour means the beginning of that hour ("2" becomes "02:00:00", "10" becomes "10:00:00").
                 - Scheduled, future-existence, event-absence and historical time reasoning are not supported.
                 - Alert or Agent activation time windows are not temporal predicates: reject requests such as "Attiva questo alert solo tra le 11:30 e le 12:35..." and never represent them with activationPolicy or a scheduler.
@@ -139,15 +140,19 @@ public class AlertVerificationPromptBuilder {
                 - For "not stopping" / "non si ferma", use passingType EQUALS TRANSIT.
                 - For cancelled journeys, use an allowed status field with ARRIVAL_CANCELLATION or DEPARTURE_CANCELLATION.
                 - For delayed journeys, use a delay field or delay status from the catalog.
-                - Stateless temporal predicates are allowed only on payload.ongroundServiceEvent.eventGenerationTime, payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].departureTime, and payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].arrivalTime.
+                - Stateless temporal predicates are allowed only on timestamp fields listed in the ServiceData Capability Catalog.
                 - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
+                - Use operator LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN with value {"days":["TUESDAY"],"timezone":"%s"} for local day checks.
+                - "weekend" must be represented as days ["SATURDAY","SUNDAY"].
+                - "non il weekend" must be represented as LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
+                - "martedi" must be represented as TUESDAY.
                 - Normalize natural clock expressions: "tra le 2 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 2:00 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 02 e le 10:30" -> start 02:00:00 and end 10:30:00.
                 - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
                 - "parte da Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS DEPARTED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
                 - "arriva a Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS ARRIVED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
                 - For a future stop described within the received journey payload, use an anyElement node with path payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].
-                - Inside nextCalls anyElement, fields are relative to the same nextCall item: stopPoint.nameLong, departureTime, arrivalTime, or passingType.
-                - A nextCalls stop point constraint and its departure/arrival time constraint must be inside the same anyElement.conditions node.
+                - If multiple constraints must match the same element of a ServiceData array, use anyElement with that array path and relative fields inside conditions; never flatten correlated array conditions into independent leaves.
+                - Inside anyElement, fields are relative to the same array item.
                 - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
                 - Reject dates relative to evaluation time such as oggi, domani, or dopodomani: a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
                 - Reject prediction, absence of events, or historical observation windows even if a nearby stop point or clock time appears mappable.
@@ -244,6 +249,16 @@ public class AlertVerificationPromptBuilder {
                     {"field":"arrivalTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"%s"}}
                   ]}}}
                 The Gorla and arrivalTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
+                Decision: VERIFIED
+
+                Valid correlated local-day example:
+                Prompt: "Fammi sapere quando una corsa parte da Genova P.P nel weekend"
+                Condition:
+                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
+                  ]}}}
+                Copy this anyElement tree into both persisted condition objects.
                 Decision: VERIFIED
 
                 Rejected scheduled lookup example:
@@ -362,6 +377,8 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()),
                 catalog,
+                defaultTemporalZone,
+                defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,
                 defaultTemporalZone,

@@ -171,6 +171,101 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsLocalDayOfWeekInWithTuesday() {
+        Map<String, Object> condition = temporalDepartureDayCondition("LOCAL_DAY_OF_WEEK_IN", Map.of(
+                "days", List.of("TUESDAY"),
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(temporalValue(validated.technicalSpecification()))
+                .containsEntry("days", List.of("TUESDAY"))
+                .containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void acceptsLocalDayOfWeekInWithWeekendDays() {
+        Map<String, Object> condition = temporalDepartureDayCondition("LOCAL_DAY_OF_WEEK_IN", Map.of(
+                "days", List.of("SATURDAY", "SUNDAY"),
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsLocalDayOfWeekNotInWithWeekendDays() {
+        Map<String, Object> condition = temporalDepartureDayCondition("LOCAL_DAY_OF_WEEK_NOT_IN", Map.of(
+                "days", List.of("SATURDAY", "SUNDAY"),
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsInvalidLocalDayOfWeek() {
+        Map<String, Object> condition = temporalDepartureDayCondition("LOCAL_DAY_OF_WEEK_IN", Map.of(
+                "days", List.of("MARTEDI"),
+                "timezone", "Europe/Rome"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("day is not valid");
+    }
+
+    @Test
+    void rejectsInvalidLocalDayOfWeekTimezone() {
+        Map<String, Object> condition = temporalDepartureDayCondition("LOCAL_DAY_OF_WEEK_IN", Map.of(
+                "days", List.of("TUESDAY"),
+                "timezone", "Europe/NotAZone"));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("timezone is not a valid zone id");
+    }
+
+    @Test
+    void rejectsLocalDayOfWeekOnNonWhitelistedField() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                        "operator", "LOCAL_DAY_OF_WEEK_IN",
+                        "value", Map.of("days", List.of("TUESDAY"), "timezone", "Europe/Rome"))));
+
+        AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("temporal condition is not supported");
+    }
+
+    @Test
+    void rejectsCorrelatedArrayTemporalPathWithoutAnyElement() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova P.P"),
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime",
+                                "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                "value", Map.of("days", List.of("SATURDAY", "SUNDAY"), "timezone", "Europe/Rome"))));
+
+        AlertVerificationOutcome validated = validator.validate(arrayTemporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("anyElement");
+    }
+
+    @Test
     void acceptsCorrelatedNextCallDepartureWindowAndAppliesDefaultTimezone() {
         Map<String, Object> condition = correlatedNextCallsCondition(
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]",
@@ -203,7 +298,7 @@ class AlertVerificationOutcomeValidatorTest {
     @Test
     void rejectsAnyElementOnUnsupportedArrayPath() {
         Map<String, Object> condition = correlatedNextCallsCondition(
-                "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].unknownCalls[]",
                 "departureTime",
                 Map.of("start", "11:30", "end", "12:35", "timezone", "Europe/Rome"));
 
@@ -632,6 +727,24 @@ class AlertVerificationOutcomeValidatorTest {
                                 "value", temporalValue)));
     }
 
+    private Map<String, Object> temporalDepartureDayCondition(String operator, Map<String, Object> temporalValue) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTED"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                                "operator", operator,
+                                "value", temporalValue)));
+    }
+
     private AlertVerificationOutcome temporalOutcome(Map<String, Object> condition, Map<String, Object> blueprintCondition) {
         Map<String, Object> coverage = Map.of(
                 "requirements", List.of(
@@ -723,6 +836,32 @@ class AlertVerificationOutcomeValidatorTest {
                                 "required", true,
                                 "mappable", true,
                                 "mappedBy", List.of(temporalField))),
+                "allRequiredRequirementsMapped", true);
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        blueprint.put("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", blueprintCondition));
+        return new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
+    }
+
+    private AlertVerificationOutcome arrayTemporalOutcome(Map<String, Object> condition, Map<String, Object> blueprintCondition) {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "Genova P.P",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong"),
+                                "reason", ""),
+                        Map.of(
+                                "text", "weekend",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime"),
+                                "reason", "")),
                 "allRequiredRequirementsMapped", true);
         AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);
         Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
