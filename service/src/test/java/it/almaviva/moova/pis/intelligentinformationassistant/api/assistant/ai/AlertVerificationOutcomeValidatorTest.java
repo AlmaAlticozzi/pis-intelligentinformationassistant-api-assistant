@@ -367,6 +367,25 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsExistsOnNestedTransitPassingTime() {
+        Map<String, Object> condition = nestedTransitPassingTimeExistsCondition();
+
+        AlertVerificationOutcome validated = validator.validate(nestedTransitOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("operator is not allowed for relative field passingTime: EXISTS");
+    }
+
+    @Test
+    void acceptsNestedWeekdayOriginDepartureWithTransitStopWithoutPassingTime() {
+        Map<String, Object> condition = nestedWeekdayOriginTransitStopCondition();
+
+        AlertVerificationOutcome validated = validator.validate(nestedWeekdayTransitOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsTemporalOperatorOnNonTemporalField() {
         AlertVerificationOutcome validated = validator.validate(temporalOutcome(
                 Map.of(
@@ -946,6 +965,54 @@ class AlertVerificationOutcomeValidatorTest {
                                                                 "timezone", "Europe/Rome"))))))));
     }
 
+    private Map<String, Object> nestedTransitPassingTimeExistsCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of(
+                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova P.P"),
+                                Map.of(
+                                        "anyElement", Map.of(
+                                                "path", "nextTransitCalls[]",
+                                                "conditions", Map.of("all", List.of(
+                                                        Map.of(
+                                                                "field", "stopPoint.nameLong",
+                                                                "operator", "CONTAINS_NORMALIZED",
+                                                                "value", "Genova Nervi"),
+                                                        Map.of(
+                                                                "field", "passingTime",
+                                                                "operator", "EXISTS")))))))));
+    }
+
+    private Map<String, Object> nestedWeekdayOriginTransitStopCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of(
+                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                        "operator", "EQUALS_NORMALIZED",
+                                        "value", "Genova P.P"),
+                                Map.of(
+                                        "field", "timetabledCallStart.departureTime",
+                                        "operator", "LOCAL_DAY_OF_WEEK_NOT_IN",
+                                        "value", Map.of(
+                                                "days", List.of("SATURDAY", "SUNDAY"),
+                                                "timezone", "Europe/Rome")),
+                                Map.of(
+                                        "anyElement", Map.of(
+                                                "path", "nextTransitCalls[]",
+                                                "conditions", Map.of("all", List.of(Map.of(
+                                                        "field", "stopPoint.nameLong",
+                                                        "operator", "CONTAINS_NORMALIZED",
+                                                        "value", "Genova Nervi")))))))));
+    }
+
     private AlertVerificationOutcome nestedTransitOutcome(Map<String, Object> condition, Map<String, Object> blueprintCondition) {
         Map<String, Object> coverage = Map.of(
                 "requirements", List.of(
@@ -962,6 +1029,38 @@ class AlertVerificationOutcomeValidatorTest {
                                 "mappedBy", List.of(
                                         "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameLong",
                                         "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].passingTime"),
+                                "reason", "")),
+                "allRequiredRequirementsMapped", true);
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        blueprint.put("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", blueprintCondition));
+        return new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
+    }
+
+    private AlertVerificationOutcome nestedWeekdayTransitOutcome(Map<String, Object> condition, Map<String, Object> blueprintCondition) {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "partenza da Genova P.P",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong"),
+                                "reason", ""),
+                        Map.of(
+                                "text", "nei feriali",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime"),
+                                "reason", ""),
+                        Map.of(
+                                "text", "transito a Genova Nervi",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameLong"),
                                 "reason", "")),
                 "allRequiredRequirementsMapped", true);
         AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, coverage);

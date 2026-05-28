@@ -37,6 +37,7 @@ public class AlertVerificationPromptBuilder {
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT] includes temporal day-of-week support operators="
                 + "LOCAL_DAY_OF_WEEK_IN,LOCAL_DAY_OF_WEEK_NOT_IN");
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT][SECTIONS] structured prompt sections built");
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
                 systemPrompt(defaultTemporalZone),
@@ -48,140 +49,201 @@ public class AlertVerificationPromptBuilder {
     }
 
     private String systemPrompt(String defaultTemporalZone) {
-        return """
-                You are verifying an Alert for the PIS Intelligent Information Assistant.
-                An Alert is a user intent for operational monitoring.
-                Verification must not generate code.
-                Verification must not create Agent Definition.
-                Verification must not create Agent Run.
-                Verification must not create Suggestion.
-                Verification must not use Agent Profile.
-                Return only valid JSON.
-                Do not use markdown.
-                Do not invent operational data.
-                Do not access DB, Kafka, HTTP, or filesystem.
-                Respect only the MVP contract.
+        return String.join("\n\n",
+                missionAndSafetySection(),
+                mvpContractSection(defaultTemporalZone),
+                mentalWorkflowSection(),
+                outputJsonContractSection());
+    }
 
+    private String userPrompt(AlertVerificationPromptData alert, String defaultTemporalZone) {
+        System.out.println("[IIA][ALERT_VERIFY][CATALOG] allowedFields="
+                + ServiceDataCapabilityCatalog.allowedFieldCount());
+        return String.join("\n\n",
+                alertInputSection(alert),
+                serviceDataCatalogSection(),
+                semanticInterpretationSection(defaultTemporalZone),
+                dslConstructionRulesSection(defaultTemporalZone),
+                temporalRulesSection(defaultTemporalZone),
+                arrayCorrelationRulesSection(),
+                rejectionPolicySection(),
+                requirementCoverageSection(),
+                examplesSection(defaultTemporalZone),
+                responseSkeletonSection());
+    }
+
+    private String missionAndSafetySection() {
+        return """
+                Mission and safety:
+                - You are verifying an Alert for the PIS Intelligent Information Assistant.
+                - An Alert is a user intent for operational monitoring.
+                - Verification must not generate code.
+                - Verification must not create Agent Definition.
+                - Verification must not create Agent Run.
+                - Verification must not create Suggestion.
+                - Verification must not use Agent Profile.
+                - Do not access DB, Kafka, HTTP, filesystem, external APIs or external tools.
+                - Do not invent operational data.
+                - Return only valid raw JSON. Do not use markdown.
+                - The backend validator remains the final technical gate. Do not use confidence as a technical acceptance criterion.
+                """;
+    }
+
+    private String mvpContractSection(String defaultTemporalZone) {
+        return """
                 MVP contract:
                 - The only allowed data source is SERVICE_DATA.
                 - The only allowed interpreter is EVENT_INTERPRETER.
+                - The allowed triggerType is EVENT.
                 - The only allowed input model is ServiceDataV2.
                 - The only allowed output model is AgentOutput.CANDIDATE_SUGGESTION.
                 - The only allowed evaluation mode is STATELESS_EVENT_MATCH.
-                - The allowed triggerType is EVENT.
                 - Internal state is not supported.
-                - Temporal conditions are supported only when evaluated statelessly on timestamps in one ServiceDataV2 event.
-                - Local time windows such as "tra le 02:00 e le 10:00" must use operator LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
-                - Local day predicates such as "martedi", "weekend" or "non il weekend" must use LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN on an allowed ServiceData timestamp, with value.days using english enum values MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY.
-                - Weekday words such as lunedi, martedi, mercoledi, giovedi, venerdi, sabato and domenica are supported temporal predicates on ServiceData timestamps; do not reject them as scheduled evaluation when they refer to the timestamp inside the received event.
-                - Weekend/fine settimana means SATURDAY plus SUNDAY. Non il weekend, escluso weekend and nei giorni feriali mean LOCAL_DAY_OF_WEEK_NOT_IN with SATURDAY plus SUNDAY.
-                - Time expressions such as "tra le 2 e le 10", "tra le 2:00 e le 10", or "tra le 02 e le 10:30" must be normalized to HH:mm:ss; a single hour means the beginning of that hour ("2" becomes "02:00:00", "10" becomes "10:00:00").
-                - Scheduled, future-existence, event-absence and historical time reasoning are not supported.
-                - Alert or Agent activation time windows are not temporal predicates: reject requests such as "Attiva questo alert solo tra le 11:30 e le 12:35..." and never represent them with activationPolicy or a scheduler.
-                - Absence of events is not supported.
-                - Audio, video, device, display, broadcast, and content sources are not supported.
-                - The MVP accepts any alert that can be expressed as a stateless boolean condition over the allowed ServiceData fields listed in the ServiceData Capability Catalog.
-                - You must only use fields and operators listed in the ServiceData Capability Catalog.
-                - If the user asks for a condition that can be mapped to one or more allowed fields/operators, decision must be VERIFIED.
-                - If the user asks for absence of events over time, future existence, historical memory, external data, audio/video/device/display/broadcast/content, or free DB/API access, decision must be REJECTED.
-                - You must first decompose the user prompt into all required operational constraints.
-                - Every required constraint must be listed in requirementCoverage.requirements.
-                - The alert can be VERIFIED only if every required constraint is mappable to one or more fields in the ServiceData Capability Catalog.
-                - If any required constraint cannot be mapped to the catalog, decision must be REJECTED.
-                - Do not silently ignore unsupported constraints.
-                - Do not verify only a subset of the request.
-                - Do not invent ServiceData fields that are not listed in the catalog.
-                - Do not reject a request just because it contains words like "non" or "does not"; reject only if the negation requires absence of events or historical/time-window reasoning.
-                - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
+                - Temporal conditions are supported only when evaluated statelessly on timestamps inside one ServiceDataV2 event.
+                - Local time windows use LOCAL_TIME_BETWEEN and timezone %s unless the user supplies an explicit timezone.
+                - Local day predicates use LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN on an allowed ServiceData timestamp.
+                - Scheduled, future-existence, absence-of-events, historical observation windows and activation policies are not supported.
+                - The MVP accepts any alert expressible as a stateless boolean condition over fields/operators listed in the ServiceData Capability Catalog.
+                """.formatted(defaultTemporalZone);
+    }
 
+    private String mentalWorkflowSection() {
+        return """
+                Required reasoning workflow:
+                - Extract all user constraints.
+                - For each constraint, classify it as domain, source, event, location, journey, route, temporal, negation, output/action, or unsupported.
+                - Map each mappable constraint to ServiceData Capability Catalog fields and allowed operators.
+                - Choose the minimum condition tree that satisfies all required constraints.
+                - Preserve correlation for array elements using anyElement.
+                - Reject only if at least one required constraint cannot be mapped to the catalog or requires unsupported state, history, future lookup, absence of events, or external tools.
+                - Return only JSON. Do not output this workflow as prose.
+                """;
+    }
+
+    private String outputJsonContractSection() {
+        return """
                 If decision is VERIFIED:
                 - technicalSpecification is mandatory and must not be empty.
                 - agentBlueprintPreview is mandatory and must not be empty.
                 - technicalSpecification must contain at least: schemaVersion, source, inputModel, outputModel, triggerType, evaluationMode, condition, deduplicationKeyTemplate.
                 - agentBlueprintPreview must contain at least: schemaVersion, agentName, triggerType, requiredSources, evaluationMode, targetTypes, stateRequirements, output.
-                - Do not return empty objects for technicalSpecification or agentBlueprintPreview.
                 - technicalSpecification.condition.type must be SERVICE_DATA_FIELD_MATCH unless using a legacy event name for backward compatibility.
                 - Prefer SERVICE_DATA_FIELD_MATCH for all newly generated results.
-                - Copy every extracted condition, including LOCAL_TIME_BETWEEN leaves, into agentBlueprintPreview.parameters.condition.
-                - When multiple constraints must match the same nextCalls item, represent them with an anyElement node; never flatten correlated nextCalls constraints into independent leaves.
-                - Never use activation policy or scheduler to model a supported temporal condition.
-                """.formatted(defaultTemporalZone);
+                - Copy every extracted condition into agentBlueprintPreview.parameters.condition.
+                - requiredSources must be only SERVICE_DATA.
+                - interpreterType must be EVENT_INTERPRETER.
+                - evaluationMode must be STATELESS_EVENT_MATCH.
+                - stateRequirements.requiresState must be false.
+                """;
     }
 
-    private String userPrompt(AlertVerificationPromptData alert, String defaultTemporalZone) {
-        String catalog = ServiceDataCapabilityCatalog.compactPromptCatalog();
-        System.out.println("[IIA][ALERT_VERIFY][CATALOG] allowedFields=" + ServiceDataCapabilityCatalog.allowedFieldCount());
+    private String alertInputSection(AlertVerificationPromptData alert) {
         return """
                 Alert to verify:
                 - alertId: %s
                 - name: %s
                 - description: %s
                 - originalPrompt: %s
+                """.formatted(
+                nullToEmpty(alert.alertId()),
+                nullToEmpty(alert.name()),
+                nullToEmpty(alert.description()),
+                nullToEmpty(alert.prompt()));
+    }
 
+    private String serviceDataCatalogSection() {
+        return """
                 ServiceData Capability Catalog:
                 %s
+                """.formatted(ServiceDataCapabilityCatalog.compactPromptCatalog());
+    }
 
-                Valid MVP cases:
-                - Any alert that can be represented as a stateless boolean condition over the catalog fields.
-                - Current stop point, journey identity, line/service/operator/mode, passing type, platforms, delays, statuses, route/next calls, replacement, info, exclusion, delivery, and monitoring checks are valid if they use catalog fields/operators.
-                - "non si ferma" / "passing through" is valid when represented with passingType = TRANSIT.
+    private String semanticInterpretationSection(String defaultTemporalZone) {
+        return """
+                Semantic interpretation rules:
+                - Interpret natural language semantically before choosing DSL operators.
+                - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
+                - "weekend" and "fine settimana" mean SATURDAY plus SUNDAY.
+                - "non il weekend" and "escluso weekend" mean LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
+                - "feriali", "giorni feriali", "nei feriali", "durante i feriali", "dal lunedi al venerdi" and "dal lunedì al venerdì" mean LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
+                - Italian weekdays normalize as: lunedi/lunedì -> MONDAY; martedi/martedì -> TUESDAY; mercoledi/mercoledì -> WEDNESDAY; giovedi/giovedì -> THURSDAY; venerdi/venerdì -> FRIDAY; sabato -> SATURDAY; domenica -> SUNDAY.
+                - "parte da <origin> nei feriali" means apply LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY to the departure timestamp of the origin, normally timetabledCallStart.departureTime when using stopPointsJourneyDetails[].
+                - "transitera a <stop>" without a time/day predicate means use anyElement on nextTransitCalls[] with stopPoint.nameLong only. Do not add passingTime.
+                - "transitera a <stop> il martedi" means use anyElement on nextTransitCalls[] with stopPoint.nameLong and passingTime LOCAL_DAY_OF_WEEK_IN TUESDAY.
+                - "transitera a <stop> tra le 11:00 e le 12:00" means use passingTime LOCAL_TIME_BETWEEN because the temporal predicate refers to the transit time.
+                - "parte da <origin> nei feriali e transitera a <stop>" means the weekday predicate applies to timetabledCallStart.departureTime, while the transit stop is represented by nextTransitCalls[].stopPoint.nameLong.
+                - Use timezone %s unless the user explicitly supplies another valid timezone.
+                """.formatted(defaultTemporalZone);
+    }
 
+    private String dslConstructionRulesSection(String defaultTemporalZone) {
+        return """
+                DSL construction rules:
+                - Use technicalSpecification.condition.type = SERVICE_DATA_FIELD_MATCH for catalog-driven matches.
+                - Conditions can contain "all" for AND, "any" for OR, anyElement for arrays, or leaf checks with field/operator/value or field/operator/values.
+                - Use only fields/operators from ServiceDataCapabilityCatalog.compactPromptCatalog().
+                - Operators must be allowed for that exact field or relative field.
+                - Do not infer operators not listed in the catalog.
+                - Do not use EXISTS, NOT_NULL or NOT_EMPTY unless the catalog allows that operator for that exact field.
+                - Do not use EXISTS on timestamp fields such as passingTime, departureTime, arrivalTime, eventGenerationTime or timetabledCallStart.departureTime.
+                - The existence of an array element is represented by anyElement, not by EXISTS on a timestamp field.
+                - If the user only asks that a route contains/transits at a stop, use anyElement with stopPoint.nameLong; do not add a timestamp condition unless the user requests a time/day/date predicate.
+                - For EXISTS, NOT_NULL, NOT_EMPTY no value is required when the operator is allowed by the catalog.
+                - For SIZE_* operators, value must be numeric.
+                - For enum checks, values must be one of the enumValues listed in the catalog.
+                - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
+                - Use LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN with value {"days":["TUESDAY"],"timezone":"%s"} for local day checks.
+                - Do not verify only a subset of the request. Do not silently ignore unsupported constraints.
+                """.formatted(defaultTemporalZone, defaultTemporalZone);
+    }
+
+    private String temporalRulesSection(String defaultTemporalZone) {
+        return """
+                Temporal rules:
+                - Stateless temporal predicates are allowed only on timestamp fields listed in the ServiceData Capability Catalog.
+                - Supported temporal operators are LOCAL_TIME_BETWEEN, LOCAL_DAY_OF_WEEK_IN and LOCAL_DAY_OF_WEEK_NOT_IN.
+                - Required LOCAL_DAY_OF_WEEK_IN JSON shape:
+                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"%s"}}
+                - Required LOCAL_DAY_OF_WEEK_NOT_IN JSON shape:
+                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
+                - Normalize natural clock expressions: "tra le 2 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 2:00 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 02 e le 10:30" -> start 02:00:00 and end 10:30:00.
+                - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
+                - Do not use activation windows, activationPolicy, scheduler or SCHEDULED_INTERPRETER for day-of-week predicates that can be mapped to a ServiceData timestamp.
+                - Reject dates relative to evaluation time such as oggi, domani or dopodomani because a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
+                - Reject prediction, absence of events and historical observation windows even if a nearby stop point or clock time appears mappable.
+                """.formatted(defaultTemporalZone, defaultTemporalZone);
+    }
+
+    private String arrayCorrelationRulesSection() {
+        return """
+                Array correlation rules:
+                - If multiple constraints must match the same ServiceData array element, use anyElement with that array path and relative fields inside conditions.
+                - Inside anyElement, fields are relative to the same array item.
+                - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
+                - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
+                - Outer path must be payload.stopPointJourney.stopPointsJourneyDetails[].
+                - Inner path must be relative, for example nextTransitCalls[] or nextCalls[].
+                - Do not generate sibling anyElement nodes where one path is payload.stopPointJourney.stopPointsJourneyDetails[] and another path is payload.stopPointJourney.stopPointsJourneyDetails[].<childArray>[]; that loses same stopPointsJourneyDetails correlation.
+                - anyElement on nextTransitCalls[] with stopPoint.nameLong already represents existence of a matching transit call.
+                """;
+    }
+
+    private String rejectionPolicySection() {
+        return """
                 Cases to reject:
                 - Empty or too short prompt.
                 - Encyclopedic or non-operational questions.
                 - Weather/meteo requests.
-                - Requests requiring audio, video, device, display, broadcast, content, or other unsupported sources.
-                - Requests about whether ServiceData says a journey was already announced are allowed only if represented with deliveryData.wasAnnounced.
-                - Requests requiring internal state, scheduled/future evaluation, historical evaluation, or absence of events.
+                - Requests requiring audio, video, device, display, broadcast, content, or unsupported sources.
+                - Requests requiring internal state, scheduled/future evaluation, historical evaluation, external lookup, or absence of events.
                 - Requests that require creating Agent Definition, Agent Run, Suggestion, executable code, or Agent Profile.
+                - Alert or Agent activation time windows, such as "Attiva questo alert solo il weekend", because they are activation policy and not ServiceData predicates.
+                - Passenger count, train color, or other required constraints absent from the catalog.
+                """;
+    }
 
-                Condition rules:
-                - Use technicalSpecification.condition.type = SERVICE_DATA_FIELD_MATCH for catalog-driven matches.
-                - Conditions can contain "all" for AND, "any" for OR, or leaf checks with field/operator/value or field/operator/values.
-                - For EXISTS, NOT_NULL, NOT_EMPTY no value is required.
-                - For SIZE_* operators, value must be numeric.
-                - For enum checks, values must be one of the enumValues listed in the catalog.
-                - For "not stopping" / "non si ferma", use passingType EQUALS TRANSIT.
-                - For cancelled journeys, use an allowed status field with ARRIVAL_CANCELLATION or DEPARTURE_CANCELLATION.
-                - For delayed journeys, use a delay field or delay status from the catalog.
-                - Stateless temporal predicates are allowed only on timestamp fields listed in the ServiceData Capability Catalog.
-                - Use operator LOCAL_TIME_BETWEEN with value {"start":"HH:mm:ss","end":"HH:mm:ss","timezone":"%s"} for local clock windows.
-                - Supported day-of-week operators: LOCAL_DAY_OF_WEEK_IN and LOCAL_DAY_OF_WEEK_NOT_IN.
-                - Use operator LOCAL_DAY_OF_WEEK_IN or LOCAL_DAY_OF_WEEK_NOT_IN with value {"days":["TUESDAY"],"timezone":"%s"} for local day checks.
-                - Required LOCAL_DAY_OF_WEEK_IN JSON shape:
-                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
-                - Required LOCAL_DAY_OF_WEEK_NOT_IN JSON shape:
-                  {"field":"<timestamp field>","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"Europe/Rome"}}
-                - Italian day normalization: lunedi -> MONDAY; martedi -> TUESDAY; mercoledi -> WEDNESDAY; giovedi -> THURSDAY; venerdi -> FRIDAY; sabato -> SATURDAY; domenica -> SUNDAY.
-                - "weekend" must be represented as days ["SATURDAY","SUNDAY"].
-                - "fine settimana" must be represented as days ["SATURDAY","SUNDAY"].
-                - "non il weekend" must be represented as LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
-                - "escluso weekend" and "nei giorni feriali" must be represented as LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
-                - "martedi" must be represented as TUESDAY.
-                - Normalize natural clock expressions: "tra le 2 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 2:00 e le 10" -> start 02:00:00 and end 10:00:00; "tra le 02 e le 10:30" -> start 02:00:00 and end 10:30:00.
-                - For current departure/arrival events use payload.ongroundServiceEvent.eventGenerationTime together with payload.ongroundServiceEvent.eventsType.
-                - "parte da Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS DEPARTED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
-                - "arriva a Genova tra le 02:00 e le 10:00" maps to eventsType CONTAINS ARRIVED, payload.ongroundServiceEvent.stopPoint.nameLong EQUALS_NORMALIZED Genova, and eventGenerationTime LOCAL_TIME_BETWEEN 02:00:00 and 10:00:00.
-                - For a future stop described within the received journey payload, use an anyElement node with path payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].
-                - If multiple constraints must match the same element of a ServiceData array, use anyElement with that array path and relative fields inside conditions; never flatten correlated array conditions into independent leaves.
-                - Inside anyElement, fields are relative to the same array item.
-                - If you must correlate fields of payload.stopPointJourney.stopPointsJourneyDetails[] with fields of child arrays such as nextCalls[], nextTransitCalls[], nextCancelledCalls[], isReplacementOf[], replacement.stopPointReplacements[] or externalReplacement.stopPointReplacements[], use nested anyElement nodes: the outer path must be payload.stopPointJourney.stopPointsJourneyDetails[] and the inner path must be relative, for example nextTransitCalls[].
-                - Never place sibling anyElement nodes under the same all where one path is payload.stopPointJourney.stopPointsJourneyDetails[] and another path is payload.stopPointJourney.stopPointsJourneyDetails[].<childArray>[]; this loses same stopPointsJourneyDetails correlation.
-                - Do not use activation windows, activationPolicy, scheduler or SCHEDULED_INTERPRETER for day-of-week predicates that can be mapped to a ServiceData timestamp.
-                - Do not use activation policy, scheduler, SCHEDULED_INTERPRETER, external API, or central API.
-                - Reject dates relative to evaluation time such as oggi, domani, or dopodomani: a persistent Alert cannot turn them into a stateless single-event predicate in this MVP.
-                - Reject prediction, absence of events, or historical observation windows even if a nearby stop point or clock time appears mappable.
-                - Return only raw JSON. Do not wrap the response in markdown or explanatory text.
-                - requiredSources must be only SERVICE_DATA.
-                - interpreterType must be EVENT_INTERPRETER.
-                - evaluationMode must be STATELESS_EVENT_MATCH.
-                - stateRequirements.requiresState must be false.
-
-                interpretedEventNames:
-                - Use one or more of JOURNEY_CANCELLED, JOURNEY_DELAYED, PLATFORM_EVENT, JOURNEY_TRANSIT, JOURNEY_REPLACEMENT, JOURNEY_ROUTE_MATCH, JOURNEY_ORIGIN, SERVICE_DATA_FIELD_MATCH.
-                - If no specific functional name fits, use SERVICE_DATA_FIELD_MATCH.
-                - Do not base the technical validation on interpretedEventNames; the condition is authoritative.
-
+    private String requirementCoverageSection() {
+        return """
                 Requirement coverage:
                 - requirementCoverage is mandatory for every response.
                 - requirements must contain every binding condition requested by the user.
@@ -192,171 +254,99 @@ public class AlertVerificationPromptBuilder {
                 - allRequiredRequirementsMapped=false when at least one required requirement has mappable=false.
                 - If allRequiredRequirementsMapped=false, decision must be REJECTED.
                 - If decision=VERIFIED, allRequiredRequirementsMapped must be true.
+                """;
+    }
 
-                Valid example:
-                Prompt: "Avvisami quando una corsa parte da Firenze dal binario 1 e passa da Siena"
-                Requirement coverage:
-                - partenza da Firenze -> mappable using stopPoint / passingType ORIGIN or departure context.
-                - binario 1 -> mappable using platform fields.
-                - passa da Siena -> mappable using nextCalls or nextTransitCalls.
-                Decision: VERIFIED
+    private String examplesSection(String defaultTemporalZone) {
+        return """
+                Few-shot examples:
 
-                Rejected example:
-                Prompt: "Avvisami quando il treno 1253 parte da Genova e ha almeno 10 passeggeri"
-                Requirement coverage:
-                - treno 1253 -> mappable using vehicleJourneyName.
-                - parte da Genova -> mappable using stopPoint / origin context.
-                - almeno 10 passeggeri -> not mappable because no passenger count field exists in the catalog.
-                Decision: REJECTED
-
-                Rejected example:
-                Prompt: "Avvisami quando il treno 1253 parte da Genova ed è rosso"
-                Requirement coverage:
-                - treno 1253 -> mappable using vehicleJourneyName.
-                - parte da Genova -> mappable using stopPoint / origin context.
-                - è rosso -> not mappable because no train color field exists in the catalog.
-                Decision: REJECTED
-
-                Valid temporal example:
-                Prompt: "Fammi sapere quando una corsa parte da Genova tra le 02:00 e le 10:00"
-                Condition all leaves:
-                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"}
-                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
-                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
-                Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
-                Decision: VERIFIED
-
-                Valid natural-hour temporal example:
-                Prompt: "Fammi sapere quando una corsa parte da Genova tra le 2 e le 10"
-                Condition all leaves:
-                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"}
-                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
-                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
-                Decision: VERIFIED
-
-                Valid temporal arrival example:
-                Prompt: "Fammi sapere quando una corsa arriva a Genova tra le 02:00 e le 10:00"
-                Condition all leaves:
-                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
-                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
-                - {"field":"payload.ongroundServiceEvent.eventGenerationTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"02:00:00","end":"10:00:00","timezone":"%s"}}
-                Copy the same condition object into technicalSpecification.condition and agentBlueprintPreview.parameters.condition.
-                Decision: VERIFIED
-
-                Valid correlated nextCalls temporal example:
-                Prompt: "Fammi sapere quando una corsa arriva a Genova e partirà a Gorla tra le 11:30 e le 12:35"
-                Condition all children:
-                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
-                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
-                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]","conditions":{"all":[
-                    {"field":"stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Gorla"},
-                    {"field":"departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"%s"}}
-                  ]}}}
-                The Gorla and departureTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
-                Decision: VERIFIED
-
-                Valid correlated nextCalls arrival temporal example:
-                Prompt: "Fammi sapere quando una corsa arriva a Genova e arrivera a Gorla tra le 11:30 e le 12:35"
-                Condition all children:
-                - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"}
-                - {"field":"payload.ongroundServiceEvent.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova"}
-                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]","conditions":{"all":[
-                    {"field":"stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Gorla"},
-                    {"field":"arrivalTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:30:00","end":"12:35:00","timezone":"%s"}}
-                  ]}}}
-                The Gorla and arrivalTime checks must match the same nextCall item. Copy this anyElement tree into both persisted condition objects.
-                Decision: VERIFIED
-
-                Valid correlated local-day example:
+                Positive example - weekend on origin departure:
                 Prompt: "Avvertimi quando una corsa che parte da Genova P.P il weekend"
-                Condition:
-                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
-                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
-                  ]}}}
-                Copy this anyElement tree into both persisted condition objects.
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                  {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
+                ]}}}
                 Decision: VERIFIED
 
-                Valid correlated local-time and non-weekend example:
+                Positive example - not weekend plus local time range on origin departure:
                 Prompt: "Avvertimi quando una corsa parte da Genova P.P tra le 11:20 e le 11:25 non il weekend"
-                Condition:
-                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
-                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:20:00","end":"11:25:00","timezone":"Europe/Rome"}},
-                    {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"Europe/Rome"}}
-                  ]}}}
-                Copy this anyElement tree into both persisted condition objects.
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                  {"field":"timetabledCallStart.departureTime","operator":"LOCAL_TIME_BETWEEN","value":{"start":"11:20:00","end":"11:25:00","timezone":"%s"}},
+                  {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}}
+                ]}}}
                 Decision: VERIFIED
 
-                Valid correlated transit local-day example:
+                Positive example - transit stop with weekday on passingTime:
                 Prompt: "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi"
-                Condition:
-                - {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                    {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
-                    {"anyElement":{"path":"nextTransitCalls[]","conditions":{"all":[
-                      {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"},
-                      {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
-                    ]}}}
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                  {"anyElement":{"path":"nextTransitCalls[]","conditions":{"all":[
+                    {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"},
+                    {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"%s"}}
                   ]}}}
-                The Genova P.P origin constraint, Genova Nervi transit constraint and passingTime day predicate must preserve correlation with the same stopPointsJourneyDetails element by nesting the nextTransitCalls anyElement with a relative path.
+                ]}}}
                 Decision: VERIFIED
 
-                Rejected flattened sibling anyElement correlation example:
-                Prompt: "Avvertimi quando una corsa che parte da Genova P.P e transitera a Genova Nervi il martedi"
-                Invalid condition shape:
-                - {"all":[
-                    {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                      {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"}
-                    ]}}},
-                    {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]","conditions":{"all":[
-                      {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"},
-                      {"field":"passingTime","operator":"LOCAL_DAY_OF_WEEK_IN","value":{"days":["TUESDAY"],"timezone":"Europe/Rome"}}
-                    ]}}}
-                  ]}
-                Decision: REJECTED
-                rejectedReason: "nested anyElement is required to preserve correlation on the same stopPointsJourneyDetails element."
+                Positive example - weekday on origin departure plus transit stop without passingTime:
+                Prompt: "Avvertimi quando una corsa che parte da Genova P.P nei feriali e transitera a Genova Nervi"
+                Expected condition:
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "anyElement": {
+                    "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                    "conditions": {
+                      "all": [
+                        {"field":"timetabledCallStart.stopPoint.nameLong","operator":"EQUALS_NORMALIZED","value":"Genova P.P"},
+                        {"field":"timetabledCallStart.departureTime","operator":"LOCAL_DAY_OF_WEEK_NOT_IN","value":{"days":["SATURDAY","SUNDAY"],"timezone":"%s"}},
+                        {"anyElement":{"path":"nextTransitCalls[]","conditions":{"all":[
+                          {"field":"stopPoint.nameLong","operator":"CONTAINS_NORMALIZED","value":"Genova Nervi"}
+                        ]}}}
+                      ]
+                    }
+                  }
+                }
+                Decision: VERIFIED
 
-                Rejected scheduled lookup example:
-                Prompt: "Segnalami se domani ci partono dall'origine autobus da Pisa Centrale"
-                Decision: REJECTED
-                rejectedReason: "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event."
+                Negative example - do not add timestamp existence for transit stop:
+                Do not generate:
+                {"field":"passingTime","operator":"EXISTS"}
+                Explanation: EXISTS on passingTime is not needed and not allowed. anyElement on nextTransitCalls[] with the requested stopPoint already represents existence of a matching transit call.
 
-                Rejected activation-policy weekend example:
+                Negative example - activation policy:
                 Prompt: "Attiva questo alert solo il weekend"
                 Decision: REJECTED
                 rejectedReason: "Activation time windows are not supported in the current Alert Verify MVP. Only stateless temporal predicates evaluated on ServiceData event timestamps are supported."
 
-                Rejected absence example:
-                Prompt: "Avvisami se domani non parte nessuna corsa da Genova"
-                Decision: REJECTED
-                rejectedReason: "The request requires absence-of-events evaluation, which is not evaluable on a single ServiceData event."
-
-                Rejected weekend absence example:
+                Negative example - absence of events:
                 Prompt: "Avvisami se nel weekend non passano corse a Genova Nervi"
                 Decision: REJECTED
                 rejectedReason: "The request requires absence-of-events evaluation, state or an observation window, which is not evaluable on a single ServiceData event."
 
-                Rejected future lookup example:
-                Prompt: "Avvisami domani se parte una corsa da Genova"
+                Negative example - unsupported constraint:
+                Prompt: "Avvisami quando il treno 1253 parte da Genova e ha almeno 10 passeggeri"
                 Decision: REJECTED
-                rejectedReason: "The request requires a scheduled future or date-relative lookup, which is not evaluable on a single ServiceData event."
+                rejectedReason: "Passenger count is not available in the ServiceData Capability Catalog."
 
-                Rejected historical absence example:
-                Prompt: "Avvisami se negli ultimi 30 minuti non sono arrivati treni"
+                Negative example - unsupported attribute:
+                Prompt: "Avvisami quando il treno 1253 parte da Genova ed e rosso"
                 Decision: REJECTED
-                rejectedReason: "The request requires historical event evaluation, which is not evaluable on a single ServiceData event."
+                rejectedReason: "Train color is not available in the ServiceData Capability Catalog."
+                """.formatted(
+                defaultTemporalZone,
+                defaultTemporalZone,
+                defaultTemporalZone,
+                defaultTemporalZone,
+                defaultTemporalZone);
+    }
 
-                Rejected prediction example:
-                Prompt: "Avvisami quando una corsa sara probabilmente in ritardo domani"
-                Decision: REJECTED
-                rejectedReason: "The request requires prediction, which is not evaluable on a single ServiceData event."
-
-                Rejected activation window example:
-                Prompt: "Attiva questo alert solo tra le 11:30 e le 12:35 quando una corsa arriva a Genova."
-                Decision: REJECTED
-                rejectedReason: "Activation time windows are not supported in the current Alert Verify MVP. Only stateless temporal predicates evaluated on ServiceData event timestamps are supported."
-
-                Expected JSON schema:
+    private String responseSkeletonSection() {
+        return """
+                Response JSON contract:
                 {
                   "decision": "VERIFIED",
                   "summary": "The alert can be evaluated on realtime ServiceData events.",
@@ -373,12 +363,10 @@ public class AlertVerificationPromptBuilder {
                   "requirementCoverage": {
                     "requirements": [
                       {
-                        "text": "the train is passing through and does not stop",
+                        "text": "required user constraint",
                         "required": true,
                         "mappable": true,
-                        "mappedBy": [
-                          "payload.stopPointJourney.stopPointsJourneyDetails[].passingType"
-                        ],
+                        "mappedBy": ["payload.some.allowed.field"],
                         "reason": null
                       }
                     ],
@@ -391,16 +379,7 @@ public class AlertVerificationPromptBuilder {
                     "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
                     "triggerType": "EVENT",
                     "evaluationMode": "STATELESS_EVENT_MATCH",
-                    "condition": {
-                      "type": "SERVICE_DATA_FIELD_MATCH",
-                      "all": [
-                        {
-                          "field": "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
-                          "operator": "EQUALS",
-                          "value": "TRANSIT"
-                        }
-                      ]
-                    },
+                    "condition": {"type": "SERVICE_DATA_FIELD_MATCH"},
                     "deduplicationKeyTemplate": "SERVICE_DATA:${journeyId}:${stopPointId}:${conditionHash}"
                   },
                   "agentBlueprintPreview": {
@@ -413,25 +392,10 @@ public class AlertVerificationPromptBuilder {
                     "targetTypes": ["SERVICE_DATA_JOURNEY"],
                     "parameters": {
                       "conditionType": "SERVICE_DATA_FIELD_MATCH",
-                      "condition": {
-                        "type": "SERVICE_DATA_FIELD_MATCH",
-                        "all": [
-                          {
-                            "field": "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
-                            "operator": "EQUALS",
-                            "value": "TRANSIT"
-                          }
-                        ]
-                      }
+                      "condition": {"type": "SERVICE_DATA_FIELD_MATCH"}
                     },
-                    "stateRequirements": {
-                      "requiresState": false
-                    },
-                    "output": {
-                      "type": "CANDIDATE_SUGGESTION",
-                      "reasonTemplate": "Journey ${journeyName} appears to be cancelled at ${stopPointName}.",
-                      "operatorAdviceTemplate": "Verify the cancellation and passenger information workflow."
-                    }
+                    "stateRequirements": {"requiresState": false},
+                    "output": {"type": "CANDIDATE_SUGGESTION"}
                   },
                   "warnings": [],
                   "safetyChecks": [
@@ -441,20 +405,7 @@ public class AlertVerificationPromptBuilder {
                     "No Suggestion created."
                   ]
                 }
-                """.formatted(
-                nullToEmpty(alert.alertId()),
-                nullToEmpty(alert.name()),
-                nullToEmpty(alert.description()),
-                nullToEmpty(alert.prompt()),
-                catalog,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone,
-                defaultTemporalZone);
+                """;
     }
 
     private String nullToEmpty(String value) {
