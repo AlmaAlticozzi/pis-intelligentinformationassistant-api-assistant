@@ -1,5 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 
 import java.util.ArrayList;
@@ -19,7 +20,6 @@ class AgentPreviewConditionExtractor {
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
     private static final Set<String> ANY_ELEMENT_FIELDS = Set.of("type", "anyElement");
     private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
-    private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
     private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
             "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 
@@ -71,7 +71,7 @@ class AgentPreviewConditionExtractor {
                 .map(ConditionLeaf::operator)
                 .filter(value -> value != null && !value.isBlank())
                 .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
-        boolean temporalFilter = dslOperators.contains(LOCAL_TIME_BETWEEN);
+        boolean temporalFilter = dslOperators.stream().anyMatch(ServiceDataTemporalCapabilityCatalog::isTemporalOperator);
         if (temporalFilter) {
             System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] recognized operators=" + dslOperators);
         }

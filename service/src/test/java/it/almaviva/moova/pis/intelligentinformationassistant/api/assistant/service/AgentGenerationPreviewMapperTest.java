@@ -245,6 +245,26 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void temporalDayOfWeekAndTimeConditionProducesRuntimeSupportedPreviewAndPlan() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(temporalDayOfWeekPreviewData(), null);
+
+        assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("operator: LOCAL_TIME_BETWEEN")
+                .contains("operator: LOCAL_DAY_OF_WEEK_NOT_IN")
+                .contains("days:\n              - SATURDAY\n              - SUNDAY")
+                .contains("timezone: Europe/Rome")
+                .contains("supportedByRuntime: true");
+        assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
+                .contains("11:20:00-11:25:00", "not included in [SATURDAY, SUNDAY]");
+        assertThat(response.getValidationPlan().getNegativeExamples())
+                .extracting(example -> example.getDescription())
+                .anyMatch(description -> description.contains("outside 11:20:00-11:25:00")
+                        || description.contains("excluded by [SATURDAY, SUNDAY]"));
+    }
+
+    @Test
     void validatedLlmDelayCandidateNormalizesIntentAndOmitsDeterministicWarning() {
         AlertAgentGenerationPreviewData data = verifiedIntercityNumericDelayPreviewData();
         Map<String, Object> generatedBlueprint = new LinkedHashMap<>(data.agentBlueprintPreview());
@@ -594,6 +614,55 @@ class AgentGenerationPreviewMapperTest {
                 "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
                 "AgentOutput.CANDIDATE_SUGGESTION", technicalSpecification, blueprint, List.of("ARRIVED"), List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData temporalDayOfWeekPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "all", List.of(
+                                                Map.of(
+                                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                                        "operator", "EQUALS_NORMALIZED",
+                                                        "value", "Genova P.P"),
+                                                Map.of(
+                                                        "field", "timetabledCallStart.departureTime",
+                                                        "operator", "LOCAL_TIME_BETWEEN",
+                                                        "value", Map.of(
+                                                                "start", "11:20:00",
+                                                                "end", "11:25:00",
+                                                                "timezone", "Europe/Rome")),
+                                                Map.of(
+                                                        "field", "timetabledCallStart.departureTime",
+                                                        "operator", "LOCAL_DAY_OF_WEEK_NOT_IN",
+                                                        "value", Map.of(
+                                                                "days", List.of("SATURDAY", "SUNDAY"),
+                                                                "timezone", "Europe/Rome"))))))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "DepartureGenovaWeekdayWindowAgent",
+                "description", "Detects weekday departures at Genova P.P.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT1", "Temporal weekday departure", "VERIFIED", "VERIFIED", false, null, 1,
+                "Avvertimi quando una corsa parte da Genova P.P tra le 11:20 e le 11:25 non il weekend",
+                "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION", technicalSpecification, blueprint,
+                List.of("SERVICE_DATA_FIELD_MATCH"), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
     }
 
     private AlertAgentGenerationPreviewData platformChangeAnyLocationPreviewData() {

@@ -28,10 +28,16 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedDslOperator("NOT_NULL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_EMPTY")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_TIME_BETWEEN")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_IN")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_NOT_IN")).isTrue();
         assertThat(catalog.supportedDslLogicalNodes()).contains("anyElement");
         assertThat(catalog.isSupportedTemporalField("payload.ongroundServiceEvent.eventGenerationTime")).isTrue();
+        assertThat(catalog.isSupportedTemporalField(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime")).isTrue();
         assertThat(catalog.isSupportedArrayPath(
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]")).isTrue();
+        assertThat(catalog.isSupportedArrayPath(
+                "payload.stopPointJourney.stopPointsJourneyDetails[]")).isTrue();
         assertThat(catalog.supportedArrayRelativeFields(
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]"))
                 .contains("stopPoint.nameLong", "departureTime", "arrivalTime", "passingType");
@@ -94,7 +100,7 @@ class AgentGenerationCapabilityCatalogTest {
                 "ServiceDataV2",
                 "CANDIDATE_SUGGESTION",
                 List.of("SERVICE_DATA_JOURNEY"),
-                Set.of("LOCAL_TIME_BETWEEN", "EQUALS_NORMALIZED"),
+                Set.of("LOCAL_TIME_BETWEEN", "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN", "EQUALS_NORMALIZED"),
                 true,
                 "DSL",
                 "DSL");

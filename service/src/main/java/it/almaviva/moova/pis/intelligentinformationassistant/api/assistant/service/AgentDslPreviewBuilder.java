@@ -166,17 +166,21 @@ class AgentDslPreviewBuilder {
         if ("LOCAL_TIME_BETWEEN".equals(stringValue(leaf.get("operator")))) {
             System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] rendered operator=LOCAL_TIME_BETWEEN field="
                     + leaf.get("field"));
+        } else if ("LOCAL_DAY_OF_WEEK_IN".equals(stringValue(leaf.get("operator")))
+                || "LOCAL_DAY_OF_WEEK_NOT_IN".equals(stringValue(leaf.get("operator")))) {
+            System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] rendered operator=" + leaf.get("operator")
+                    + " field=" + leaf.get("field"));
         }
         if (leaf.get("value") instanceof Map<?, ?> rawValue) {
             appendLine(output, propertyIndent, "value:");
             Map<String, Object> nestedValue = mapValue(rawValue);
-            for (String key : List.of("start", "end", "timezone")) {
+            for (String key : List.of("start", "end", "days", "timezone")) {
                 if (nestedValue.containsKey(key)) {
-                    appendLine(output, propertyIndent + 2, key + ": " + renderedValue(key, nestedValue.remove(key)));
+                    appendRenderedValue(output, propertyIndent + 2, key, nestedValue.remove(key));
                 }
             }
             nestedValue.forEach((key, value) ->
-                    appendLine(output, propertyIndent + 2, key + ": " + renderedValue(key, value)));
+                    appendRenderedValue(output, propertyIndent + 2, key, value));
         } else if (leaf.containsKey("value")) {
             appendLine(output, propertyIndent, "value: " + leaf.get("value"));
         } else if (leaf.get("values") instanceof List<?> values) {
@@ -188,6 +192,15 @@ class AgentDslPreviewBuilder {
     private String renderedValue(String key, Object value) {
         String rendered = stringValue(value);
         return ("start".equals(key) || "end".equals(key)) ? "\"" + rendered + "\"" : rendered;
+    }
+
+    private void appendRenderedValue(StringBuilder output, int indent, String key, Object value) {
+        if (value instanceof List<?> values) {
+            appendLine(output, indent, key + ":");
+            values.forEach(item -> appendLine(output, indent + 2, "- " + item));
+            return;
+        }
+        appendLine(output, indent, key + ": " + renderedValue(key, value));
     }
 
     private void appendEvents(StringBuilder output, List<String> events) {

@@ -1,11 +1,14 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -20,12 +23,9 @@ import java.util.Set;
 public class AgentBlueprintValidator {
 
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
-    private static final Set<String> TEMPORAL_RELATIVE_FIELDS = Set.of("departureTime", "arrivalTime");
-    private static final Map<String, Set<String>> NEXT_CALL_RELATIVE_OPERATORS = Map.of(
-            "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"),
-            "departureTime", Set.of(LOCAL_TIME_BETWEEN),
-            "arrivalTime", Set.of(LOCAL_TIME_BETWEEN),
-            "passingType", Set.of("EQUALS", "CONTAINS"));
+    private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
+    private static final Set<String> DAY_OF_WEEK_OPERATORS = Set.of(
+            "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -122,6 +122,12 @@ public class AgentBlueprintValidator {
         conditionSummary.dslOperators().stream()
                 .filter(operator -> !capabilityCatalog.isSupportedDslOperator(operator))
                 .forEach(operator -> errors.add("Unsupported DSL operator: " + operator));
+        Set<String> temporalOperators = conditionSummary.dslOperators().stream()
+                .filter(this::isTemporalOperator)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        if (!temporalOperators.isEmpty()) {
+            System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] operators found=" + temporalOperators);
+        }
         validateConditionCapabilities(conditionSummary.condition(), "condition", null, errors);
 
         Set<String> forbidden = new LinkedHashSet<>();
@@ -223,7 +229,9 @@ public class AgentBlueprintValidator {
             return;
         }
         validateConditionCapabilities(conditions, path + ".conditions", arrayPath, errors);
-        if (errors.isEmpty() && containsTemporalOperator(conditions) && !hasCorrelatedStopAndTime(conditions)) {
+        if (errors.isEmpty() && containsTemporalOperator(conditions)
+                && arrayPath.endsWith("nextCalls[]")
+                && !hasCorrelatedStopAndTime(conditions)) {
             rejectArray(errors, path,
                     "temporal nextCalls constraints must correlate stopPoint.nameLong and departureTime/arrivalTime in the same all group.");
         }
@@ -239,26 +247,32 @@ public class AgentBlueprintValidator {
         if (arrayPath != null) {
             System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating relative field=" + field
                     + " operator=" + operator + " path=" + arrayPath);
-            Set<String> allowedOperators = NEXT_CALL_RELATIVE_OPERATORS.get(field);
-            if (!capabilityCatalog.isSupportedArrayRelativeField(arrayPath, field) || allowedOperators == null) {
+            String absoluteField = arrayPath + "." + field;
+            ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
+                    .orElse(null);
+            if (capability == null) {
                 rejectArray(errors, path, "relative field is not supported: " + field);
                 return;
             }
-            if (!allowedOperators.contains(operator)) {
+            if (!capability.supportsOperator(operator)) {
                 rejectArray(errors, path, "operator is not supported for relative field " + field + ": " + operator);
                 return;
             }
-            if (TEMPORAL_RELATIVE_FIELDS.contains(field)) {
-                validateTemporalValue(leaf, path, field, errors);
+            if (isTemporalOperator(operator)) {
+                validateTemporalValue(leaf, path, absoluteField, operator, errors);
             }
             return;
         }
-        if (LOCAL_TIME_BETWEEN.equals(operator)) {
+        if (isTemporalOperator(operator)) {
             if (!capabilityCatalog.isSupportedTemporalField(field)) {
-                rejectTemporal(errors, path, "field is not supported for LOCAL_TIME_BETWEEN: " + field);
+                rejectTemporal(errors, path, "field is not supported for " + operator + ": " + field);
                 return;
             }
-            validateTemporalValue(leaf, path, field, errors);
+            if (field != null && field.contains("[]")) {
+                rejectTemporal(errors, path, "array temporal fields must be represented inside a correlated anyElement node.");
+                return;
+            }
+            validateTemporalValue(leaf, path, field, operator, errors);
         } else if (capabilityCatalog.isSupportedTemporalField(field)) {
             rejectTemporal(errors, path, "operator is not supported on temporal field " + field + ": " + operator);
         } else if (isPotentialTemporalOperator(operator)) {
@@ -270,18 +284,22 @@ public class AgentBlueprintValidator {
             Map<String, Object> leaf,
             String path,
             String field,
+            String operator,
             List<String> errors) {
         Map<String, Object> value = mapValue(leaf.get("value"));
-        String start = stringValue(value.get("start"));
-        String end = stringValue(value.get("end"));
-        String timezone = stringValue(value.get("timezone"));
-        if (parseLocalTime(start) == null || parseLocalTime(end) == null) {
-            rejectTemporal(errors, path, "start and end must use HH:mm or HH:mm:ss.");
+        if (value.isEmpty()) {
+            rejectTemporal(errors, path, "value must be an object.");
             return;
         }
-        if (timezone == null || timezone.isBlank()) {
-            rejectTemporal(errors, path, "timezone is required.");
+        if (!ServiceDataTemporalCapabilityCatalog.isAllowedOperator(field, operator)) {
+            rejectTemporal(errors, path, "operator is not supported on temporal field " + field + ": " + operator);
             return;
+        }
+        String timezone = stringValue(value.get("timezone"));
+        if (timezone == null || timezone.isBlank()) {
+            timezone = DEFAULT_TEMPORAL_ZONE;
+            value.put("timezone", timezone);
+            leaf.put("value", value);
         }
         try {
             ZoneId.of(timezone);
@@ -289,8 +307,49 @@ public class AgentBlueprintValidator {
             rejectTemporal(errors, path, "timezone is not a valid zone id: " + timezone);
             return;
         }
+        if (DAY_OF_WEEK_OPERATORS.contains(operator)) {
+            validateDayOfWeekValue(value, path, field, operator, timezone, errors);
+            return;
+        }
+        String start = stringValue(value.get("start"));
+        String end = stringValue(value.get("end"));
+        if (parseLocalTime(start) == null || parseLocalTime(end) == null) {
+            rejectTemporal(errors, path, "start and end must use HH:mm or HH:mm:ss.");
+            return;
+        }
         System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] recognized operator=" + LOCAL_TIME_BETWEEN
                 + " field=" + field + " start=" + start + " end=" + end + " timezone=" + timezone);
+    }
+
+    private void validateDayOfWeekValue(
+            Map<String, Object> value,
+            String path,
+            String field,
+            String operator,
+            String timezone,
+            List<String> errors) {
+        Object daysValue = value.get("days");
+        if (!(daysValue instanceof List<?> days) || days.isEmpty()) {
+            rejectTemporal(errors, path, "value.days must be a non-empty array.");
+            return;
+        }
+        List<String> normalizedDays = new ArrayList<>();
+        for (Object rawDay : days) {
+            String day = stringValue(rawDay);
+            if (day == null || day.isBlank()) {
+                rejectTemporal(errors, path, "value.days contains an empty day.");
+                return;
+            }
+            try {
+                normalizedDays.add(DayOfWeek.valueOf(day.toUpperCase(java.util.Locale.ROOT)).name());
+            } catch (IllegalArgumentException exception) {
+                rejectTemporal(errors, path, "day is not supported: " + day);
+                return;
+            }
+        }
+        value.put("days", normalizedDays);
+        System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] recognized operator=" + operator
+                + " field=" + field + " days=" + normalizedDays + " timezone=" + timezone);
     }
 
     private LocalTime parseLocalTime(String value) {
@@ -311,12 +370,16 @@ public class AgentBlueprintValidator {
     }
 
     private boolean isPotentialTemporalOperator(String operator) {
-        return operator != null && operator.toUpperCase().contains("TIME");
+        if (operator == null) {
+            return false;
+        }
+        String normalized = operator.toUpperCase();
+        return normalized.contains("TIME") || normalized.contains("DAY_OF_WEEK");
     }
 
     private boolean containsTemporalOperator(Object node) {
         if (node instanceof Map<?, ?> map) {
-            if (LOCAL_TIME_BETWEEN.equals(stringValue(map.get("operator")))) {
+            if (isTemporalOperator(stringValue(map.get("operator")))) {
                 return true;
             }
             return map.values().stream().anyMatch(this::containsTemporalOperator);
@@ -334,9 +397,13 @@ public class AgentBlueprintValidator {
         boolean stopPoint = children.stream().anyMatch(child -> isRelativeLeaf(
                 child, "stopPoint.nameLong", Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED")));
         boolean timestamp = children.stream().anyMatch(child -> isRelativeLeaf(
-                child, "departureTime", Set.of(LOCAL_TIME_BETWEEN))
-                || isRelativeLeaf(child, "arrivalTime", Set.of(LOCAL_TIME_BETWEEN)));
+                child, "departureTime", ServiceDataTemporalCapabilityCatalog.temporalOperators())
+                || isRelativeLeaf(child, "arrivalTime", ServiceDataTemporalCapabilityCatalog.temporalOperators()));
         return stopPoint && timestamp;
+    }
+
+    private boolean isTemporalOperator(String operator) {
+        return ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator);
     }
 
     private boolean isRelativeLeaf(Object node, String field, Set<String> operators) {

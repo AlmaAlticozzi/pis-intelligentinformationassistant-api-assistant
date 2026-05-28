@@ -3,6 +3,8 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentComplexity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDataSource;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.ArrayList;
@@ -28,17 +30,16 @@ public class AgentGenerationCapabilityCatalog {
             "CONTAINS", "CONTAINS_ANY", "CONTAINS_IGNORE_CASE", "CONTAINS_NORMALIZED",
             "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "NOT_EQUALS",
             "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL",
-            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "LOCAL_TIME_BETWEEN");
+            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "LOCAL_TIME_BETWEEN",
+            "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
     private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any", "anyElement");
-    private static final String EVENT_GENERATION_TIME =
-            "payload.ongroundServiceEvent.eventGenerationTime";
     private static final String NEXT_CALLS_ARRAY_PATH =
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
-    private static final Set<String> TEMPORAL_FIELDS = orderedSet(EVENT_GENERATION_TIME);
-    private static final Set<String> ARRAY_PATHS = orderedSet(NEXT_CALLS_ARRAY_PATH);
-    private static final Map<String, Set<String>> ARRAY_RELATIVE_FIELDS = Map.of(
-            NEXT_CALLS_ARRAY_PATH, orderedSet(
-                    "stopPoint.nameLong", "departureTime", "arrivalTime", "passingType"));
+    private static final Set<String> ARRAY_PATHS = orderedSet(
+            "payload.stopPointJourney.stopPointsJourneyDetails[]",
+            NEXT_CALLS_ARRAY_PATH,
+            "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[]",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].isReplacementOf[]");
     private static final Set<String> DSL_FUNCTIONS = orderedSet(
             "normalize", "contains", "equals", "equalsIgnoreCase", "in", "exists");
     private static final Set<String> FORBIDDEN_CAPABILITIES = orderedSet(
@@ -102,15 +103,19 @@ public class AgentGenerationCapabilityCatalog {
     }
 
     public boolean isSupportedTemporalField(String field) {
-        return TEMPORAL_FIELDS.contains(field);
+        return ServiceDataTemporalCapabilityCatalog.isAllowedTemporalField(field);
     }
 
     public boolean isSupportedArrayPath(String path) {
-        return ARRAY_PATHS.contains(path);
+        return hasText(path) && (ARRAY_PATHS.contains(path)
+                || ServiceDataCapabilityCatalog.fields().stream()
+                .map(ServiceDataCapabilityCatalog.FieldCapability::field)
+                .anyMatch(field -> field.startsWith(path + ".")));
     }
 
     public boolean isSupportedArrayRelativeField(String path, String field) {
-        return ARRAY_RELATIVE_FIELDS.getOrDefault(path, Set.of()).contains(field);
+        return hasText(path) && hasText(field)
+                && ServiceDataCapabilityCatalog.findField(path + "." + field).isPresent();
     }
 
     public boolean isSupportedPermission(String permission) {
@@ -154,7 +159,7 @@ public class AgentGenerationCapabilityCatalog {
     }
 
     public Set<String> supportedTemporalFields() {
-        return TEMPORAL_FIELDS;
+        return ServiceDataTemporalCapabilityCatalog.temporalFields();
     }
 
     public Set<String> supportedArrayPaths() {
@@ -162,7 +167,15 @@ public class AgentGenerationCapabilityCatalog {
     }
 
     public Set<String> supportedArrayRelativeFields(String path) {
-        return ARRAY_RELATIVE_FIELDS.getOrDefault(path, Set.of());
+        if (!hasText(path)) {
+            return Set.of();
+        }
+        String prefix = path + ".";
+        return ServiceDataCapabilityCatalog.fields().stream()
+                .map(ServiceDataCapabilityCatalog.FieldCapability::field)
+                .filter(field -> field.startsWith(prefix))
+                .map(field -> field.substring(prefix.length()))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
 
     public Set<String> forbiddenCapabilities() {
@@ -224,6 +237,10 @@ public class AgentGenerationCapabilityCatalog {
                 .filter(value -> value == null || !supported.test(value))
                 .map(value -> value == null ? "UNSPECIFIED" : value)
                 .forEach(unsupported::add);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     @SafeVarargs

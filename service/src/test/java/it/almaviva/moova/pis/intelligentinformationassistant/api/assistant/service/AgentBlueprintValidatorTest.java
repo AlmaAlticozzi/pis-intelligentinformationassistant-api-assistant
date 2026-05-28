@@ -145,7 +145,75 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
-    void rejectsTemporalAnyElementWithUnsupportedPathOrMissingTimezone() {
+    void acceptsLocalDayOfWeekTemporalConditionAndAppliesDefaultTimezone() {
+        AlertAgentGenerationPreviewData data = previewData(eventDayOfWeekCondition(
+                "LOCAL_DAY_OF_WEEK_IN",
+                List.of("TUESDAY"),
+                null));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("LOCAL_DAY_OF_WEEK_IN");
+    }
+
+    @Test
+    void acceptsCorrelatedStopPointJourneyDetailsWeekendCondition() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointJourneyDetailsWeekendCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("LOCAL_DAY_OF_WEEK_IN", "EQUALS_NORMALIZED");
+    }
+
+    @Test
+    void rejectsInvalidDayTimezoneNonTemporalFieldAndFlattenedArrayTemporalCondition() {
+        AlertAgentGenerationPreviewData invalidDay = previewData(eventDayOfWeekCondition(
+                "LOCAL_DAY_OF_WEEK_IN",
+                List.of("MARTEDI"),
+                "Europe/Rome"));
+        AlertAgentGenerationPreviewData invalidTimezone = previewData(eventDayOfWeekCondition(
+                "LOCAL_DAY_OF_WEEK_IN",
+                List.of("TUESDAY"),
+                "Europe/NotAZone"));
+        AlertAgentGenerationPreviewData nonTemporal = previewData(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                        "operator", "LOCAL_DAY_OF_WEEK_IN",
+                        "value", Map.of("days", List.of("TUESDAY"), "timezone", "Europe/Rome")))));
+        AlertAgentGenerationPreviewData flattenedArray = previewData(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong",
+                                "operator", "EQUALS_NORMALIZED",
+                                "value", "Genova P.P"),
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime",
+                                "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                "value", Map.of("days", List.of("SATURDAY", "SUNDAY"), "timezone", "Europe/Rome")))));
+
+        AgentBlueprintValidationResult invalidDayResult = validate(invalidDay, blueprint(invalidDay, "EVENT", false), List.of("SERVICE_DATA"));
+        AgentBlueprintValidationResult invalidTimezoneResult = validate(invalidTimezone, blueprint(invalidTimezone, "EVENT", false), List.of("SERVICE_DATA"));
+        AgentBlueprintValidationResult nonTemporalResult = validate(nonTemporal, blueprint(nonTemporal, "EVENT", false), List.of("SERVICE_DATA"));
+        AgentBlueprintValidationResult flattenedArrayResult = validate(flattenedArray, blueprint(flattenedArray, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(invalidDayResult.valid()).isFalse();
+        assertThat(invalidDayResult.errors()).anyMatch(error -> error.contains("MARTEDI"));
+        assertThat(invalidTimezoneResult.valid()).isFalse();
+        assertThat(invalidTimezoneResult.errors()).anyMatch(error -> error.contains("timezone"));
+        assertThat(nonTemporalResult.valid()).isFalse();
+        assertThat(nonTemporalResult.errors()).anyMatch(error -> error.contains("field is not supported"));
+        assertThat(flattenedArrayResult.valid()).isFalse();
+        assertThat(flattenedArrayResult.errors()).anyMatch(error -> error.contains("anyElement"));
+    }
+
+    @Test
+    void rejectsTemporalAnyElementWithUnsupportedPathAndDefaultsMissingTimezone() {
         AlertAgentGenerationPreviewData unsupportedPath = previewData(nextCallsTemporalCondition(
                 "payload.stopPointJourney.otherCalls[]", "Europe/Rome"));
         AlertAgentGenerationPreviewData missingTimezone = previewData(nextCallsTemporalCondition(
@@ -158,8 +226,8 @@ class AgentBlueprintValidatorTest {
 
         assertThat(unsupportedResult.valid()).isFalse();
         assertThat(unsupportedResult.errors()).anyMatch(error -> error.contains("path is not supported"));
-        assertThat(missingTimezoneResult.valid()).isFalse();
-        assertThat(missingTimezoneResult.errors()).anyMatch(error -> error.contains("timezone is required"));
+        assertThat(missingTimezoneResult.valid()).isTrue();
+        assertThat(missingTimezoneResult.runtimeSupported()).isTrue();
     }
 
     @Test
@@ -337,5 +405,39 @@ class AgentBlueprintValidatorTest {
                                 "start", "02:00:00",
                                 "end", "10:00:00",
                                 "timezone", "Europe/Rome"))));
+    }
+
+    private Map<String, Object> eventDayOfWeekCondition(String operator, List<String> days, String timezone) {
+        Map<String, Object> value = new java.util.LinkedHashMap<>();
+        value.put("days", days);
+        if (timezone != null) {
+            value.put("timezone", timezone);
+        }
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.eventGenerationTime",
+                        "operator", operator,
+                        "value", value)));
+    }
+
+    private Map<String, Object> stopPointJourneyDetailsWeekendCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "all", List.of(
+                                                Map.of(
+                                                        "field", "timetabledCallStart.stopPoint.nameLong",
+                                                        "operator", "EQUALS_NORMALIZED",
+                                                        "value", "Genova P.P"),
+                                                Map.of(
+                                                        "field", "timetabledCallStart.departureTime",
+                                                        "operator", "LOCAL_DAY_OF_WEEK_IN",
+                                                        "value", Map.of(
+                                                                "days", List.of("SATURDAY", "SUNDAY"),
+                                                                "timezone", "Europe/Rome"))))))));
     }
 }

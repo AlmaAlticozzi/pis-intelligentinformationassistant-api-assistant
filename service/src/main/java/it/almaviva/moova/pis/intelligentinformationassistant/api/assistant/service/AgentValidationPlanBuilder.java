@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentValidationExample;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentValidationPlan;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -109,79 +110,119 @@ class AgentValidationPlanBuilder {
                         .findFirst()
                         .orElse(null);
         if (correlated != null) {
-            AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = correlated.leaves().stream()
+            List<AgentPreviewConditionExtractor.ConditionLeaf> temporalLeaves = correlated.leaves().stream()
                     .filter(this::isTemporalLeaf)
-                    .findFirst()
-                    .orElseThrow();
+                    .toList();
+            AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = temporalLeaves.getFirst();
             String stopPoint = correlated.leaves().stream()
                     .filter(leaf -> "stopPoint.nameLong".equals(leaf.field()))
                     .map(AgentPreviewConditionExtractor.ConditionLeaf::value)
                     .findFirst()
                     .orElse("the requested stop point");
-            String window = temporalWindow(temporalLeaf);
+            String temporalRequirement = temporalRequirement(temporalLeaves);
+            String elementLabel = correlated.path().endsWith("nextCalls[]") ? "same nextCall" : "same array element";
             return new AgentValidationPlan()
                     .positiveExamples(List.of(example(
-                            "ServiceData event whose same nextCall has stopPoint " + stopPoint
-                                    + " and " + temporalLeaf.field() + " inside " + window + ".",
+                            "ServiceData event whose " + elementLabel + " has stopPoint " + stopPoint
+                                    + " and " + temporalRequirement + ".",
                             AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
                     .negativeExamples(List.of(
                             example("ServiceData event with a nextCall for " + stopPoint
-                                            + " but " + temporalLeaf.field() + " outside " + window + ".",
+                                            + " but " + negativeTemporalRequirement(temporalLeaf) + ".",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
-                            example("ServiceData event with a nextCall inside " + window
+                            example("ServiceData event with a nextCall satisfying " + temporalRequirement
                                             + " but for a stop point different from " + stopPoint + ".",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                     .edgeCases(List.of(
-                            "A matching stop point and matching time on different nextCalls do not satisfy anyElement.",
+                            "A matching stop point and matching temporal predicate on different "
+                                    + (correlated.path().endsWith("nextCalls[]") ? "nextCalls" : "array elements")
+                                    + " do not satisfy anyElement.",
                             "A nextCall without " + temporalLeaf.field() + " does not match the temporal condition."));
         }
-        AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = findTemporalLeaf(conditionSummary.condition());
-        String window = temporalLeaf == null ? "the configured local time window" : temporalWindow(temporalLeaf);
+        List<AgentPreviewConditionExtractor.ConditionLeaf> temporalLeaves = findTemporalLeaves(conditionSummary.condition());
+        AgentPreviewConditionExtractor.ConditionLeaf temporalLeaf = temporalLeaves.isEmpty() ? null : temporalLeaves.getFirst();
+        String window = temporalLeaves.isEmpty() ? "the configured temporal predicate" : temporalRequirement(temporalLeaves);
         String field = temporalLeaf == null ? "event timestamp" : temporalLeaf.field();
         return new AgentValidationPlan()
                 .positiveExamples(List.of(example(
-                        "ServiceData event with " + field + " inside " + window + ".",
+                        "ServiceData event with " + field + " satisfying " + window + ".",
                         AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
                 .negativeExamples(List.of(example(
-                        "ServiceData event with " + field + " outside " + window + ".",
+                        "ServiceData event with " + field + " where " + negativeTemporalRequirement(temporalLeaf) + ".",
                         AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                 .edgeCases(List.of("ServiceData event without " + field + " does not match the temporal condition."));
     }
 
-    private AgentPreviewConditionExtractor.ConditionLeaf findTemporalLeaf(Object node) {
+    private List<AgentPreviewConditionExtractor.ConditionLeaf> findTemporalLeaves(Object node) {
+        List<AgentPreviewConditionExtractor.ConditionLeaf> leaves = new ArrayList<>();
+        collectTemporalLeaves(node, leaves);
+        return leaves;
+    }
+
+    private void collectTemporalLeaves(Object node, List<AgentPreviewConditionExtractor.ConditionLeaf> leaves) {
         if (node instanceof Map<?, ?> rawNode) {
             Map<String, Object> map = mapValue(rawNode);
-            if ("LOCAL_TIME_BETWEEN".equals(String.valueOf(map.get("operator")))) {
-                return new AgentPreviewConditionExtractor.ConditionLeaf(
+            if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(String.valueOf(map.get("operator")))) {
+                leaves.add(new AgentPreviewConditionExtractor.ConditionLeaf(
                         String.valueOf(map.get("field")),
                         String.valueOf(map.get("operator")),
                         map.get("value") == null ? List.of() : List.of(String.valueOf(map.get("value"))),
-                        map.get("value"));
+                        map.get("value")));
             }
             for (Object value : map.values()) {
-                AgentPreviewConditionExtractor.ConditionLeaf leaf = findTemporalLeaf(value);
-                if (leaf != null) {
-                    return leaf;
-                }
+                collectTemporalLeaves(value, leaves);
             }
         } else if (node instanceof List<?> list) {
             for (Object value : list) {
-                AgentPreviewConditionExtractor.ConditionLeaf leaf = findTemporalLeaf(value);
-                if (leaf != null) {
-                    return leaf;
-                }
+                collectTemporalLeaves(value, leaves);
             }
         }
-        return null;
     }
 
     private boolean isTemporalLeaf(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
-        return "LOCAL_TIME_BETWEEN".equals(leaf.operator());
+        return ServiceDataTemporalCapabilityCatalog.isTemporalOperator(leaf.operator());
     }
 
-    private String temporalWindow(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
+    private String temporalRequirement(List<AgentPreviewConditionExtractor.ConditionLeaf> leaves) {
+        return leaves.stream().map(this::temporalDescription).collect(java.util.stream.Collectors.joining(" and "));
+    }
+
+    private String temporalDescription(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
+        if (leaf == null) {
+            return "the configured temporal predicate is not satisfied";
+        }
         Map<String, Object> value = mapValue(leaf.rawValue());
-        return value.get("start") + "-" + value.get("end") + " local time (" + value.get("timezone") + ")";
+        if ("LOCAL_TIME_BETWEEN".equals(leaf.operator())) {
+            return leaf.field() + " inside " + value.get("start") + "-" + value.get("end")
+                    + " local time (" + value.get("timezone") + ")";
+        }
+        List<String> days = stringList(value.get("days"));
+        if ("LOCAL_DAY_OF_WEEK_IN".equals(leaf.operator())) {
+            return leaf.field() + " local day included in " + days + " (" + value.get("timezone") + ")";
+        }
+        return leaf.field() + " local day not included in " + days + " (" + value.get("timezone") + ")";
+    }
+
+    private String negativeTemporalRequirement(AgentPreviewConditionExtractor.ConditionLeaf leaf) {
+        if (leaf == null) {
+            return "the configured temporal predicate is not satisfied";
+        }
+        Map<String, Object> value = mapValue(leaf.rawValue());
+        if ("LOCAL_TIME_BETWEEN".equals(leaf.operator())) {
+            return leaf.field() + " is outside " + value.get("start") + "-" + value.get("end");
+        }
+        List<String> days = stringList(value.get("days"));
+        if ("LOCAL_DAY_OF_WEEK_IN".equals(leaf.operator())) {
+            return leaf.field() + " local day is not included in " + days;
+        }
+        return leaf.field() + " local day is excluded by " + days;
+    }
+
+    private List<String> stringList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream().map(String::valueOf).toList();
+        }
+        return List.of(String.valueOf(value));
     }
 
     private Map<String, Object> mapValue(Object value) {

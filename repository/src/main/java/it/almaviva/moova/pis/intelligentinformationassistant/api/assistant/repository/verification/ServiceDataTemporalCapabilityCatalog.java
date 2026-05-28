@@ -58,6 +58,10 @@ public final class ServiceDataTemporalCapabilityCatalog {
         return Optional.ofNullable(FIELD_BY_PATH.get(field));
     }
 
+    public static Set<String> temporalFields() {
+        return FIELD_BY_PATH.keySet();
+    }
+
     public static Set<String> temporalOperators() {
         return TEMPORAL_OPERATORS;
     }
