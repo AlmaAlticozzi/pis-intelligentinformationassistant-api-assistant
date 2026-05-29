@@ -486,21 +486,30 @@ public class AlertService {
 
     private AlertVerificationLocationContext.LocationResolution toPromptLocationResolution(
             AlertLocationResolution resolution) {
+        List<String> selectedPointIds = resolution.selectedPointIds() == null
+                ? List.of()
+                : resolution.selectedPointIds();
         return new AlertVerificationLocationContext.LocationResolution(
                 resolution.mention().rawText(),
                 resolution.mention().semanticRole().name(),
                 resolution.pointResolutionResult().status().name(),
                 resolution.pointResolutionResult().candidates().stream()
                         .filter(candidate -> candidate.selected()
-                                || resolution.selectedPointIds().contains(candidate.id())
+                                || selectedPointIds.contains(candidate.id())
                                 || resolution.fallbackToNameLong())
-                        .map(this::toPromptLocationCandidate)
+                        .map(candidate -> toPromptLocationCandidate(candidate, selectedPointIds.contains(candidate.id())))
                         .toList(),
                 resolution.fallbackToNameLong(),
                 resolution.confidenceImpact());
     }
 
     private AlertVerificationLocationContext.LocationCandidate toPromptLocationCandidate(PointCandidate candidate) {
+        return toPromptLocationCandidate(candidate, false);
+    }
+
+    private AlertVerificationLocationContext.LocationCandidate toPromptLocationCandidate(
+            PointCandidate candidate,
+            boolean selectedByResolution) {
         return new AlertVerificationLocationContext.LocationCandidate(
                 candidate.id(),
                 candidate.nameLong(),
@@ -508,7 +517,7 @@ public class AlertService {
                 candidate.transportMode(),
                 candidate.score(),
                 candidate.matchType().name(),
-                candidate.selected());
+                candidate.selected() || selectedByResolution);
     }
 
     private AlertVerificationOutcome applyLocationConfidenceAdjustment(
@@ -527,6 +536,10 @@ public class AlertService {
         if (context.resolutions().stream().anyMatch(resolution -> selectedCandidateCount(resolution) > 1)) {
             penalty += 0.05;
             warnings.add("One or more alert locations resolved to multiple stopPoint.id candidates; confidence slightly reduced.");
+        }
+        if (context.resolutions().stream().anyMatch(this::hasSelectedFuzzyCandidate)) {
+            penalty += 0.02;
+            warnings.add("One or more alert locations were resolved by fuzzy token matching; confidence slightly reduced.");
         }
         if (penalty == 0.0) {
             return outcome;
@@ -573,6 +586,11 @@ public class AlertService {
         return resolution.candidates().stream()
                 .filter(AlertVerificationLocationContext.LocationCandidate::selected)
                 .count();
+    }
+
+    private boolean hasSelectedFuzzyCandidate(AlertVerificationLocationContext.LocationResolution resolution) {
+        return resolution.candidates().stream()
+                .anyMatch(candidate -> candidate.selected() && "FUZZY_TOKEN".equals(candidate.matchType()));
     }
 
     private AlertVerificationResolution resolveVerificationOutcome(

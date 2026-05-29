@@ -100,6 +100,10 @@ public class AgentGenerationPreviewMapper {
                 + ", delay=" + conditionSummary.delay()
                 + ", platformChange=" + conditionSummary.platformChange()
                 + ", serviceType=" + conditionSummary.serviceType());
+        if (!conditionSummary.stopPointIds().isEmpty()) {
+            System.out.println("[IIA][AGENT_PREVIEW][LOCATION] alertId=" + data.alertId()
+                    + " stopPointIds=" + conditionSummary.stopPointIds());
+        }
 
         List<String> sourceNames = resolveSourceNames(data);
         List<AgentDataSource> requiredSources = sourceNames.stream()

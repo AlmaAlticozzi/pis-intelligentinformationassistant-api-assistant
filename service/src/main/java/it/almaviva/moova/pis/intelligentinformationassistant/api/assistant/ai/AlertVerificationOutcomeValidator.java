@@ -895,9 +895,10 @@ public class AlertVerificationOutcomeValidator {
                 }
             }
             case STOP_POINT_ID -> {
-                validateStopPointIdCondition(context, field, operator, Map.of(
-                        "value", values.size() == 1 ? values.getFirst() : "",
-                        "values", values));
+                Map<String, Object> stopPointLeaf = new LinkedHashMap<>();
+                stopPointLeaf.put("value", values.size() == 1 ? values.getFirst() : "");
+                stopPointLeaf.put("values", values);
+                validateStopPointIdCondition(context, field, operator, stopPointLeaf);
             }
             case STRING, OBJECT, TEMPORAL -> {
                 // No extra type checks are needed beyond operator allow-list for the current MVP.
