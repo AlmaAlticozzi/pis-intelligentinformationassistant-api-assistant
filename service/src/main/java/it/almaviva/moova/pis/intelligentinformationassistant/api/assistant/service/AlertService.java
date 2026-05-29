@@ -531,7 +531,7 @@ public class AlertService {
         if (penalty == 0.0) {
             return outcome;
         }
-        Double confidence = outcome.confidence() == null ? null : Math.max(0.0, outcome.confidence() - penalty);
+        Double confidence = adjustedLocationConfidence(outcome.confidence(), context, penalty);
         return new AlertVerificationOutcome(
                 outcome.decision(),
                 outcome.summary(),
@@ -553,6 +553,20 @@ public class AlertService {
                 outcome.requirementCoverage(),
                 List.copyOf(warnings),
                 outcome.safetyChecks());
+    }
+
+    private Double adjustedLocationConfidence(
+            Double confidence,
+            AlertVerificationLocationContext context,
+            double penalty) {
+        if (confidence == null) {
+            return null;
+        }
+        double adjusted = Math.max(0.0, confidence - penalty);
+        if (context.resolutions().stream().anyMatch(AlertVerificationLocationContext.LocationResolution::fallbackToNameLong)) {
+            adjusted = Math.min(adjusted, 0.25);
+        }
+        return adjusted;
     }
 
     private long selectedCandidateCount(AlertVerificationLocationContext.LocationResolution resolution) {

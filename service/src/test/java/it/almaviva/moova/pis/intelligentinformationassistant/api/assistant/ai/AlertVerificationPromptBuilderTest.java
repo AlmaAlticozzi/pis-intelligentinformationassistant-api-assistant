@@ -179,6 +179,53 @@ class AlertVerificationPromptBuilderTest {
                 .contains("Never use stopPoint ids not listed in the resolved candidates section");
     }
 
+    @Test
+    void builderContainsPositiveExampleForRhoStopPointId() {
+        LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Positive resolved single candidate")
+                .contains("User prompt: \"Avvertimi quando una corsa parte da Rho Fieramilano\"")
+                .contains("Resolved location: Rho Fieramilano -> TNPNTS00000000005467")
+                .contains("payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED")
+                .contains("payload.ongroundServiceEvent.stopPoint.id EQUALS TNPNTS00000000005467")
+                .contains("requirementCoverage: location constraint mappedBy [payload.ongroundServiceEvent.stopPoint.id]");
+    }
+
+    @Test
+    void builderContainsPositiveExampleForMalpensaInStopPointIds() {
+        LlmRequest request = builder().build(promptDataWithLocation(malpensaContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Positive resolved multiple candidates")
+                .contains("Resolved locations: Malpensa -> TNPNTS00000000000028, TNPNTS00000000000029")
+                .contains("payload.ongroundServiceEvent.stopPoint.id IN [TNPNTS00000000000028, TNPNTS00000000000029]")
+                .contains("RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field");
+    }
+
+    @Test
+    void builderContainsFallbackExampleForUnresolvedLocation() {
+        LlmRequest request = builder().build(promptDataWithLocation(unresolvedGenovaNerviContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Fallback unresolved location")
+                .contains("User prompt: \"Avvertimi quando un treno passa da Genova Nervi\"")
+                .contains("Location unresolved.")
+                .contains("Expected condition may use nameLong CONTAINS_NORMALIZED \"Genova Nervi\"")
+                .contains("Expected warning and low confidence; requirementCoverage must mention fallback text matching")
+                .contains("UNRESOLVED -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence");
+    }
+
+    @Test
+    void builderContainsNegativeRuleAgainstNameLongForResolvedLocation() {
+        LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Negative resolved location")
+                .contains("If a location was resolved, do not emit payload.ongroundServiceEvent.stopPoint.nameLong CONTAINS_NORMALIZED \"Rho Fieramilano\"")
+                .contains("Do not use stopPoint.nameLong/nameShort for resolved locations");
+    }
+
     private AlertVerificationPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);
@@ -212,5 +259,64 @@ class AlertVerificationPromptBuilderTest {
                 "Detect location alert",
                 "Avvertimi quando una corsa parte da Rho Fieramilano",
                 context);
+    }
+
+    private AlertVerificationLocationContext rhoContext() {
+        return new AlertVerificationLocationContext(
+                true,
+                List.of(new AlertVerificationLocationContext.LocationResolution(
+                        "Rho Fieramilano",
+                        "DEPARTURE_EVENT_STOP_POINT",
+                        "RESOLVED",
+                        List.of(new AlertVerificationLocationContext.LocationCandidate(
+                                "TNPNTS00000000005467",
+                                "RHO FIERAMILANO",
+                                "RHO FIERAMILANO",
+                                "RAIL",
+                                1.0,
+                                "EXACT_NORMALIZED",
+                                true)),
+                        false,
+                        0.90)));
+    }
+
+    private AlertVerificationLocationContext malpensaContext() {
+        return new AlertVerificationLocationContext(
+                true,
+                List.of(new AlertVerificationLocationContext.LocationResolution(
+                        "Malpensa",
+                        "DEPARTURE_EVENT_STOP_POINT",
+                        "RESOLVED_AMBIGUOUS",
+                        List.of(
+                                new AlertVerificationLocationContext.LocationCandidate(
+                                        "TNPNTS00000000000028",
+                                        "MALPENSA AEROPORTO T.1",
+                                        "MALPENSA T1",
+                                        "RAIL",
+                                        0.85,
+                                        "PARTIAL_TOKEN",
+                                        true),
+                                new AlertVerificationLocationContext.LocationCandidate(
+                                        "TNPNTS00000000000029",
+                                        "MALPENSA AEROPORTO T.2",
+                                        "MALPENSA T2",
+                                        "RAIL",
+                                        0.85,
+                                        "PARTIAL_TOKEN",
+                                        true)),
+                        false,
+                        0.76)));
+    }
+
+    private AlertVerificationLocationContext unresolvedGenovaNerviContext() {
+        return new AlertVerificationLocationContext(
+                true,
+                List.of(new AlertVerificationLocationContext.LocationResolution(
+                        "Genova Nervi",
+                        "NEXT_TRANSIT_STOP_POINT",
+                        "UNRESOLVED",
+                        List.of(),
+                        true,
+                        0.0)));
     }
 }

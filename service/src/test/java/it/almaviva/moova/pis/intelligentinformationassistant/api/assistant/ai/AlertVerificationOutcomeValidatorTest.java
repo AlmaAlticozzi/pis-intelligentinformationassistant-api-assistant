@@ -113,6 +113,50 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void validatorRejectsResolvedLocationUsingNameLongIfYouImplementedBlockingRule() {
+        String field = "payload.ongroundServiceEvent.stopPoint.nameLong";
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS_NORMALIZED",
+                        "value", "Rho Fieramilano"))), coverageFor(field));
+        Map<String, Object> technicalSpecification = new java.util.LinkedHashMap<>(base.technicalSpecification());
+        technicalSpecification.put("locationResolution", Map.of(
+                "resolutions", List.of(Map.of(
+                        "rawText", "Rho Fieramilano",
+                        "status", "RESOLVED",
+                        "selectedPointIds", List.of(RHO_FIERAMILANO_ID)))));
+
+        AlertVerificationOutcome validated = validator.validate(new AlertVerificationOutcome(
+                base.decision(),
+                base.summary(),
+                base.rejectedReason(),
+                base.confidence(),
+                base.provider(),
+                base.model(),
+                base.promptVersion(),
+                base.requiredSources(),
+                base.interpreterType(),
+                base.inputModel(),
+                base.outputModel(),
+                base.triggerType(),
+                base.evaluationMode(),
+                base.interpretedEventNames(),
+                base.interpretedTargetTypes(),
+                technicalSpecification,
+                base.agentBlueprintPreview(),
+                base.requirementCoverage(),
+                base.warnings(),
+                base.safetyChecks()));
+
+        // TODO: make this a hard rejection once locationResolution is always persisted into technicalSpecification.
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.warnings())
+                .contains("locationResolution contains resolved mentions but technicalSpecification does not use stopPoint.id.");
+    }
+
+    @Test
     void noLocationPromptWithoutLocationResolutionStillValidIfOtherConditionsAreValid() {
         AlertVerificationOutcome validated = validator.validate(outcomeWithCondition(Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
