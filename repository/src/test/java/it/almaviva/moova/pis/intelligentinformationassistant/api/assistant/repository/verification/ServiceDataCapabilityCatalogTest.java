@@ -8,6 +8,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ServiceDataCapabilityCatalogTest {
 
+    private static final List<String> STOP_POINT_ID_FIELDS = List.of(
+            "payload.ongroundServiceEvent.stopPoint.id",
+            "payload.stopPointJourney.stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id");
+
     private static final List<String> NEW_FIELDS = List.of(
             "payload.ongroundServiceEvent.stopPoint.id",
             "payload.ongroundServiceEvent.stopPoint.nameShort",
@@ -87,43 +99,41 @@ class ServiceDataCapabilityCatalogTest {
     }
 
     @Test
-    void catalogContainsOngroundStopPointId() {
-        assertThat(ServiceDataCapabilityCatalog.findField("payload.ongroundServiceEvent.stopPoint.id"))
-                .isPresent()
-                .get()
-                .satisfies(field -> {
-                    assertThat(field.type()).isEqualTo(ServiceDataCapabilityCatalog.FieldType.STOP_POINT_ID);
-                    assertThat(field.description()).isEqualTo("Stable PIS stop point identifier resolved from points.json");
-                    assertThat(field.languageMappings()).contains("location", "stopPoint", "pointId", "station");
-                });
+    void catalogContainsAllStopPointIdFields() {
+        assertThat(ServiceDataCapabilityCatalog.stopPointIdFields()).containsExactlyElementsOf(STOP_POINT_ID_FIELDS);
+        assertThat(STOP_POINT_ID_FIELDS)
+                .allSatisfy(field -> assertThat(ServiceDataCapabilityCatalog.findField(field))
+                        .as(field)
+                        .isPresent()
+                        .get()
+                        .satisfies(capability -> {
+                            assertThat(capability.type()).isEqualTo(ServiceDataCapabilityCatalog.FieldType.STOP_POINT_ID);
+                            assertThat(capability.description())
+                                    .isEqualTo("Stable PIS stop point identifier resolved from points.json");
+                            assertThat(capability.languageMappings())
+                                    .contains("location", "stopPoint", "pointId", "station");
+                        }));
     }
 
     @Test
-    void catalogAllowsEqualsOnStopPointId() {
-        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
-                "payload.ongroundServiceEvent.stopPoint.id",
-                "EQUALS"))
-                .isTrue();
+    void catalogAllowsEqualsAndInOnAllStopPointIdFields() {
+        assertThat(STOP_POINT_ID_FIELDS).allSatisfy(field -> {
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS")).as(field).isTrue();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "IN")).as(field).isTrue();
+        });
     }
 
     @Test
-    void catalogAllowsInOnStopPointId() {
-        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
-                "payload.ongroundServiceEvent.stopPoint.id",
-                "IN"))
-                .isTrue();
+    void catalogRejectsTextOperatorsOnAllStopPointIdFields() {
+        assertThat(STOP_POINT_ID_FIELDS).allSatisfy(field -> {
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS_NORMALIZED")).as(field).isFalse();
+        });
     }
 
     @Test
-    void catalogRejectsContainsNormalizedOnStopPointId() {
-        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
-                "payload.ongroundServiceEvent.stopPoint.id",
-                "CONTAINS_NORMALIZED"))
-                .isFalse();
-    }
-
-    @Test
-    void catalogStillAllowsContainsNormalizedOnNameLong() {
+    void catalogStillAllowsContainsNormalizedOnStopPointNameLong() {
         assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
                 "payload.ongroundServiceEvent.stopPoint.nameLong",
                 "CONTAINS_NORMALIZED"))
@@ -135,7 +145,7 @@ class ServiceDataCapabilityCatalogTest {
         assertThat(ServiceDataCapabilityCatalog.compactPromptCatalog())
                 .contains("use stopPoint.id when a user location has been resolved")
                 .contains("use EQUALS for one resolved id")
-                .contains("use nameLong/nameShort normalized text only as fallback")
+                .contains("use nameLong/nameShort CONTAINS_NORMALIZED only as fallback")
                 .contains("payload.ongroundServiceEvent.stopPoint.id")
                 .contains("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id");
     }

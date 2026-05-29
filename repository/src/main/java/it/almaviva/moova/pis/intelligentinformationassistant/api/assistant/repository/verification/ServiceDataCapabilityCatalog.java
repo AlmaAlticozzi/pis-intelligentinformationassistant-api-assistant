@@ -11,6 +11,8 @@ import java.util.stream.Collectors;
 
 public final class ServiceDataCapabilityCatalog {
 
+    private static final List<String> STOP_POINT_ID_FIELDS = registerStopPointIdFields();
+
     private static final List<FieldCapability> FIELDS = List.of(
             field("payload.ongroundServiceEvent.eventsType", FieldType.ENUM_ARRAY,
                     ops("CONTAINS", "CONTAINS_ANY"), List.of("DEPARTED", "ARRIVED"),
@@ -253,6 +255,11 @@ public final class ServiceDataCapabilityCatalog {
     private static final Map<String, FieldCapability> FIELD_BY_NAME = FIELDS.stream()
             .collect(Collectors.toUnmodifiableMap(FieldCapability::field, Function.identity()));
 
+    static {
+        System.out.println("[IIA][ALERT_VERIFY][CATALOG][LOCATION_ID] registeredStopPointIdFields="
+                + STOP_POINT_ID_FIELDS.size());
+    }
+
     private ServiceDataCapabilityCatalog() {
     }
 
@@ -289,12 +296,16 @@ public final class ServiceDataCapabilityCatalog {
         return FIELDS.size();
     }
 
+    static List<String> stopPointIdFields() {
+        return STOP_POINT_ID_FIELDS;
+    }
+
     public static String compactPromptCatalog() {
         StringBuilder builder = new StringBuilder();
         builder.append("Location resolution guidance: use stopPoint.id when a user location has been resolved ")
                 .append("to one or more PIS point ids from points.json; use EQUALS for one resolved id and IN ")
-                .append("for multiple resolved candidate ids; use nameLong/nameShort normalized text only ")
-                .append("as fallback when no id was resolved.")
+                .append("for multiple resolved candidate ids; use nameLong/nameShort CONTAINS_NORMALIZED only ")
+                .append("as fallback when no resolved id exists.")
                 .append('\n');
         for (FieldCapability field : FIELDS) {
             builder.append("- field: ").append(field.field()).append('\n');
@@ -335,7 +346,14 @@ public final class ServiceDataCapabilityCatalog {
                 List.of(languageMappings));
     }
 
+    private static List<String> registerStopPointIdFields() {
+        return ServiceDataStopPointIdCapabilityCatalog.fields();
+    }
+
     private static FieldCapability stopPointIdField(String field) {
+        if (!STOP_POINT_ID_FIELDS.contains(field)) {
+            throw new IllegalArgumentException("Unsupported stop point id field: " + field);
+        }
         return field(
                 field,
                 FieldType.STOP_POINT_ID,
