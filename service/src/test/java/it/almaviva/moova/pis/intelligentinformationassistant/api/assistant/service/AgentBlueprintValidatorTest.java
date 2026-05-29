@@ -52,6 +52,41 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsStopPointIdEquals() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointIdEqualsCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("EQUALS");
+    }
+
+    @Test
+    void previewValidatorAcceptsStopPointIdIn() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointIdInCondition(List.of(
+                "TNPNTS00000000000028",
+                "TNPNTS00000000000029")));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("IN");
+    }
+
+    @Test
+    void previewValidatorRejectsStopPointIdInEmptyValues() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointIdInCondition(List.of()));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("missing value/values")
+                && error.contains("IN"));
+    }
+
+    @Test
     void rejectsUnsupportedSource() {
         AlertAgentGenerationPreviewData data = previewData(condition("CONTAINS_ANY", true));
 
@@ -385,6 +420,24 @@ class AgentBlueprintValidatorTest {
                                         "field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
                                         "operator", "CONTAINS_ANY",
                                         "values", List.of("ARRIVAL_DELAY"))))));
+    }
+
+    private Map<String, Object> stopPointIdEqualsCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.stopPoint.id",
+                        "operator", "EQUALS",
+                        "value", "TNPNTS00000000005467")));
+    }
+
+    private Map<String, Object> stopPointIdInCondition(List<String> ids) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.stopPoint.id",
+                        "operator", "IN",
+                        "values", ids)));
     }
 
     private Map<String, Object> nextCallsTemporalCondition(String path, String timezone) {

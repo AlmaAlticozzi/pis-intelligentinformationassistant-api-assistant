@@ -277,9 +277,27 @@ public class AgentBlueprintValidator {
                 rejectArray(errors, path, "operator is not supported for relative field " + field + ": " + operator);
                 return;
             }
+            if (isStopPointIdField(absoluteField)) {
+                validateStopPointIdValue(leaf, path, absoluteField, operator, errors);
+                return;
+            }
             if (isTemporalOperator(operator)) {
                 validateTemporalValue(leaf, path, absoluteField, operator, errors);
             }
+            return;
+        }
+        if (isStopPointIdField(field)) {
+            ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
+                    .orElse(null);
+            if (capability == null) {
+                errors.add(path + ": stopPoint.id field is not supported: " + field);
+                return;
+            }
+            if (!capability.supportsOperator(operator)) {
+                errors.add(path + ": operator is not supported on stopPoint.id field " + field + ": " + operator);
+                return;
+            }
+            validateStopPointIdValue(leaf, path, field, operator, errors);
             return;
         }
         if (isTemporalOperator(operator)) {
@@ -297,6 +315,37 @@ public class AgentBlueprintValidator {
         } else if (isPotentialTemporalOperator(operator)) {
             rejectTemporal(errors, path, "temporal operator is not supported: " + operator);
         }
+    }
+
+    private void validateStopPointIdValue(
+            Map<String, Object> leaf,
+            String path,
+            String field,
+            String operator,
+            List<String> errors) {
+        if ("EQUALS".equals(operator)) {
+            Object value = leaf.get("value");
+            if (!(value instanceof String id) || id.isBlank()) {
+                errors.add(path + ": stopPoint.id EQUALS requires a non-empty string value for " + field);
+            }
+            return;
+        }
+        if ("IN".equals(operator)) {
+            Object values = leaf.get("values");
+            if (!(values instanceof List<?> ids) || ids.isEmpty()) {
+                errors.add(path + ": stopPoint.id IN requires a non-empty values array for " + field);
+                return;
+            }
+            if (!ids.stream().allMatch(value -> value instanceof String id && !id.isBlank())) {
+                errors.add(path + ": stopPoint.id IN requires only non-empty string values for " + field);
+            }
+            return;
+        }
+        errors.add(path + ": operator is not supported on stopPoint.id field " + field + ": " + operator);
+    }
+
+    private boolean isStopPointIdField(String field) {
+        return field != null && (field.endsWith(".stopPoint.id") || field.endsWith(".stopPointId.id"));
     }
 
     private void validateTemporalValue(

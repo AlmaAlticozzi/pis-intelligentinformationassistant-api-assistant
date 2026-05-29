@@ -170,6 +170,48 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void dslPreviewRendersStopPointIdEquals() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(stopPointIdEqualsPreviewData(), null);
+
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.ongroundServiceEvent.stopPoint.id")
+                .contains("operator: EQUALS")
+                .contains("value: TNPNTS00000000005467 # RHO FIERAMILANO");
+    }
+
+    @Test
+    void dslPreviewRendersStopPointIdIn() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(stopPointIdInPreviewData(), null);
+
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.ongroundServiceEvent.stopPoint.id")
+                .contains("operator: IN")
+                .contains("- TNPNTS00000000000028 # MALPENSA AEROPORTO T.1")
+                .contains("- TNPNTS00000000000029 # MALPENSA AEROPORTO T.2");
+    }
+
+    @Test
+    void validationPlanMentionsIdBasedLocationMatch() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(stopPointIdEqualsPreviewData(), null);
+
+        assertThat(response.getValidationPlan().getPositiveExamples().getFirst().getDescription())
+                .contains("event.stopPoint.id equal to resolved PIS candidate TNPNTS00000000005467");
+        assertThat(response.getValidationPlan().getNegativeExamples().getFirst().getDescription())
+                .contains("event.stopPoint.id different from resolved PIS candidate");
+        assertThat(response.getValidationPlan().getEdgeCases())
+                .anyMatch(edgeCase -> edgeCase.contains("similar stopPoint.nameLong")
+                        && edgeCase.contains("different stopPoint.id"));
+    }
+
+    @Test
+    void previewValidatorRejectsStopPointIdInEmptyValues() {
+        assertThatThrownBy(() -> mapper.toResponse(stopPointIdEmptyInPreviewData(), null))
+                .isInstanceOf(AlertAgentGenerationPreviewRejectedException.class);
+    }
+
+    @Test
     void delayIntercityConditionProducesSpecificPreviewAndRendersContainsIgnoreCaseValue() {
         AgentGenerationPreviewResponse response = mapper.toResponse(intercityDelayPreviewData(false), null);
 
@@ -784,6 +826,68 @@ class AgentGenerationPreviewMapperTest {
                 null, null, "EVENT_INTERPRETER", "ServiceDataV2", "AgentOutput.CANDIDATE_SUGGESTION",
                 technicalSpecification, blueprint, List.of("PLATFORM_CHANGED"), List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData stopPointIdEqualsPreviewData() {
+        return stopPointIdPreviewData(Map.of(
+                "field", "payload.ongroundServiceEvent.stopPoint.id",
+                "operator", "EQUALS",
+                "value", "TNPNTS00000000005467"));
+    }
+
+    private AlertAgentGenerationPreviewData stopPointIdInPreviewData() {
+        return stopPointIdPreviewData(Map.of(
+                "field", "payload.ongroundServiceEvent.stopPoint.id",
+                "operator", "IN",
+                "values", List.of("TNPNTS00000000000028", "TNPNTS00000000000029")));
+    }
+
+    private AlertAgentGenerationPreviewData stopPointIdEmptyInPreviewData() {
+        return stopPointIdPreviewData(Map.of(
+                "field", "payload.ongroundServiceEvent.stopPoint.id",
+                "operator", "IN",
+                "values", List.of()));
+    }
+
+    private AlertAgentGenerationPreviewData stopPointIdPreviewData(Map<String, Object> stopPointCondition) {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(stopPointCondition));
+        Map<String, Object> locationResolution = Map.of(
+                "resolutions", List.of(Map.of(
+                        "rawText", "Rho Fieramilano",
+                        "status", "RESOLVED",
+                        "candidates", List.of(
+                                Map.of(
+                                        "id", "TNPNTS00000000005467",
+                                        "nameLong", "RHO FIERAMILANO"),
+                                Map.of(
+                                        "id", "TNPNTS00000000000028",
+                                        "nameLong", "MALPENSA AEROPORTO T.1"),
+                                Map.of(
+                                        "id", "TNPNTS00000000000029",
+                                        "nameLong", "MALPENSA AEROPORTO T.2")))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "locationResolution", locationResolution,
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ServiceDataFieldMatchAlertAgent",
+                "description", "Detects matching ServiceData events using stopPoint.id.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of(
+                        "conditionType", "SERVICE_DATA_FIELD_MATCH",
+                        "locationResolution", locationResolution,
+                        "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return dataWithArtifacts(technicalSpecification, blueprint);
     }
 
     private AlertAgentGenerationPreviewData dataWithArtifacts(

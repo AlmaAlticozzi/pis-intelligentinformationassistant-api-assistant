@@ -52,10 +52,11 @@ class AgentDslPreviewBuilder {
         }
 
         boolean partial = conditionSummary.partial();
+        Map<String, String> stopPointIdNames = stopPointIdNames(data, blueprint);
         if (conditionSummary.condition().isEmpty()) {
             appendEvents(dsl, data.interpretedEventNames());
         } else {
-            partial |= !renderRootCondition(dsl, conditionSummary.condition());
+            partial |= !renderRootCondition(dsl, conditionSummary.condition(), stopPointIdNames);
         }
         boolean supportedByRuntime = validationResult.valid()
                 && validationResult.runtimeSupported()
@@ -84,29 +85,36 @@ class AgentDslPreviewBuilder {
                 new java.util.LinkedHashSet<>(validationResult.unsupportedCapabilities()));
     }
 
-    private boolean renderRootCondition(StringBuilder output, Map<String, Object> condition) {
+    private boolean renderRootCondition(
+            StringBuilder output,
+            Map<String, Object> condition,
+            Map<String, String> stopPointIdNames) {
         boolean rendered = false;
         boolean supported = true;
         for (String key : List.of("all", "any")) {
             if (condition.get(key) instanceof List<?> children) {
                 rendered = true;
                 appendLine(output, 2, key + ":");
-                supported &= renderChildren(output, children, 4);
+                supported &= renderChildren(output, children, 4, stopPointIdNames);
             }
         }
         if (condition.containsKey("anyElement")) {
             rendered = true;
-            supported &= renderAnyElement(output, condition.get("anyElement"), 2, false);
+            supported &= renderAnyElement(output, condition.get("anyElement"), 2, false, stopPointIdNames);
         }
         if (!rendered && isLeaf(condition)) {
             appendLine(output, 2, "condition:");
-            renderLeaf(output, condition, 4, false);
+            renderLeaf(output, condition, 4, false, stopPointIdNames);
             rendered = true;
         }
         return rendered && supported;
     }
 
-    private boolean renderChildren(StringBuilder output, List<?> children, int indent) {
+    private boolean renderChildren(
+            StringBuilder output,
+            List<?> children,
+            int indent,
+            Map<String, String> stopPointIdNames) {
         boolean supported = true;
         for (Object child : children) {
             if (!(child instanceof Map<?, ?> rawNode)) {
@@ -115,15 +123,15 @@ class AgentDslPreviewBuilder {
             }
             Map<String, Object> node = mapValue(rawNode);
             if (isLeaf(node)) {
-                renderLeaf(output, node, indent, true);
+                renderLeaf(output, node, indent, true, stopPointIdNames);
             } else if (node.containsKey("anyElement")) {
-                supported &= renderAnyElement(output, node.get("anyElement"), indent, true);
+                supported &= renderAnyElement(output, node.get("anyElement"), indent, true, stopPointIdNames);
             } else if (node.get("all") instanceof List<?> nested) {
                 appendLine(output, indent, "- all:");
-                supported &= renderChildren(output, nested, indent + 4);
+                supported &= renderChildren(output, nested, indent + 4, stopPointIdNames);
             } else if (node.get("any") instanceof List<?> nested) {
                 appendLine(output, indent, "- any:");
-                supported &= renderChildren(output, nested, indent + 4);
+                supported &= renderChildren(output, nested, indent + 4, stopPointIdNames);
             } else {
                 supported = false;
             }
@@ -131,7 +139,12 @@ class AgentDslPreviewBuilder {
         return supported;
     }
 
-    private boolean renderAnyElement(StringBuilder output, Object value, int indent, boolean listItem) {
+    private boolean renderAnyElement(
+            StringBuilder output,
+            Object value,
+            int indent,
+            boolean listItem,
+            Map<String, String> stopPointIdNames) {
         Map<String, Object> anyElement = mapValue(value);
         String path = stringValue(anyElement.get("path"));
         Map<String, Object> conditions = mapValue(anyElement.get("conditions"));
@@ -147,19 +160,24 @@ class AgentDslPreviewBuilder {
             if (conditions.get(group) instanceof List<?> nested) {
                 rendered = true;
                 appendLine(output, propertyIndent, group + ":");
-                supported &= renderChildren(output, nested, propertyIndent + 2);
+                supported &= renderChildren(output, nested, propertyIndent + 2, stopPointIdNames);
             }
         }
         if (!rendered && isLeaf(conditions)) {
             rendered = true;
             appendLine(output, propertyIndent, "condition:");
-            renderLeaf(output, conditions, propertyIndent + 2, false);
+            renderLeaf(output, conditions, propertyIndent + 2, false, stopPointIdNames);
         }
         System.out.println("[IIA][AGENT_PREVIEW][ARRAY] anyElement rendered path=" + path);
         return rendered && supported;
     }
 
-    private void renderLeaf(StringBuilder output, Map<String, Object> leaf, int indent, boolean listItem) {
+    private void renderLeaf(
+            StringBuilder output,
+            Map<String, Object> leaf,
+            int indent,
+            boolean listItem,
+            Map<String, String> stopPointIdNames) {
         appendLine(output, indent, (listItem ? "- " : "") + "field: " + leaf.get("field"));
         appendLine(output, indent + (listItem ? 2 : 0), "operator: " + leaf.get("operator"));
         int propertyIndent = indent + (listItem ? 2 : 0);
@@ -182,10 +200,45 @@ class AgentDslPreviewBuilder {
             nestedValue.forEach((key, value) ->
                     appendRenderedValue(output, propertyIndent + 2, key, value));
         } else if (leaf.containsKey("value")) {
-            appendLine(output, propertyIndent, "value: " + leaf.get("value"));
+            appendLine(output, propertyIndent, "value: "
+                    + renderStopPointIdValue(leaf, leaf.get("value"), stopPointIdNames));
         } else if (leaf.get("values") instanceof List<?> values) {
             appendLine(output, propertyIndent, "values:");
-            values.forEach(value -> appendLine(output, propertyIndent + 2, "- " + value));
+            values.forEach(value -> appendLine(output, propertyIndent + 2, "- "
+                    + renderStopPointIdValue(leaf, value, stopPointIdNames)));
+        }
+    }
+
+    private String renderStopPointIdValue(Map<String, Object> leaf, Object value, Map<String, String> stopPointIdNames) {
+        String rendered = String.valueOf(value);
+        String field = stringValue(leaf.get("field"));
+        if (field == null || (!field.endsWith(".stopPoint.id") && !field.endsWith(".stopPointId.id"))) {
+            return rendered;
+        }
+        String nameLong = stopPointIdNames.get(rendered);
+        return hasText(nameLong) ? rendered + " # " + nameLong : rendered;
+    }
+
+    private Map<String, String> stopPointIdNames(AlertAgentGenerationPreviewData data, AgentBlueprint blueprint) {
+        Map<String, String> names = new LinkedHashMap<>();
+        collectStopPointIdNames(data.technicalSpecification().get("locationResolution"), names);
+        collectStopPointIdNames(mapValue(blueprint.get("parameters")).get("locationResolution"), names);
+        return names;
+    }
+
+    private void collectStopPointIdNames(Object value, Map<String, String> names) {
+        if (value instanceof Map<?, ?> rawMap) {
+            Map<String, Object> map = mapValue(rawMap);
+            String id = stringValue(map.get("id"));
+            String nameLong = stringValue(map.get("nameLong"));
+            if (hasText(id) && hasText(nameLong)) {
+                names.putIfAbsent(id, nameLong);
+            }
+            map.values().forEach(nested -> collectStopPointIdNames(nested, names));
+            return;
+        }
+        if (value instanceof List<?> list) {
+            list.forEach(nested -> collectStopPointIdNames(nested, names));
         }
     }
 

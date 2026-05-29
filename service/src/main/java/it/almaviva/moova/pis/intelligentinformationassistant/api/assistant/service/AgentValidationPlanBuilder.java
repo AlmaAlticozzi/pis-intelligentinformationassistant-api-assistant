@@ -18,6 +18,19 @@ class AgentValidationPlanBuilder {
         if (conditionSummary.temporalFilter()) {
             return temporalPlan(conditionSummary);
         }
+        if (conditionSummary.stopPointIds() != null && !conditionSummary.stopPointIds().isEmpty()) {
+            String ids = String.join(", ", conditionSummary.stopPointIds());
+            String candidate = conditionSummary.stopPointIds().getFirst();
+            return new AgentValidationPlan()
+                    .positiveExamples(List.of(example(
+                            "ServiceData event with event.stopPoint.id equal to resolved PIS candidate " + candidate + ".",
+                            AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
+                    .negativeExamples(List.of(example(
+                            "ServiceData event with event.stopPoint.id different from resolved PIS candidate(s) " + ids + ".",
+                            AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
+                    .edgeCases(List.of(
+                            "A ServiceData event with a similar stopPoint.nameLong but a different stopPoint.id must not match the id-based location condition."));
+        }
         if (conditionSummary.platformChange()) {
             return new AgentValidationPlan()
                     .positiveExamples(List.of(

@@ -51,6 +51,13 @@ class AgentPreviewConditionExtractor {
                         .findFirst())
                 .orElse(null);
         location = readableLocation(location);
+        List<String> stopPointIds = leaves.stream()
+                .filter(leaf -> leaf.field() != null
+                        && (leaf.field().endsWith(".stopPoint.id") || leaf.field().endsWith(".stopPointId.id")))
+                .flatMap(leaf -> leaf.values().stream())
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
         List<ConditionLeaf> cancellationLeaves = leaves.stream()
                 .filter(this::isCancellationLeaf)
                 .toList();
@@ -84,6 +91,7 @@ class AgentPreviewConditionExtractor {
                 condition,
                 conditionType,
                 location,
+                stopPointIds,
                 !cancellationLeaves.isEmpty(),
                 cancellationLeaves,
                 delay,
@@ -300,6 +308,7 @@ class AgentPreviewConditionExtractor {
             Map<String, Object> condition,
             String conditionType,
             String location,
+            List<String> stopPointIds,
             boolean cancellation,
             List<ConditionLeaf> cancellationLeaves,
             boolean delay,
