@@ -18,9 +18,7 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.ongroundServiceEvent.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Current event stop point long name.", "event stop point", "Genova", "Firenze"),
-            field("payload.ongroundServiceEvent.stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Current event stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.ongroundServiceEvent.stopPoint.id"),
             field("payload.ongroundServiceEvent.stopPoint.nameShort", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Current event stop point short name.", "short stop point name", "nome breve fermata"),
@@ -33,9 +31,7 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPoint.nameShort", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Current stop point short name.", "short station name", "Genova PP"),
-            field("payload.stopPointJourney.stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Current stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Journey public name.", "train name", "journey name", "nome treno"),
@@ -60,17 +56,13 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Timetabled call start stop point long name.", "departure stop", "stazione partenza"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Timetabled call start stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameShort", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Timetabled call start stop point short name.", "departure stop short name"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.departureTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Timetabled call start departure timestamp.", "timetabled departure time"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Timetabled call end stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Timetabled call end stop point long name.", "arrival stop", "stazione arrivo"),
@@ -82,11 +74,13 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Call start stop point long name.", "actual departure stop"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].callStart.departureTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Call start departure timestamp.", "departure time"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
                     "Call end stop point long name.", "actual arrival stop"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.arrivalTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Call end arrival timestamp.", "arrival time"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalTime", FieldType.TEMPORAL,
@@ -177,9 +171,7 @@ public final class ServiceDataCapabilityCatalog {
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED", "ANY_MATCH"), List.of(), "Next call stop long name.", "passes by", "passa da", "via Siena"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort", FieldType.STRING,
                     ops("CONTAINS_NORMALIZED", "ANY_MATCH"), List.of(), "Next call stop short name.", "next stop short name"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Next call stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].passingType", FieldType.ENUM_ARRAY,
                     ops("CONTAINS", "CONTAINS_ANY"), List.of("DESTINATION", "ORIGIN", "TRANSIT", "STOP"),
                     "Next call passing types.", "next transit", "future stops"),
@@ -194,9 +186,7 @@ public final class ServiceDataCapabilityCatalog {
                     ops("CONTAINS_NORMALIZED", "ANY_MATCH"), List.of(), "Next transit call long name.", "transit through", "transita da", "passa da Siena"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameShort", FieldType.STRING,
                     ops("CONTAINS_NORMALIZED", "ANY_MATCH"), List.of(), "Next transit call short name.", "transit stop short name"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Next transit call stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].passingTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Next transit call passing timestamp.", "next transit passing time"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls", FieldType.ARRAY,
@@ -204,9 +194,7 @@ public final class ServiceDataCapabilityCatalog {
                     "Next transit calls array.", "at least two transits", "almeno due transiti"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong", FieldType.STRING,
                     ops("CONTAINS_NORMALIZED", "ANY_MATCH"), List.of(), "Next cancelled call stop name.", "cancelled next stop"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id", FieldType.STRING,
-                    ops("EQUALS", "EQUALS_NORMALIZED"), List.of(),
-                    "Next cancelled call stop point identifier.", "stop point id", "codice fermata", "id fermata"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls", FieldType.ARRAY,
                     ops("NOT_EMPTY", "SIZE_GREATER_OR_EQUAL", "SIZE_EQUALS"), List.of(),
                     "Next cancelled calls array.", "cancelled calls"),
@@ -219,6 +207,7 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].replacementType", FieldType.ENUM,
                     ops("EQUALS", "IN"), List.of("ARRIVAL", "DEPARTURE", "ARRIVALDEPARTURE"),
                     "Replacement stop point replacement type.", "replacement type", "tipo sostituzione"),
+            stopPointIdField("payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement", FieldType.OBJECT,
                     ops("EXISTS", "NOT_NULL"), List.of(), "External replacement object.", "external replacement"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].arrivalTime", FieldType.TEMPORAL,
@@ -302,6 +291,11 @@ public final class ServiceDataCapabilityCatalog {
 
     public static String compactPromptCatalog() {
         StringBuilder builder = new StringBuilder();
+        builder.append("Location resolution guidance: use stopPoint.id when a user location has been resolved ")
+                .append("to one or more PIS point ids from points.json; use EQUALS for one resolved id and IN ")
+                .append("for multiple resolved candidate ids; use nameLong/nameShort normalized text only ")
+                .append("as fallback when no id was resolved.")
+                .append('\n');
         for (FieldCapability field : FIELDS) {
             builder.append("- field: ").append(field.field()).append('\n');
             builder.append("  type: ").append(field.type()).append('\n');
@@ -341,6 +335,19 @@ public final class ServiceDataCapabilityCatalog {
                 List.of(languageMappings));
     }
 
+    private static FieldCapability stopPointIdField(String field) {
+        return field(
+                field,
+                FieldType.STOP_POINT_ID,
+                ops("EQUALS", "IN"),
+                List.of(),
+                "Stable PIS stop point identifier resolved from points.json",
+                "location",
+                "stopPoint",
+                "pointId",
+                "station");
+    }
+
     private static Set<String> ops(String... operators) {
         return Set.of(operators);
     }
@@ -359,6 +366,7 @@ public final class ServiceDataCapabilityCatalog {
         BOOLEAN,
         ENUM,
         ENUM_ARRAY,
+        STOP_POINT_ID,
         ARRAY,
         OBJECT,
         TEMPORAL

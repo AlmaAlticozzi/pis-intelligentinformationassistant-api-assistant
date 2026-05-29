@@ -18,7 +18,9 @@ class ServiceDataCapabilityCatalogTest {
             "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
             "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameShort",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
@@ -47,11 +49,12 @@ class ServiceDataCapabilityCatalogTest {
             "payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].arrivalTime",
             "payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].departureTime",
             "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].replacementType",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].replacementType");
 
     @Test
     void allowedFieldCountIncludesControlledExpansion() {
-        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(98);
+        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(101);
     }
 
     @Test
@@ -64,7 +67,7 @@ class ServiceDataCapabilityCatalogTest {
 
     @Test
     void stringBooleanEnumNumberAndEnumArrayOperatorsAreCoherent() {
-        assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "EQUALS_NORMALIZED");
+        assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "IN");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
                 "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", "EQUALS");
@@ -81,6 +84,60 @@ class ServiceDataCapabilityCatalogTest {
                 "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.roundedDelay",
                 "CONTAINS_NORMALIZED"))
                 .isFalse();
+    }
+
+    @Test
+    void catalogContainsOngroundStopPointId() {
+        assertThat(ServiceDataCapabilityCatalog.findField("payload.ongroundServiceEvent.stopPoint.id"))
+                .isPresent()
+                .get()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo(ServiceDataCapabilityCatalog.FieldType.STOP_POINT_ID);
+                    assertThat(field.description()).isEqualTo("Stable PIS stop point identifier resolved from points.json");
+                    assertThat(field.languageMappings()).contains("location", "stopPoint", "pointId", "station");
+                });
+    }
+
+    @Test
+    void catalogAllowsEqualsOnStopPointId() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.stopPoint.id",
+                "EQUALS"))
+                .isTrue();
+    }
+
+    @Test
+    void catalogAllowsInOnStopPointId() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.stopPoint.id",
+                "IN"))
+                .isTrue();
+    }
+
+    @Test
+    void catalogRejectsContainsNormalizedOnStopPointId() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.stopPoint.id",
+                "CONTAINS_NORMALIZED"))
+                .isFalse();
+    }
+
+    @Test
+    void catalogStillAllowsContainsNormalizedOnNameLong() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.stopPoint.nameLong",
+                "CONTAINS_NORMALIZED"))
+                .isTrue();
+    }
+
+    @Test
+    void compactPromptCatalogMentionsStopPointIdResolution() {
+        assertThat(ServiceDataCapabilityCatalog.compactPromptCatalog())
+                .contains("use stopPoint.id when a user location has been resolved")
+                .contains("use EQUALS for one resolved id")
+                .contains("use nameLong/nameShort normalized text only as fallback")
+                .contains("payload.ongroundServiceEvent.stopPoint.id")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id");
     }
 
     @Test
