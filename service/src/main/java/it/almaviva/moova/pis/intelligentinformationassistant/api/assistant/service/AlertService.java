@@ -26,9 +26,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationExtractionResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolution;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolverService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PointCandidate;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.SimpleAlertLocationMentionExtractor;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -68,6 +74,12 @@ public class AlertService {
 
     @Inject
     AlertVerificationOutcomeValidator alertVerificationOutcomeValidator;
+
+    @Inject
+    SimpleAlertLocationMentionExtractor alertLocationMentionExtractor;
+
+    @Inject
+    AlertLocationResolverService alertLocationResolverService;
 
     @Inject
     Instance<LlmGateway> llmGateway;
@@ -407,15 +419,16 @@ public class AlertService {
             return Optional.empty();
         }
 
-        LlmRequest promptRequest = alertVerificationPromptBuilder.build(promptData.get());
+        AlertVerificationPromptData enrichedPromptData = withLocationResolutionContext(alertId, promptData.get());
+        LlmRequest promptRequest = alertVerificationPromptBuilder.build(enrichedPromptData);
         System.out.println("[IIA][ALERT_VERIFY][CONFIG] fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT] Built ALERT_VERIFY prompt for alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][SYSTEM] " + promptRequest.systemPrompt());
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
 
-        AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, promptData.get(), promptRequest);
+        AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, enrichedPromptData, promptRequest);
         AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(
-                resolution.outcome(), promptData.get().prompt());
+                resolution.outcome(), enrichedPromptData.prompt());
         if (resolution.parseableLlm() && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][VALIDATION] LLM outcome rejected by backend validation alertId="
                     + alertId + ", fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
@@ -423,11 +436,129 @@ public class AlertService {
         if (resolution.parseableLlm() && fallbackOnInvalidLlm && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine because backend validation rejected LLM output");
             outcome = alertVerificationOutcomeValidator.validate(
-                    alertVerificationMockEngine.verify(alertId, promptData.get().prompt())
+                    alertVerificationMockEngine.verify(alertId, enrichedPromptData.prompt())
                             .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."),
-                    promptData.get().prompt());
+                    enrichedPromptData.prompt());
         }
+        outcome = applyLocationConfidenceAdjustment(outcome, enrichedPromptData.locationResolutionContext());
         return alertRepository.verifyAlert(alertId, request, outcome);
+    }
+
+    private AlertVerificationPromptData withLocationResolutionContext(String alertId, AlertVerificationPromptData promptData) {
+        AlertVerificationLocationContext context = resolveLocationContext(alertId, promptData.prompt());
+        return new AlertVerificationPromptData(
+                promptData.alertId(),
+                promptData.name(),
+                promptData.description(),
+                promptData.prompt(),
+                context);
+    }
+
+    private AlertVerificationLocationContext resolveLocationContext(String alertId, String prompt) {
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION] alertId=" + alertId + " prompt=" + prompt);
+        SimpleAlertLocationMentionExtractor extractor = alertLocationMentionExtractor == null
+                ? new SimpleAlertLocationMentionExtractor()
+                : alertLocationMentionExtractor;
+        AlertLocationResolverService resolver = alertLocationResolverService == null
+                ? new AlertLocationResolverService()
+                : alertLocationResolverService;
+
+        AlertLocationExtractionResult extraction = extractor.extract(prompt);
+        List<AlertLocationResolution> resolutions = extraction.hasLocationMentions()
+                ? resolver.resolve(extraction.mentions())
+                : List.of();
+        AlertVerificationLocationContext context = toPromptLocationContext(extraction, resolutions);
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION] hasMentions="
+                + context.hasLocationMentions() + " resolutions=" + context.resolutions().size());
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION] promptSection=" + context.compactPromptSection());
+        return context;
+    }
+
+    private AlertVerificationLocationContext toPromptLocationContext(
+            AlertLocationExtractionResult extraction,
+            List<AlertLocationResolution> resolutions) {
+        return new AlertVerificationLocationContext(
+                extraction.hasLocationMentions(),
+                resolutions.stream()
+                        .map(this::toPromptLocationResolution)
+                        .toList());
+    }
+
+    private AlertVerificationLocationContext.LocationResolution toPromptLocationResolution(
+            AlertLocationResolution resolution) {
+        return new AlertVerificationLocationContext.LocationResolution(
+                resolution.mention().rawText(),
+                resolution.mention().semanticRole().name(),
+                resolution.pointResolutionResult().status().name(),
+                resolution.pointResolutionResult().candidates().stream()
+                        .filter(candidate -> candidate.selected()
+                                || resolution.selectedPointIds().contains(candidate.id())
+                                || resolution.fallbackToNameLong())
+                        .map(this::toPromptLocationCandidate)
+                        .toList(),
+                resolution.fallbackToNameLong(),
+                resolution.confidenceImpact());
+    }
+
+    private AlertVerificationLocationContext.LocationCandidate toPromptLocationCandidate(PointCandidate candidate) {
+        return new AlertVerificationLocationContext.LocationCandidate(
+                candidate.id(),
+                candidate.nameLong(),
+                candidate.nameShort(),
+                candidate.transportMode(),
+                candidate.score(),
+                candidate.matchType().name(),
+                candidate.selected());
+    }
+
+    private AlertVerificationOutcome applyLocationConfidenceAdjustment(
+            AlertVerificationOutcome outcome,
+            AlertVerificationLocationContext context) {
+        if (outcome == null || context == null || !context.hasLocationMentions()
+                || outcome.decision() != AlertVerificationDecision.VERIFIED) {
+            return outcome;
+        }
+        double penalty = 0.0;
+        List<String> warnings = new ArrayList<>(outcome.warnings() == null ? List.of() : outcome.warnings());
+        if (context.resolutions().stream().anyMatch(AlertVerificationLocationContext.LocationResolution::fallbackToNameLong)) {
+            penalty += 0.25;
+            warnings.add("One or more alert locations were unresolved and require nameLong/nameShort fallback; confidence reduced.");
+        }
+        if (context.resolutions().stream().anyMatch(resolution -> selectedCandidateCount(resolution) > 1)) {
+            penalty += 0.05;
+            warnings.add("One or more alert locations resolved to multiple stopPoint.id candidates; confidence slightly reduced.");
+        }
+        if (penalty == 0.0) {
+            return outcome;
+        }
+        Double confidence = outcome.confidence() == null ? null : Math.max(0.0, outcome.confidence() - penalty);
+        return new AlertVerificationOutcome(
+                outcome.decision(),
+                outcome.summary(),
+                outcome.rejectedReason(),
+                confidence,
+                outcome.provider(),
+                outcome.model(),
+                outcome.promptVersion(),
+                outcome.requiredSources(),
+                outcome.interpreterType(),
+                outcome.inputModel(),
+                outcome.outputModel(),
+                outcome.triggerType(),
+                outcome.evaluationMode(),
+                outcome.interpretedEventNames(),
+                outcome.interpretedTargetTypes(),
+                outcome.technicalSpecification(),
+                outcome.agentBlueprintPreview(),
+                outcome.requirementCoverage(),
+                List.copyOf(warnings),
+                outcome.safetyChecks());
+    }
+
+    private long selectedCandidateCount(AlertVerificationLocationContext.LocationResolution resolution) {
+        return resolution.candidates().stream()
+                .filter(AlertVerificationLocationContext.LocationCandidate::selected)
+                .count();
     }
 
     private AlertVerificationResolution resolveVerificationOutcome(

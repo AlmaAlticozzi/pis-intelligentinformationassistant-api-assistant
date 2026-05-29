@@ -61,6 +61,7 @@ public class AlertVerificationPromptBuilder {
                 + ServiceDataCapabilityCatalog.allowedFieldCount());
         return String.join("\n\n",
                 alertInputSection(alert),
+                locationResolutionSection(alert),
                 serviceDataCatalogSection(),
                 semanticInterpretationSection(defaultTemporalZone),
                 dslConstructionRulesSection(defaultTemporalZone),
@@ -149,6 +150,10 @@ public class AlertVerificationPromptBuilder {
                 nullToEmpty(alert.name()),
                 nullToEmpty(alert.description()),
                 nullToEmpty(alert.prompt()));
+    }
+
+    private String locationResolutionSection(AlertVerificationPromptData alert) {
+        return alert.locationResolutionContext().compactPromptSection();
     }
 
     private String serviceDataCatalogSection() {

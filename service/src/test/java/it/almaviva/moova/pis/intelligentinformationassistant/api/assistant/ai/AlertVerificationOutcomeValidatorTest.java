@@ -11,6 +11,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AlertVerificationOutcomeValidatorTest {
 
+    private static final String RHO_FIERAMILANO_ID = "TNPNTS00000000005467";
+    private static final String MALPENSA_T1_ID = "TNPNTS00000000000028";
+    private static final String MALPENSA_T2_ID = "TNPNTS00000000000029";
+
     private final AlertVerificationOutcomeValidator validator = new AlertVerificationOutcomeValidator();
 
     @Test
@@ -24,6 +28,101 @@ class AlertVerificationOutcomeValidatorTest {
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(validated.interpretedTargetTypes()).containsExactly("SERVICE_DATA_JOURNEY");
+    }
+
+    @Test
+    void acceptsEqualsOnKnownOngroundStopPointId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "EQUALS",
+                        "value", RHO_FIERAMILANO_ID))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsInOnKnownMalpensaIds() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "IN",
+                        "values", List.of(MALPENSA_T1_ID, MALPENSA_T2_ID)))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsContainsNormalizedOnStopPointId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS_NORMALIZED",
+                        "value", RHO_FIERAMILANO_ID))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("operator is not allowed");
+    }
+
+    @Test
+    void rejectsUnknownStopPointId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "EQUALS",
+                        "value", "TNPNTS99999999999999"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason())
+                .contains("Unsupported or unknown stopPoint id in technicalSpecification: TNPNTS99999999999999");
+    }
+
+    @Test
+    void rejectsEmptyInValuesOnStopPointId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "IN",
+                        "values", List.of()))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("requires a non-empty values array");
+    }
+
+    @Test
+    void stillAcceptsFallbackNameLongContainsNormalized() {
+        String field = "payload.ongroundServiceEvent.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS_NORMALIZED",
+                        "value", "Genova Nervi"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void noLocationPromptWithoutLocationResolutionStillValidIfOtherConditionsAreValid() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithCondition(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
+                        "operator", "EQUALS",
+                        "value", "TRANSIT")))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.technicalSpecification()).doesNotContainKey("locationResolution");
     }
 
     @Test
@@ -683,6 +782,17 @@ class AlertVerificationOutcomeValidatorTest {
                                 "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].passingType"),
                                 "reason", "")),
                         "allRequiredRequirementsMapped", true));
+    }
+
+    private Map<String, Object> coverageFor(String field) {
+        return Map.of(
+                "requirements", List.of(Map.of(
+                        "text", field,
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of(field),
+                        "reason", "")),
+                "allRequiredRequirementsMapped", true);
     }
 
     private AlertVerificationOutcome outcomeWithConditionAndCoverage(

@@ -57,6 +57,7 @@ public class AlertVerificationOutcomeValidator {
             "JOURNEY_DELAYED",
             "PLATFORM_EVENT",
             "GENERIC_SERVICE_DATA_EVENT");
+    private final StopPointIdConditionValidator stopPointIdConditionValidator = new StopPointIdConditionValidator();
     @Inject
     TemporalConfiguration temporalConfiguration;
 
@@ -221,6 +222,10 @@ public class AlertVerificationOutcomeValidator {
         if (context.failureReason != null) {
             return;
         }
+        validateLocationResolutionSoftRules(context);
+        if (context.failureReason != null) {
+            return;
+        }
         int technicalTemporalConditionCount = context.temporalConditions.size();
         if (technicalTemporalConditionCount > 0 || containsPotentialTemporalOperator(context.agentBlueprintPreview)) {
             validateBlueprintTemporalCondition(context);
@@ -380,6 +385,10 @@ public class AlertVerificationOutcomeValidator {
             rejectCatalogField(context, field, "field is not allowed by the ServiceData capability catalog.");
             return;
         }
+        if (StopPointIdConditionValidator.isStopPointIdField(field) && !capability.supportsOperator(operator)) {
+            validateStopPointIdCondition(context, field, operator, leaf);
+            return;
+        }
         if (!capability.supportsOperator(operator)) {
             if (LOCAL_TIME_BETWEEN.equals(operator) || isPotentialTemporalOperator(operator)) {
                 rejectTemporalCondition(context, field, operator, "operator is not supported on this field.");
@@ -392,6 +401,10 @@ public class AlertVerificationOutcomeValidator {
         context.conditionFields.add(field);
         if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator)) {
             validateTemporalCondition(context, leaf, field, operator, false);
+            return;
+        }
+        if (StopPointIdConditionValidator.isStopPointIdField(field)) {
+            validateStopPointIdCondition(context, field, operator, leaf);
             return;
         }
         validateConditionValue(context, capability, operator, leaf, field);
@@ -489,6 +502,10 @@ public class AlertVerificationOutcomeValidator {
             rejectArrayCondition(context, arrayPath, "relative field is not allowed: " + relativeField);
             return;
         }
+        if (StopPointIdConditionValidator.isStopPointIdField(absoluteField) && !capability.supportsOperator(operator)) {
+            validateStopPointIdCondition(context, absoluteField, operator, leaf);
+            return;
+        }
         if (!capability.supportsOperator(operator)) {
             rejectArrayCondition(context, arrayPath,
                     "operator is not allowed for relative field " + relativeField + ": " + operator);
@@ -499,7 +516,18 @@ public class AlertVerificationOutcomeValidator {
             validateTemporalCondition(context, leaf, absoluteField, operator, true);
             return;
         }
+        if (StopPointIdConditionValidator.isStopPointIdField(absoluteField)) {
+            validateStopPointIdCondition(context, absoluteField, operator, leaf);
+            return;
+        }
         validateConditionValue(context, capability, operator, leaf, absoluteField);
+    }
+
+    private void validateStopPointIdCondition(ValidationContext context, String field, String operator, Map<?, ?> leaf) {
+        StopPointIdConditionValidator.Result result = stopPointIdConditionValidator.validate(field, operator, leaf);
+        if (!result.valid()) {
+            context.fail(result.reason());
+        }
     }
 
     private boolean isAllowedAnyElementPath(String arrayPath) {
@@ -866,10 +894,40 @@ public class AlertVerificationOutcomeValidator {
                     rejectCatalogField(context, field, "array size operator requires numeric value.");
                 }
             }
+            case STOP_POINT_ID -> {
+                validateStopPointIdCondition(context, field, operator, Map.of(
+                        "value", values.size() == 1 ? values.getFirst() : "",
+                        "values", values));
+            }
             case STRING, OBJECT, TEMPORAL -> {
                 // No extra type checks are needed beyond operator allow-list for the current MVP.
             }
         }
+    }
+
+    private void validateLocationResolutionSoftRules(ValidationContext context) {
+        Object locationResolution = context.technicalSpecification.get("locationResolution");
+        if (locationResolution == null) {
+            return;
+        }
+        if (containsResolvedLocationStatus(locationResolution)
+                && context.conditionFields.stream().noneMatch(StopPointIdConditionValidator::isStopPointIdField)) {
+            context.warn("locationResolution contains resolved mentions but technicalSpecification does not use stopPoint.id.");
+        }
+    }
+
+    private boolean containsResolvedLocationStatus(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object status = map.get("status");
+            if ("RESOLVED".equals(status) || "RESOLVED_AMBIGUOUS".equals(status)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::containsResolvedLocationStatus);
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().anyMatch(this::containsResolvedLocationStatus);
+        }
+        return false;
     }
 
     private boolean isPotentialTemporalOperator(String operator) {

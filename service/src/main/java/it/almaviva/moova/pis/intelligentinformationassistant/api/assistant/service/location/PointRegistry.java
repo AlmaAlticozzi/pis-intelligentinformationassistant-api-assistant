@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class PointRegistry {
@@ -19,6 +21,7 @@ public class PointRegistry {
 
     private final PointNormalizer normalizer;
     private final List<NetworkPoint> points;
+    private final Set<String> pointIds;
 
     public PointRegistry() {
         this(new PointNormalizer(), new ObjectMapper());
@@ -27,6 +30,9 @@ public class PointRegistry {
     PointRegistry(PointNormalizer normalizer, ObjectMapper objectMapper) {
         this.normalizer = normalizer;
         this.points = Collections.unmodifiableList(loadPoints(objectMapper));
+        this.pointIds = points.stream()
+                .map(NetworkPoint::id)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     List<NetworkPoint> points() {
@@ -35,6 +41,10 @@ public class PointRegistry {
 
     public int size() {
         return points.size();
+    }
+
+    public boolean containsId(String id) {
+        return id != null && pointIds.contains(id);
     }
 
     private List<NetworkPoint> loadPoints(ObjectMapper objectMapper) {

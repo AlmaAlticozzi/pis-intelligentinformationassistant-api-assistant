@@ -23,9 +23,12 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationMockEngine;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolverService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.SimpleAlertLocationMentionExtractor;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import jakarta.enterprise.inject.Instance;
@@ -101,6 +104,39 @@ class AlertServiceTest {
                 org.mockito.ArgumentMatchers.eq(request), outcome.capture());
         assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
         assertThat(outcome.getValue().summary()).contains("tenant context").doesNotContain("AI provider");
+    }
+
+    @Test
+    void verifyFlowDoesNotFailForNoLocationPrompt() {
+        AlertService service = verificationService(false);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "No location",
+                        null,
+                        "Dimmi quando una metro è in ritardo di oltre 10 min")));
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse("""
+                {
+                  "decision":"REJECTED",
+                  "summary":"Unsupported.",
+                  "rejectedReason":"Unsupported.",
+                  "confidence":0.0,
+                  "warnings":[],
+                  "safetyChecks":[]
+                }
+                """, "OPENAI", "gpt-4.1-mini", null, null, null));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationPromptData> promptData =
+                ArgumentCaptor.forClass(AlertVerificationPromptData.class);
+        verify(service.alertVerificationPromptBuilder).build(promptData.capture());
+        AlertVerificationLocationContext context = promptData.getValue().locationResolutionContext();
+        assertThat(context.hasLocationMentions()).isFalse();
+        assertThat(context.resolutions()).isEmpty();
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), any());
     }
 
     @Test
@@ -847,6 +883,8 @@ class AlertServiceTest {
         when(service.alertVerificationOutcomeValidator.validate(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         service.alertVerificationMockEngine = mock(AlertVerificationMockEngine.class);
+        service.alertLocationMentionExtractor = new SimpleAlertLocationMentionExtractor();
+        service.alertLocationResolverService = new AlertLocationResolverService();
         service.llmGateway = mock(Instance.class);
         when(service.llmGateway.isUnsatisfied()).thenReturn(false);
         when(service.llmGateway.get()).thenReturn(mock(LlmGateway.class));
