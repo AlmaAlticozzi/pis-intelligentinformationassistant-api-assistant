@@ -89,6 +89,32 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsJourneyStopPointIdNotIn() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointIdNotInCondition(
+                "payload.stopPointJourney.stopPoint.id",
+                List.of("TNPNTS00000000000028", "TNPNTS00000000000029")));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("NOT_IN");
+    }
+
+    @Test
+    void previewValidatorRejectsStopPointIdNotInEmptyValues() {
+        AlertAgentGenerationPreviewData data = previewData(stopPointIdNotInCondition(
+                "payload.stopPointJourney.stopPoint.id",
+                List.of()));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("missing value/values")
+                && error.contains("NOT_IN"));
+    }
+
+    @Test
     void previewValidatorRejectsStopPointIdInEmptyValues() {
         AlertAgentGenerationPreviewData data = previewData(stopPointIdInCondition(List.of()));
 
@@ -454,10 +480,14 @@ class AgentBlueprintValidatorTest {
     }
 
     private Map<String, Object> stopPointIdNotInCondition(List<String> ids) {
+        return stopPointIdNotInCondition("payload.ongroundServiceEvent.stopPoint.id", ids);
+    }
+
+    private Map<String, Object> stopPointIdNotInCondition(String field, List<String> ids) {
         return Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(Map.of(
-                        "field", "payload.ongroundServiceEvent.stopPoint.id",
+                        "field", field,
                         "operator", "NOT_IN",
                         "values", ids)));
     }

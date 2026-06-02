@@ -70,6 +70,33 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsNotInOnKnownOngroundStopPointIds() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_IN",
+                        "values", List.of(MALPENSA_T1_ID, MALPENSA_T2_ID)))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsEmptyNotInValuesOnStopPointId() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_IN",
+                        "values", List.of()))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("requires a non-empty values array");
+    }
+
+    @Test
     void rejectsContainsNormalizedOnStopPointId() {
         String field = "payload.ongroundServiceEvent.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
@@ -856,6 +883,34 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsCurrentArrivalStopEventAndPlatformWithCompleteRequirementCoverage() {
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String platformField =
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", stopPointField,
+                                "operator", "IN",
+                                "values", List.of(RHO_FIERAMILANO_ID)),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS",
+                                "value", "ARRIVED"),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "field", "timetabledArrivalPlatform.dsc",
+                                        "operator", "EQUAL_PLATFORM",
+                                        "value", "1"))))),
+                coverageFor(stopPointField, eventField, platformField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsEqualPlatformWithoutValue() {
         assertPlatformConditionIsRejected(
                 Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "EQUAL_PLATFORM"),
@@ -1006,13 +1061,19 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     private Map<String, Object> coverageFor(String field) {
+        return coverageFor(new String[]{field});
+    }
+
+    private Map<String, Object> coverageFor(String... fields) {
         return Map.of(
-                "requirements", List.of(Map.of(
-                        "text", field,
-                        "required", true,
-                        "mappable", true,
-                        "mappedBy", List.of(field),
-                        "reason", "")),
+                "requirements", java.util.Arrays.stream(fields)
+                        .map(field -> Map.of(
+                                "text", field,
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of(field),
+                                "reason", ""))
+                        .toList(),
                 "allRequiredRequirementsMapped", true);
     }
 

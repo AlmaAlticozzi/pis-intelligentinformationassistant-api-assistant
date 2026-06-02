@@ -255,10 +255,12 @@ public class AlertVerificationPromptBuilder {
                 Array correlation rules:
                 - If multiple constraints must match the same ServiceData array element, use anyElement with that array path and relative fields inside conditions.
                 - Inside anyElement, fields are relative to the same array item.
-                - Use the same anyElement for stopPoint and platform when both constraints refer to the same stop: path payload.stopPointJourney.stopPointsJourneyDetails[].
-                - For arrival, correlate timetabledCallEnd.stopPoint.id or callEnd.stopPoint.id with timetabledArrivalPlatform.dsc inside that same anyElement.
-                - For departure, correlate timetabledCallStart.stopPoint.id or callStart.stopPoint.id with timetabledDeparturePlatform.dsc inside that same anyElement.
-                - Do not use payload.ongroundServiceEvent.stopPoint.id as the sole location constraint when a platform constraint inside stopPointsJourneyDetails[] refers to the same stop.
+                - For current ARRIVED, ARRIVING, DEPARTED or DEPARTING events, the user location is the monitored current stop: prefer payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id with EQUALS, IN or NOT_IN according to the resolved locations.
+                - Do not use timetabledCallStart.stopPoint.id for a current departure stop such as "parte da X".
+                - Do not use timetabledCallEnd.stopPoint.id for a current arrival stop such as "arriva a X".
+                - Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints such as "origine della corsa", "destinazione della corsa", "corsa con origine X" or "corsa con destinazione Y".
+                - Keep platform constraints inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[]: timetabledArrivalPlatform.dsc for default arrival platform matching and timetabledDeparturePlatform.dsc for default departure platform matching.
+                - A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement.
                 - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
                 - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
                 - Outer path must be payload.stopPointJourney.stopPointsJourneyDetails[].
@@ -290,6 +292,9 @@ public class AlertVerificationPromptBuilder {
                 - required=true for every constraint that is part of the Alert.
                 - mappable=true only when the constraint is representable with one or more catalog fields.
                 - mappedBy must contain only field paths present in the ServiceData Capability Catalog.
+                - For a resolved current-stop location matched through payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id, mappedBy must contain exactly the field used by the condition.
+                - For a platform requirement, mappedBy must contain the exact platform description field used by the condition, for example payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc.
+                - Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN.
                 - reason must explain why a required constraint is not mappable.
                 - allRequiredRequirementsMapped=false when at least one required requirement has mappable=false.
                 - If allRequiredRequirementsMapped=false, decision must be REJECTED.
@@ -392,28 +397,37 @@ public class AlertVerificationPromptBuilder {
                 Prompt: "Avvertimi quando un treno arriva a Garibaldi sul binario 1"
                 Meaning: location Garibaldi plus arrival platform 1.
                 Expected condition:
-                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                  {"field":"timetabledCallEnd.stopPoint.id","operator":"EQUALS","value":"<resolvedGaribaldiStopPointId>"},
-                  {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
-                ]}}}
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedGaribaldiStopPointIds>"]},
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
+                  }}
+                ]}
                 Decision: VERIFIED
 
                 Positive example - departure platforms correlated with resolved locations:
-                Prompt: "Avvertimi quando una corsa parte da Buonarroti o Malpensa dal binario 1 o 4"
+                Prompt: "Avvertimi quando una corsa a Buonarroti o Malpensa si verifica in partenza sul binario 1 o sul binario 4"
                 Expected condition:
-                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                  {"field":"timetabledCallStart.stopPoint.id","operator":"IN","values":["<resolvedBuonarrotiStopPointId>","<resolvedMalpensaStopPointId>"]},
-                  {"field":"timetabledDeparturePlatform.dsc","operator":"IN_PLATFORMS","values":["1","4"]}
-                ]}}}
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedBuonarrotiStopPointId>","<resolvedMalpensaT1StopPointId>","<resolvedMalpensaT2StopPointId>"]},
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"timetabledDeparturePlatform.dsc","operator":"IN_PLATFORMS","values":["1","4"]}
+                  }}
+                ]}
                 Decision: VERIFIED
 
                 Positive example - excluded departure locations and platforms:
-                Prompt: "Avvertimi quando una corsa e in partenza da localita diversa da Cairoli, Cascina, San Donato e non dal binario 1 o 12"
+                Prompt: "Avvertimi quando un treno e in partenza da una localita diversa da Cairoli, Cascina, San Donato e che non sia in partenza ne dal binario 1 ne dal binario 12"
                 Expected condition:
-                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
-                  {"field":"timetabledCallStart.stopPoint.id","operator":"NOT_IN","values":["<resolvedCairoliStopPointId>","<resolvedCascinaStopPointId>","<resolvedSanDonatoStopPointId>"]},
-                  {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
-                ]}}}
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"NOT_IN","values":["<resolvedCairoliStopPointId>","<resolvedCascinaStopPointId>","<resolvedSanDonatoStopPointId>"]},
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
+                  }}
+                ]}
                 Decision: VERIFIED
 
                 Negative example - do not add timestamp existence for transit stop:

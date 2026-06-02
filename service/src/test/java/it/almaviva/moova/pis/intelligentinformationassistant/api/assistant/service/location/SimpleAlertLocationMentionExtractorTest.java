@@ -136,6 +136,49 @@ class SimpleAlertLocationMentionExtractorTest {
     }
 
     @Test
+    void excludedLocationsAreExtractedBeforeNegatedPlatforms() {
+        AlertLocationExtractionResult result = extractor.extract(
+                "Avvertimi quando un treno \u00e8 in partenza da una localita diversa da Cairoli, Cascina, San Donato e che non sia in partenza ne dal binario 1 ne dal binario 12");
+
+        assertThat(result.mentions())
+                .extracting(AlertLocationMention::rawText)
+                .containsExactly("Cairoli", "Cascina", "San Donato");
+        assertThat(result.warnings()).contains("NEGATED/EXCLUDED location pattern matched by simple deterministic extractor.");
+    }
+
+    @Test
+    void excludedLocationPatternsExtractCleanCoordinatedMentions() {
+        List<String> prompts = List.of(
+                "Avvertimi per una localita diversa da Cairoli, Cascina e San Donato",
+                "Avvertimi per una localit\u00e0 diversa da Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa diversa da Cairoli, Cascina e San Donato",
+                "Avvertimi per una stazione diversa da Cairoli, Cascina e San Donato",
+                "Avvertimi per un punto diverso da Cairoli, Cascina e San Donato",
+                "Avvertimi per una fermata diversa da Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa non da Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa non in partenza da Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa tranne Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa eccetto Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa escluso Cairoli, Cascina e San Donato",
+                "Avvertimi per una corsa esclusa Cairoli, Cascina e San Donato");
+
+        assertThat(prompts).allSatisfy(prompt ->
+                assertThat(extractor.extract(prompt).mentions())
+                        .extracting(AlertLocationMention::rawText)
+                        .containsExactly("Cairoli", "Cascina", "San Donato"));
+    }
+
+    @Test
+    void genericAlternativeLocationsStopBeforeCurrentDeparturePlatformClause() {
+        AlertLocationExtractionResult result = extractor.extract(
+                "Avvertimi quando una corsa a Buonarroti o Malpensa si verifica in partenza sul binario 1 o sul binario 4");
+
+        assertThat(result.mentions())
+                .extracting(AlertLocationMention::rawText)
+                .containsExactly("Buonarroti", "Malpensa");
+    }
+
+    @Test
     void genericLocationAfterPlatformConstraintIsPreserved() {
         AlertLocationExtractionResult result = extractor.extract(
                 "Avvertimi quando un treno viene spostato dal binario 5 al binario 7 o 8 a Genova P.P.");

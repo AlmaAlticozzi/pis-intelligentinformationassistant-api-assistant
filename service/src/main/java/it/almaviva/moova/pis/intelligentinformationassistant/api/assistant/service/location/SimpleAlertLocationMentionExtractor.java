@@ -31,14 +31,27 @@ public class SimpleAlertLocationMentionExtractor {
                     0.82));
 
     private static final Pattern GENERIC_AT_PATTERN = Pattern.compile("\\ba\\s+(.+)$", PATTERN_FLAGS);
+    private static final Pattern EXCLUDED_LOCATION_PATTERN = Pattern.compile(
+            "\\b(?:(?:localit[a\\x{00E0}]|fermata|stazione)\\s+divers[ao]\\s+da"
+                    + "|divers[ao]\\s+da"
+                    + "|non\\s+in\\s+partenza\\s+da"
+                    + "|non\\s+da"
+                    + "|tranne|eccetto|esclus[ao])\\s+(.+)$",
+            PATTERN_FLAGS);
     private static final Pattern PLATFORM_BOUNDARY_PATTERN = Pattern.compile(
             "\\s+(?:(?:sul(?:la)?|al(?:la)?|in|dal(?:la)?|del(?:la)?|di)\\s+)?"
                     + "(binario|platform|track|quay|banchina|marciapiede|tronco|piattaforma)\\b",
             PATTERN_FLAGS);
+    private static final Pattern TRAILING_PLATFORM_CONTEXT_PATTERN = Pattern.compile(
+            "\\s+(?:(?:e|o)\\s+)?(?:che\\s+)?(?:non\\s+sia\\s+)?"
+                    + "(?:in\\s+partenza\\s+)?(?:ne\\s*)?$",
+            PATTERN_FLAGS);
     private static final Pattern TRAILING_LOCATION_CLAUSE_PATTERN = Pattern.compile(
-            "\\s+(?:parte|arriva|transita|ferma|subisce)\\b.*$",
+            "\\s+(?:parte|arriva|transita|ferma|subisce|si\\s+verifica)\\b.*$",
             PATTERN_FLAGS);
     private static final Pattern ALTERNATIVE_LOCATION_PATTERN = Pattern.compile("\\s+o\\s+", PATTERN_FLAGS);
+    private static final Pattern EXCLUDED_LOCATION_SEPARATOR_PATTERN = Pattern.compile("\\s*(?:,|\\be\\b|\\bo\\b)\\s*",
+            PATTERN_FLAGS);
     private static final List<String> TRAILING_BOUNDARIES = List.of(
             " quando ",
             " se ",
@@ -55,6 +68,14 @@ public class SimpleAlertLocationMentionExtractor {
 
         if (prompt == null || prompt.isBlank()) {
             return log(AlertLocationExtractionResult.empty());
+        }
+
+        List<AlertLocationMention> excludedMentions = extractExcludedMentions(prompt);
+        if (!excludedMentions.isEmpty()) {
+            return log(new AlertLocationExtractionResult(
+                    true,
+                    excludedMentions,
+                    List.of("NEGATED/EXCLUDED location pattern matched by simple deterministic extractor.")));
         }
 
         Optional<AlertLocationMention> explicitMention = RULES.stream()
@@ -94,6 +115,26 @@ public class SimpleAlertLocationMentionExtractor {
                 .toList();
     }
 
+    private List<AlertLocationMention> extractExcludedMentions(String prompt) {
+        Matcher matcher = EXCLUDED_LOCATION_PATTERN.matcher(prompt);
+        if (!matcher.find()) {
+            return List.of();
+        }
+        String rawMention = matcher.group(1);
+        String cleanedText = cleanLocationText(rawMention);
+        System.out.println("[IIA][LOCATION_EXTRACTOR] location pattern type=NEGATED/EXCLUDED"
+                + " raw mention=" + rawMention
+                + " cleaned mention=" + cleanedText);
+        if (cleanedText.isBlank()) {
+            return List.of();
+        }
+        return EXCLUDED_LOCATION_SEPARATOR_PATTERN.splitAsStream(cleanedText)
+                .map(String::trim)
+                .filter(rawText -> !rawText.isBlank() && startsLikeLocationName(rawText))
+                .map(rawText -> new AlertLocationMention(rawText, AlertLocationSemanticRole.GENERIC_STOP_POINT, 0.75))
+                .toList();
+    }
+
     private boolean startsLikeLocationName(String rawText) {
         int firstCodePoint = rawText.codePointAt(0);
         return Character.isUpperCase(firstCodePoint) || Character.isDigit(firstCodePoint);
@@ -112,6 +153,7 @@ public class SimpleAlertLocationMentionExtractor {
         if (platformBoundaryMatcher.find()) {
             boundaryToken = platformBoundaryMatcher.group(1);
             cleaned = cleaned.substring(0, platformBoundaryMatcher.start());
+            cleaned = TRAILING_PLATFORM_CONTEXT_PATTERN.matcher(cleaned).replaceFirst("");
         }
         for (String boundary : TRAILING_BOUNDARIES) {
             int index = cleaned.toLowerCase(Locale.ROOT).indexOf(boundary);

@@ -68,8 +68,8 @@ class AlertVerificationPromptBuilderTest {
                 .contains("EQUAL_PLATFORM")
                 .contains("IN_PLATFORMS")
                 .contains("NOT_IN_PLATFORMS")
-                .contains("Use the same anyElement for stopPoint and platform")
                 .contains("Do not use CONTAINS for platform")
+                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"IN\",\"values\":[\"<resolvedGaribaldiStopPointIds>\"]")
                 .contains("\"field\":\"timetabledArrivalPlatform.dsc\",\"operator\":\"EQUAL_PLATFORM\",\"value\":\"1\"")
                 .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"IN_PLATFORMS\",\"values\":[\"1\",\"4\"]")
                 .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"NOT_IN_PLATFORMS\",\"values\":[\"1\",\"12\"]");
@@ -83,7 +83,23 @@ class AlertVerificationPromptBuilderTest {
                 .contains("use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure")
                 .contains("Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks")
                 .contains("Do not compare human platform values with platform technical id fields")
-                .contains("Do not use payload.ongroundServiceEvent.stopPoint.id as the sole location constraint");
+                .contains("prefer payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id")
+                .contains("Do not use timetabledCallStart.stopPoint.id for a current departure stop")
+                .contains("Do not use timetabledCallEnd.stopPoint.id for a current arrival stop")
+                .contains("Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints")
+                .contains("A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement");
+    }
+
+    @Test
+    void promptMapsRequirementCoverageToActualCurrentStopAndPlatformFields() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("mappedBy must contain exactly the field used by the condition")
+                .contains("mappedBy must contain the exact platform description field used by the condition")
+                .contains("Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN")
+                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"NOT_IN\"")
+                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTED\"");
     }
 
     @Test
