@@ -126,6 +126,28 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsPlatformNotEqualsField() {
+        AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(true));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("PLATFORM_NOT_EQUALS_FIELD");
+    }
+
+    @Test
+    void previewValidatorRejectsPlatformNotEqualsFieldWithoutOtherField() {
+        AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(false));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("missing otherField")
+                && error.contains("PLATFORM_NOT_EQUALS_FIELD"));
+    }
+
+    @Test
     void rejectsUnsupportedSource() {
         AlertAgentGenerationPreviewData data = previewData(condition("CONTAINS_ANY", true));
 
@@ -519,6 +541,20 @@ class AgentBlueprintValidatorTest {
                                                                 "field", "departureTime",
                                                                 "operator", "LOCAL_TIME_BETWEEN",
                                                                 "value", temporalValue)))))));
+    }
+
+    private Map<String, Object> platformFieldComparisonCondition(boolean includeOtherField) {
+        Map<String, Object> leaf = new java.util.LinkedHashMap<>();
+        leaf.put("field", "timetabledDeparturePlatform.dsc");
+        leaf.put("operator", "PLATFORM_NOT_EQUALS_FIELD");
+        if (includeOtherField) {
+            leaf.put("otherField", "actualDeparturePlatform.platform.dsc");
+        }
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", leaf));
     }
 
     private Map<String, Object> eventTemporalCondition(String operator) {

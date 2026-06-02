@@ -883,6 +883,75 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsPlatformNotEqualsFieldOnDeparturePlatforms() {
+        assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
+                "timetabledDeparturePlatform.dsc",
+                "PLATFORM_NOT_EQUALS_FIELD",
+                "actualDeparturePlatform.platform.dsc"));
+    }
+
+    @Test
+    void acceptsPlatformNotEqualsFieldOnArrivalPlatforms() {
+        assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
+                "timetabledArrivalPlatform.dsc",
+                "PLATFORM_NOT_EQUALS_FIELD",
+                "actualArrivalPlatform.platform.dsc"));
+    }
+
+    @Test
+    void acceptsPlatformEqualsFieldOnDescriptionPlatforms() {
+        assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
+                "previousDeparturePlatform.platform.dsc",
+                "PLATFORM_EQUALS_FIELD",
+                "actualDeparturePlatform.platform.dsc"));
+    }
+
+    @Test
+    void rejectsPlatformNotEqualsFieldWithoutOtherField() {
+        assertPlatformConditionIsRejected(
+                Map.of(
+                        "field", "timetabledDeparturePlatform.dsc",
+                        "operator", "PLATFORM_NOT_EQUALS_FIELD"),
+                "otherField must be a non-empty string");
+    }
+
+    @Test
+    void rejectsPlatformNotEqualsFieldWithStopPointIdOtherField() {
+        assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
+                        "timetabledDeparturePlatform.dsc",
+                        "PLATFORM_NOT_EQUALS_FIELD",
+                        "timetabledCallStart.stopPoint.id"),
+                "otherField must be a whitelisted platform description field");
+    }
+
+    @Test
+    void rejectsPlatformNotEqualsFieldOnNonPlatformField() {
+        assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
+                        "passingType",
+                        "PLATFORM_NOT_EQUALS_FIELD",
+                        "actualDeparturePlatform.platform.dsc"),
+                "operator is not allowed");
+    }
+
+    @Test
+    void rejectsPlatformNotEqualsFieldOnTechnicalIdField() {
+        assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
+                        "timetabledDeparturePlatform.id",
+                        "PLATFORM_NOT_EQUALS_FIELD",
+                        "actualDeparturePlatform.platform.dsc"),
+                "platform technical id field cannot be used");
+    }
+
+    @Test
+    void rejectsPlatformNotEqualsFieldWithTechnicalIdOtherField() {
+        assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
+                        "timetabledDeparturePlatform.dsc",
+                        "PLATFORM_NOT_EQUALS_FIELD",
+                        "actualDeparturePlatform.platform.id"),
+                "otherField cannot be a platform technical id field");
+    }
+
+    @Test
     void acceptsCurrentArrivalStopEventAndPlatformWithCompleteRequirementCoverage() {
         String stopPointField = "payload.stopPointJourney.stopPoint.id";
         String eventField = "payload.ongroundServiceEvent.eventsType";
@@ -1045,6 +1114,10 @@ class AlertVerificationOutcomeValidatorTest {
 
     private Map<String, Object> platformLeaf(String field, String operator, String valueKey, Object value) {
         return Map.of("field", field, "operator", operator, valueKey, value);
+    }
+
+    private Map<String, Object> platformFieldComparisonLeaf(String field, String operator, String otherField) {
+        return Map.of("field", field, "operator", operator, "otherField", otherField);
     }
 
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {

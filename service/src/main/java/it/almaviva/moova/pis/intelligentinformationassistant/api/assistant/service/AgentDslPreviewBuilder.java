@@ -206,6 +206,8 @@ class AgentDslPreviewBuilder {
             appendLine(output, propertyIndent, "values:");
             values.forEach(value -> appendLine(output, propertyIndent + 2, "- "
                     + renderStopPointIdValue(leaf, value, stopPointIdNames)));
+        } else if (leaf.get("otherField") instanceof String otherField) {
+            appendLine(output, propertyIndent, "otherField: " + otherField);
         }
     }
 
@@ -281,6 +283,7 @@ class AgentDslPreviewBuilder {
                 && node.containsKey("operator")
                 && (node.get("value") != null
                 || (node.get("values") instanceof List<?> values && !values.isEmpty())
+                || node.get("otherField") instanceof String otherField && !otherField.isBlank()
                 || VALUELESS_OPERATORS.contains(stringValue(node.get("operator"))));
     }
 

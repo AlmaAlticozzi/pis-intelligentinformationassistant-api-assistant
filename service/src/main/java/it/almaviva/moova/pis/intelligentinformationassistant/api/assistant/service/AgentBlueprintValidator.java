@@ -37,6 +37,8 @@ public class AgentBlueprintValidator {
             "externalReplacement.stopPointReplacements[]");
     private static final Set<String> DAY_OF_WEEK_OPERATORS = Set.of(
             "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
+    private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -277,6 +279,10 @@ public class AgentBlueprintValidator {
                 rejectArray(errors, path, "operator is not supported for relative field " + field + ": " + operator);
                 return;
             }
+            if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+                validatePlatformFieldComparison(leaf, path, absoluteField, arrayPath, errors);
+                return;
+            }
             if (isStopPointIdField(absoluteField)) {
                 validateStopPointIdValue(leaf, path, absoluteField, operator, errors);
                 return;
@@ -284,6 +290,16 @@ public class AgentBlueprintValidator {
             if (isTemporalOperator(operator)) {
                 validateTemporalValue(leaf, path, absoluteField, operator, errors);
             }
+            return;
+        }
+        if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+            ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
+                    .orElse(null);
+            if (capability == null || !capability.supportsOperator(operator)) {
+                errors.add(path + ": operator is not supported on platform field " + field + ": " + operator);
+                return;
+            }
+            validatePlatformFieldComparison(leaf, path, field, null, errors);
             return;
         }
         if (isStopPointIdField(field)) {
@@ -314,6 +330,28 @@ public class AgentBlueprintValidator {
             rejectTemporal(errors, path, "operator is not supported on temporal field " + field + ": " + operator);
         } else if (isPotentialTemporalOperator(operator)) {
             rejectTemporal(errors, path, "temporal operator is not supported: " + operator);
+        }
+    }
+
+    private void validatePlatformFieldComparison(
+            Map<String, Object> leaf,
+            String path,
+            String field,
+            String arrayPath,
+            List<String> errors) {
+        String rawOtherField = stringValue(leaf.get("otherField"));
+        if (rawOtherField == null || rawOtherField.isBlank()) {
+            errors.add(path + ": platform field comparison requires a non-empty otherField for " + field);
+            return;
+        }
+        String otherField = arrayPath != null && !rawOtherField.startsWith("payload.")
+                ? arrayPath + "." + rawOtherField
+                : rawOtherField;
+        ServiceDataCapabilityCatalog.FieldCapability otherCapability =
+                ServiceDataCapabilityCatalog.findField(otherField).orElse(null);
+        if (otherCapability == null || otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+            errors.add(path + ": platform field comparison otherField is not a supported platform description field: "
+                    + rawOtherField);
         }
     }
 

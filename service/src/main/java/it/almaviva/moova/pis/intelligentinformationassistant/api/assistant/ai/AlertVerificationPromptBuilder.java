@@ -162,6 +162,7 @@ public class AlertVerificationPromptBuilder {
                 %s
                 Platform catalog guidance:
                 - For user-facing binario/platform/quay/banchina/marciapiede/tronco values, use only platform description fields ending in .dsc with EQUAL_PLATFORM, NOT_EQUAL_PLATFORM, IN_PLATFORMS or NOT_IN_PLATFORMS.
+                - For platform description field-to-field comparisons, use PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD with "otherField".
                 - Never use platform technical id fields for user-facing platform matching.
                 - Do not invent fields that are absent from the ServiceData Capability Catalog.
                 """.formatted(ServiceDataCapabilityCatalog.compactPromptCatalog());
@@ -188,7 +189,13 @@ public class AlertVerificationPromptBuilder {
                 - "parte da <origin> nei feriali e transitera a <stop>" means the weekday predicate applies to timetabledCallStart.departureTime, while the transit stop is represented by nextTransitCalls[].stopPoint.nameLong.
                 - "cambia origine", "cambio origine" and "origine cambiata" mean changes CONTAINS CHANGED_ORIGIN.
                 - "cambia destinazione", "cambio destinazione" and "destinazione cambiata" mean changes CONTAINS CHANGED_DESTINATION.
-                - "cambia binario", "cambio binario" and "platform changed" mean changes CONTAINS PLATFORM_CHANGED, or an arrival/departure status PLATFORM_CHANGED when the user is specifically referring to arrival or departure status.
+                - "binario di arrivo diverso da quello di partenza" means timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD timetabledDeparturePlatform.dsc unless the user explicitly asks for real or effective platforms.
+                - "binario reale di arrivo diverso da quello reale di partenza" means actualArrivalPlatform.platform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc.
+                - "cambio binario in partenza" means departureStatuses[].status CONTAINS DEPARTURE_PLATFORM_CHANGED plus structural evidence timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc inside the same stopPointsJourneyDetails[] anyElement.
+                - "cambio binario in arrivo" means arrivalStatuses[].status CONTAINS ARRIVAL_PLATFORM_CHANGED plus structural evidence timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc inside the same stopPointsJourneyDetails[] anyElement.
+                - For "cambio binario" without arrival or departure direction, construct an any condition with one complete departure branch and one complete arrival branch. Do not invent one direction.
+                - For "spostato dal binario X al binario Y" use previousDeparturePlatform or previousArrivalPlatform for X and actualDeparturePlatform or actualArrivalPlatform for Y, plus the matching PLATFORM_CHANGED status. If direction is omitted, construct an any condition with departure and arrival branches.
+                - "cambia binario", "cambio binario" and "platform changed" are directly represented by platform change status or changes enum evidence, but when possible also add structural timetabled != actual or previous-to-actual platform evidence.
                 - "corsa cancellata", "soppressione" and "cancellazione" mean changes CONTAINS CANCELLATION, or arrival/departure cancellation status fields when those are more specific to the user wording.
                 - "corsa parzialmente cancellata" means changes CONTAINS PARTIALLY_CANCELLATION.
                 - Do not reject change prompts as stateful comparison when the requested change is directly represented by the ServiceData changes enum. It is a stateless predicate over the single ServiceData event.
@@ -218,6 +225,7 @@ public class AlertVerificationPromptBuilder {
                 - Do not generate IN with empty values.
                 - Use EQUAL_PLATFORM or NOT_EQUAL_PLATFORM with a non-empty "value" for one human platform value.
                 - Use IN_PLATFORMS or NOT_IN_PLATFORMS with a non-empty "values" array for multiple human platform values.
+                - Use PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD with a non-empty "otherField" to compare two whitelisted platform description fields. Inside anyElement, use relative field paths for both "field" and "otherField".
                 - If the user says only binario/platform/quay/banchina/marciapiede/tronco plus a human value, use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure.
                 - Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks for a real, confirmed, effective, current, monitored or updated platform, or for a platform change or movement.
                 - Do not use CONTAINS for platform. Do not simulate human platform matching with CONTAINS, CONTAINS_IGNORE_CASE or CONTAINS_NORMALIZED.
@@ -260,6 +268,7 @@ public class AlertVerificationPromptBuilder {
                 - Do not use timetabledCallEnd.stopPoint.id for a current arrival stop such as "arriva a X".
                 - Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints such as "origine della corsa", "destinazione della corsa", "corsa con origine X" or "corsa con destinazione Y".
                 - Keep platform constraints inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[]: timetabledArrivalPlatform.dsc for default arrival platform matching and timetabledDeparturePlatform.dsc for default departure platform matching.
+                - Keep each directional platform change status and its structural platform comparison inside the same anyElement on payload.stopPointJourney.stopPointsJourneyDetails[].
                 - A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement.
                 - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
                 - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
@@ -428,6 +437,23 @@ public class AlertVerificationPromptBuilder {
                     {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
                   }}
                 ]}
+                Decision: VERIFIED
+
+                Positive example - departure platform change at a resolved current stop:
+                Prompt: "Avvertimi quando una corsa a Lampugnano subisce un cambio di binario in partenza"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"EQUALS","value":"<resolvedLampugnanoStopPointId>"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                    {"field":"departureStatuses[].status","operator":"CONTAINS","value":"DEPARTURE_PLATFORM_CHANGED"},
+                    {"field":"timetabledDeparturePlatform.dsc","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.dsc"}
+                  ]}}}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - moved platform with unspecified direction:
+                Prompt: "Avvertimi quando un treno viene spostato dal binario 5 al binario 7 o 8 a Genova P.P."
+                Meaning: keep the resolved Genova P.P. current stop at top level and use an any condition with a departure branch and an arrival branch. Each branch contains the matching PLATFORM_CHANGED status, previous platform EQUAL_PLATFORM "5", and actual platform IN_PLATFORMS ["7","8"].
                 Decision: VERIFIED
 
                 Negative example - do not add timestamp existence for transit stop:

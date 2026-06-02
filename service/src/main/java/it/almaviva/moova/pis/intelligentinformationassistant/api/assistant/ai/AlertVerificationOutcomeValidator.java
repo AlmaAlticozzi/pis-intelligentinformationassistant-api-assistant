@@ -38,7 +38,10 @@ public class AlertVerificationOutcomeValidator {
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
     private static final Set<String> PLATFORM_OPERATORS = Set.of(
-            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+    private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
     private static final String STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH =
             "payload.stopPointJourney.stopPointsJourneyDetails[]";
     private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
@@ -418,7 +421,7 @@ public class AlertVerificationOutcomeValidator {
             validateStopPointIdCondition(context, field, operator, leaf);
             return;
         }
-        validateConditionValue(context, capability, operator, leaf, field);
+        validateConditionValue(context, capability, operator, leaf, field, null);
     }
 
     private void validateAnyElement(ValidationContext context, Object anyElement, String path, String parentArrayPath) {
@@ -538,7 +541,7 @@ public class AlertVerificationOutcomeValidator {
             validateStopPointIdCondition(context, absoluteField, operator, leaf);
             return;
         }
-        validateConditionValue(context, capability, operator, leaf, absoluteField);
+        validateConditionValue(context, capability, operator, leaf, absoluteField, arrayPath);
     }
 
     private void validateStopPointIdCondition(ValidationContext context, String field, String operator, Map<?, ?> leaf) {
@@ -861,10 +864,15 @@ public class AlertVerificationOutcomeValidator {
             ServiceDataCapabilityCatalog.FieldCapability capability,
             String operator,
             Map<?, ?> leaf,
-            String field) {
+            String field,
+            String arrayPath) {
         Object value = leaf.get("value");
         Object values = leaf.get("values");
 
+        if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+            validatePlatformFieldComparison(context, capability, operator, leaf, field, arrayPath);
+            return;
+        }
         if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)) {
             return;
         }
@@ -925,6 +933,62 @@ public class AlertVerificationOutcomeValidator {
         }
     }
 
+    private void validatePlatformFieldComparison(
+            ValidationContext context,
+            ServiceDataCapabilityCatalog.FieldCapability capability,
+            String operator,
+            Map<?, ?> leaf,
+            String field,
+            String arrayPath) {
+        String rawOtherField = stringValue(leaf.get("otherField"));
+        System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] validating field=" + field
+                + " operator=" + operator + " otherField=" + rawOtherField);
+        if (capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+            rejectPlatformFieldComparison(context, field, operator, rawOtherField,
+                    "field must be a whitelisted platform description field.");
+            return;
+        }
+        if (rawOtherField == null || rawOtherField.isBlank()) {
+            rejectPlatformFieldComparison(context, field, operator, rawOtherField,
+                    "otherField must be a non-empty string.");
+            return;
+        }
+        String otherField = resolvePlatformComparisonField(rawOtherField, arrayPath);
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(otherField)) {
+            rejectPlatformFieldComparison(context, field, operator, otherField,
+                    "otherField cannot be a platform technical id field.");
+            return;
+        }
+        ServiceDataCapabilityCatalog.FieldCapability otherCapability =
+                ServiceDataCapabilityCatalog.findField(otherField).orElse(null);
+        if (otherCapability == null || otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+            rejectPlatformFieldComparison(context, field, operator, otherField,
+                    "otherField must be a whitelisted platform description field.");
+            return;
+        }
+        context.conditionFields.add(otherField);
+        System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] validated field=" + field
+                + " operator=" + operator + " otherField=" + otherField);
+    }
+
+    private String resolvePlatformComparisonField(String otherField, String arrayPath) {
+        if (arrayPath != null && !otherField.startsWith("payload.")) {
+            return arrayPath + "." + otherField;
+        }
+        return otherField;
+    }
+
+    private void rejectPlatformFieldComparison(
+            ValidationContext context,
+            String field,
+            String operator,
+            String otherField,
+            String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] rejected field=" + field
+                + " operator=" + operator + " otherField=" + otherField + " reason=" + reason);
+        context.fail("Verified alert platform field comparison is not supported: " + reason);
+    }
+
     private void validatePlatformValues(
             ValidationContext context,
             String operator,
@@ -946,6 +1010,10 @@ public class AlertVerificationOutcomeValidator {
     private void rejectPlatformTechnicalId(ValidationContext context, String field, String operator) {
         String reason = "platform technical id field cannot be used for user platform matching; "
                 + "use platform .dsc with EQUAL_PLATFORM/IN_PLATFORMS.";
+        if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+            System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] rejected field=" + field
+                    + " operator=" + operator + " reason=" + reason);
+        }
         System.out.println("[IIA][ALERT_VERIFY][PLATFORM_VALIDATOR] rejected field=" + field
                 + " operator=" + operator + " reason=" + reason);
         context.fail(reason);

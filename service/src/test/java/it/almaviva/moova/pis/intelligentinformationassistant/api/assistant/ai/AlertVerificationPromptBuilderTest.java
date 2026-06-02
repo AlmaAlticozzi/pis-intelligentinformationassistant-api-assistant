@@ -54,7 +54,7 @@ class AlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("\"cambia origine\", \"cambio origine\" and \"origine cambiata\" mean changes CONTAINS CHANGED_ORIGIN")
                 .contains("\"cambia destinazione\", \"cambio destinazione\" and \"destinazione cambiata\" mean changes CONTAINS CHANGED_DESTINATION")
-                .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" mean changes CONTAINS PLATFORM_CHANGED")
+                .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" are directly represented by platform change status or changes enum evidence")
                 .contains("\"field\":\"changes\",\"operator\":\"CONTAINS\",\"value\":\"CHANGED_ORIGIN\"")
                 .contains("Do not reject change prompts as stateful comparison when the requested change is directly represented by the ServiceData changes enum");
     }
@@ -88,6 +88,22 @@ class AlertVerificationPromptBuilderTest {
                 .contains("Do not use timetabledCallEnd.stopPoint.id for a current arrival stop")
                 .contains("Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints")
                 .contains("A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement");
+    }
+
+    @Test
+    void promptContainsPlatformFieldComparisonAndMovementSemantics() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("PLATFORM_EQUALS_FIELD")
+                .contains("PLATFORM_NOT_EQUALS_FIELD")
+                .contains("DEPARTURE_PLATFORM_CHANGED")
+                .contains("ARRIVAL_PLATFORM_CHANGED")
+                .contains("previousDeparturePlatform")
+                .contains("previousArrivalPlatform")
+                .contains("timetabled != actual")
+                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"PLATFORM_NOT_EQUALS_FIELD\",\"otherField\":\"actualDeparturePlatform.platform.dsc\"")
+                .contains("keep the resolved Genova P.P. current stop at top level");
     }
 
     @Test

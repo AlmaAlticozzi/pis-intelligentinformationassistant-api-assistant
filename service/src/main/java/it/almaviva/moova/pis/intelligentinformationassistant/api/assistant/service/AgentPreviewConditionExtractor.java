@@ -16,10 +16,12 @@ import java.util.stream.IntStream;
 
 class AgentPreviewConditionExtractor {
 
-    private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values");
+    private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values", "otherField");
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
     private static final Set<String> ANY_ELEMENT_FIELDS = Set.of("type", "anyElement");
     private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+    private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
     private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
             "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 
@@ -126,6 +128,8 @@ class AgentPreviewConditionExtractor {
                 reason = "missing field";
             } else if (!node.containsKey("operator")) {
                 reason = "missing operator";
+            } else if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+                reason = "missing otherField for operator " + operator;
             } else {
                 reason = "missing value/values for operator " + operator;
             }
@@ -184,6 +188,7 @@ class AgentPreviewConditionExtractor {
                 && node.containsKey("operator")
                 && (node.get("value") != null
                 || (node.get("values") instanceof List<?> values && !values.isEmpty())
+                || node.get("otherField") instanceof String otherField && !otherField.isBlank()
                 || VALUELESS_OPERATORS.contains(stringValue(node.get("operator"))));
     }
 

@@ -409,7 +409,13 @@ public final class ServiceDataCapabilityCatalog {
     }
 
     private static Set<String> platformOps() {
-        return ops("EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+        return ops(
+                "EQUAL_PLATFORM",
+                "NOT_EQUAL_PLATFORM",
+                "IN_PLATFORMS",
+                "NOT_IN_PLATFORMS",
+                "PLATFORM_EQUALS_FIELD",
+                "PLATFORM_NOT_EQUALS_FIELD");
     }
 
     public enum FieldType {

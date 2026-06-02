@@ -165,7 +165,8 @@ class ServiceDataCapabilityCatalogTest {
                     .satisfies(capability -> {
                         assertThat(capability.type()).isEqualTo(ServiceDataCapabilityCatalog.FieldType.PLATFORM);
                         assertThat(capability.operators()).containsExactlyInAnyOrder(
-                                "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+                                "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
+                                "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
                     });
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
