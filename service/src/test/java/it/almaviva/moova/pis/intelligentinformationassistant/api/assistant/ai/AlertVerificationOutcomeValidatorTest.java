@@ -1179,6 +1179,27 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsResolvedStopPointWithCompletedDepartureAndEvenActualPlatform() {
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String platformField = detailsPath + ".actualDeparturePlatform.platform.dsc";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "IN",
+                                "values", List.of("TNPNTS00000000005467")),
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "DEPARTED"),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", platformValuelessLeaf(
+                                        "actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_EVEN"))))),
+                coverageFor(stopPointField, eventField, platformField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsAdvancedPlatformNumericOperatorsWithoutCurrentEventBinding() {
         for (Map<String, Object> leaf : List.of(
                 platformLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),

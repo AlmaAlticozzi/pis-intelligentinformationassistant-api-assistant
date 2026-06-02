@@ -49,6 +49,11 @@ public class SimpleAlertLocationMentionExtractor {
             "(?:^|\\s+)(?:(?:sul(?:la)?|al(?:la)?|in|dal(?:la)?|del(?:la)?|di|da|on|from|at|de|d['\u2019]|une?|una|un|a|einem?|einer|von)\\s+)*"
                     + "(binario|platform|track|quay|banchina|marciapiede|tronco|piattaforma|voie|quai|v[i\u00eda]a|anden|and\u00e9n|gleis|bahnsteig)\\b",
             PATTERN_FLAGS);
+    private static final Pattern POST_PLATFORM_LOCATION_PATTERN = Pattern.compile(
+            "(?=\\b(a|at|in|on|en|\\x{00E0})\\s+"
+                    + "([\\p{L}\\p{N}][\\p{L}\\p{N}.'\u2019-]*(?:\\s+[\\p{L}\\p{N}][\\p{L}\\p{N}.'\u2019-]*)*)"
+                    + "\\s*[.!?]*$)",
+            PATTERN_FLAGS);
     private static final Pattern TRAILING_PLATFORM_CONTEXT_PATTERN = Pattern.compile(
             "\\s+(?:(?:e|o)\\s+)?(?:che\\s+)?(?:non\\s+sia\\s+)?"
                     + "(?:in\\s+partenza\\s+)?(?:ne\\s*)?$",
@@ -75,6 +80,8 @@ public class SimpleAlertLocationMentionExtractor {
             "at", "from", "on", "the", "an", "of",
             "d", "du", "des", "une", "la", "le", "el",
             "von", "einem", "einer", "ein", "eine", "der", "die", "das");
+    private static final Set<String> PLATFORM_EVENT_CONTEXT_WORDS = Set.of(
+            "arrivo", "partenza", "arrival", "departure");
 
     public AlertLocationExtractionResult extract(String prompt) {
         System.out.println("[IIA][LOCATION_EXTRACTOR] prompt=" + prompt);
@@ -89,6 +96,14 @@ public class SimpleAlertLocationMentionExtractor {
                     true,
                     excludedMentions,
                     List.of("NEGATED/EXCLUDED location pattern matched by simple deterministic extractor.")));
+        }
+
+        List<AlertLocationMention> postPlatformMentions = extractPostPlatformMentions(prompt);
+        if (!postPlatformMentions.isEmpty()) {
+            return log(new AlertLocationExtractionResult(
+                    true,
+                    postPlatformMentions,
+                    List.of("Post-platform location pattern matched by simple deterministic extractor.")));
         }
 
         Optional<AlertLocationMention> explicitMention = RULES.stream()
@@ -109,6 +124,72 @@ public class SimpleAlertLocationMentionExtractor {
         }
 
         return log(AlertLocationExtractionResult.empty());
+    }
+
+    private List<AlertLocationMention> extractPostPlatformMentions(String prompt) {
+        Matcher boundaryMatcher = PLATFORM_BOUNDARY_PATTERN.matcher(prompt);
+        if (!boundaryMatcher.find()) {
+            return List.of();
+        }
+
+        String boundaryToken = boundaryMatcher.group(1);
+        String tail = prompt.substring(boundaryMatcher.end());
+        Matcher locationMatcher = POST_PLATFORM_LOCATION_PATTERN.matcher(tail);
+        String candidate = null;
+        while (locationMatcher.find()) {
+            String preposition = locationMatcher.group(1);
+            String prefix = tail.substring(0, locationMatcher.start()).trim();
+            if (!isLikelyLocativePreposition(preposition, prefix)) {
+                continue;
+            }
+            candidate = locationMatcher.group(2);
+        }
+        if (candidate == null) {
+            return List.of();
+        }
+
+        CleanedLocation normalized = cleanLocationText(candidate);
+        String cleanedText = capitalizeInitial(normalized.text());
+        CleanedLocation location = new CleanedLocation(candidate, cleanedText, boundaryToken);
+        boolean accepted = isMeaningfulLocationCandidate(location) && !containsOnlyPlatformEventContextWords(cleanedText);
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_BOUNDARY] post-platform location candidate raw="
+                + candidate + " cleaned=" + cleanedText + " accepted=" + accepted
+                + " reason=" + (accepted ? "meaningful location token" : "not a meaningful post-platform location"));
+        if (!accepted) {
+            return List.of();
+        }
+        return List.of(new AlertLocationMention(cleanedText, AlertLocationSemanticRole.GENERIC_STOP_POINT, 0.70));
+    }
+
+    private static boolean containsOnlyPlatformEventContextWords(String value) {
+        Matcher matcher = LOCATION_TOKEN_PATTERN.matcher(value);
+        boolean found = false;
+        while (matcher.find()) {
+            found = true;
+            if (!PLATFORM_EVENT_CONTEXT_WORDS.contains(matcher.group().toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        return found;
+    }
+
+    private static boolean isLikelyLocativePreposition(String preposition, String prefix) {
+        if (!"a".equalsIgnoreCase(preposition)) {
+            return true;
+        }
+        return !prefix.matches("(?is).*\\bwith\\s*$");
+    }
+
+    private static String capitalizeInitial(String value) {
+        if (value.isBlank()) {
+            return value;
+        }
+        int firstCodePoint = value.codePointAt(0);
+        int firstCodePointLength = Character.charCount(firstCodePoint);
+        return new StringBuilder(value.length())
+                .appendCodePoint(Character.toUpperCase(firstCodePoint))
+                .append(value.substring(firstCodePointLength))
+                .toString();
     }
 
     private List<AlertLocationMention> extractGenericAtMentions(String prompt) {

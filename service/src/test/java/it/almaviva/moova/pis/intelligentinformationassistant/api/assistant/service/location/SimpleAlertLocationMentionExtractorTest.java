@@ -235,4 +235,28 @@ class SimpleAlertLocationMentionExtractorTest {
                         .extracting(AlertLocationMention::rawText)
                         .isEqualTo(location));
     }
+
+    @Test
+    void meaningfulLocationsAfterPlatformPredicatesAreExtracted() {
+        Map<String, String> promptsByLocation = Map.of(
+                "Lunigiana", "Avvertimi quando una corsa parte da un binario pari a lunigiana",
+                "Rho Fieramilano", "Avvertimi quando una corsa parte da un binario con una lettera a Rho Fieramilano",
+                "Garibaldi", "Avvertimi quando una corsa arriva a un binario compreso tra 3 e 8 a Garibaldi",
+                "Milan", "Notify me when a train arrives at a platform between 3 and 8 at Milan");
+
+        assertThat(promptsByLocation).allSatisfy((location, prompt) ->
+                assertThat(extractor.extract(prompt).mentions()).singleElement()
+                        .extracting(AlertLocationMention::rawText)
+                        .isEqualTo(location));
+    }
+
+    @Test
+    void englishLocationAfterPlatformPredicateIsExtracted() {
+        AlertLocationExtractionResult result = extractor.extract(
+                "Notify me when a train departs from a platform with a letter at Garibaldi");
+
+        assertThat(result.mentions()).singleElement()
+                .extracting(AlertLocationMention::rawText)
+                .isEqualTo("Garibaldi");
+    }
 }

@@ -178,6 +178,8 @@ public class AlertVerificationPromptBuilder {
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
                 - Platform numeric/property predicates always require a top-level payload.ongroundServiceEvent.eventsType binding: "in partenza", "si verifica in partenza" and "sta partendo" -> CONTAINS DEPARTING; "parte", "e partita" and "partita" -> CONTAINS DEPARTED; "in arrivo" and "sta arrivando" -> CONTAINS ARRIVING; "arriva", "e arrivata" and "arrivata" -> CONTAINS ARRIVED.
+                - English current-event mapping for platform numeric/property predicates is precise: "departs", "has departed" and "departed" -> CONTAINS DEPARTED; "is departing", "departing" and "about to depart" -> CONTAINS DEPARTING; "arrives", "has arrived" and "arrived" -> CONTAINS ARRIVED; "is arriving", "arriving" and "about to arrive" -> CONTAINS ARRIVING.
+                - Use CONTAINS_ANY for numeric/property platform predicates only when the prompt is truly ambiguous between progress and completion, uses generic wording such as "departure event" or "arrival event", or omits arrival/departure direction. Do not widen precise verbs such as "departs" or "arrives".
                 - If a platform numeric/property prompt omits arrival/departure direction, use payload.ongroundServiceEvent.eventsType CONTAINS_ANY ["DEPARTING","DEPARTED","ARRIVING","ARRIVED"] and construct an any condition with actualDeparturePlatform.platform.dsc and actualArrivalPlatform.platform.dsc branches.
                 - Platform numeric mappings: "maggiore di N" and "superiore a N" -> PLATFORM_NUMBER_GREATER_THAN; "almeno N", "maggiore o uguale a N" and "da N in su" -> PLATFORM_NUMBER_GREATER_OR_EQUAL.
                 - Platform numeric mappings: "minore di N" and "inferiore a N" -> PLATFORM_NUMBER_LESS_THAN; "al massimo N", "minore o uguale a N" and "fino a N" -> PLATFORM_NUMBER_LESS_OR_EQUAL.
@@ -326,6 +328,7 @@ public class AlertVerificationPromptBuilder {
                 - For a platform requirement, mappedBy must contain the exact platform description field used by the condition, for example payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc.
                 - For a platform numeric/property requirement, mappedBy must include payload.ongroundServiceEvent.eventsType and the exact actual* or explicit timetabled* platform description field used by the condition.
                 - Do not invent a location requirement when the prompt contains only a platform constraint. Phrases such as "un binario", "a platform" or "una plataforma" are not locations.
+                - If a meaningful resolved location follows a platform predicate, include its current stop-point field in requirementCoverage. For example, "binario pari a Lunigiana" includes the resolved Lunigiana stop-point requirement, while "platform with a letter" alone does not include any stopPoint requirement.
                 - For a platform change requirement, mappedBy must include payload.ongroundServiceEvent.eventsType and the exact structural platform description fields used by the field-to-field comparison.
                 - For a movement requirement such as "spostato dal binario X al binario Y", mappedBy must include payload.ongroundServiceEvent.eventsType and the exact previous and actual platform description fields used by the condition.
                 - Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN.
@@ -540,8 +543,19 @@ public class AlertVerificationPromptBuilder {
                 ]}
                 Decision: VERIFIED
 
+                Positive example - English precise completed departure platform event:
+                Prompt: "Notify me when a train departs from a platform with a letter"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualDeparturePlatform.platform.dsc","operator":"PLATFORM_HAS_LETTER_SUFFIX"}
+                  }}
+                ]}
+                Decision: VERIFIED
+
                 Positive example - resolved location plus even departure platform:
-                Prompt: "Avvertimi quando una corsa parte da Lunigiana da un binario pari"
+                Prompt: "Avvertimi quando una corsa parte da un binario pari a Lunigiana"
                 Expected condition:
                 {"type":"SERVICE_DATA_FIELD_MATCH","all":[
                   {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedLunigianaStopPointIds>"]},
