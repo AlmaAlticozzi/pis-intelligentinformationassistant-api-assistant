@@ -890,6 +890,68 @@ class AlertVerificationOutcomeValidatorTest {
                 "operator is not allowed");
     }
 
+    @Test
+    void rejectsEqualsNormalizedOnActualArrivalDisplayPlatformTechnicalId() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "actualArrivalPlatform.displayPlatform.id",
+                        "EQUALS_NORMALIZED",
+                        "value",
+                        "1"),
+                "platform technical id field cannot be used for user platform matching");
+    }
+
+    @Test
+    void rejectsEqualsOnActualDepartureDisplayPlatformTechnicalId() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "actualDeparturePlatform.displayPlatform.id",
+                        "EQUALS",
+                        "value",
+                        "1"),
+                "platform technical id field cannot be used for user platform matching");
+    }
+
+    @Test
+    void rejectsContainsNormalizedOnActualArrivalPlatformTechnicalId() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "actualArrivalPlatform.platform.id",
+                        "CONTAINS_NORMALIZED",
+                        "value",
+                        "1"),
+                "platform technical id field cannot be used for user platform matching");
+    }
+
+    @Test
+    void rejectsInOnPreviousDeparturePlatformTechnicalId() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "previousDeparturePlatform.platform.id",
+                        "IN",
+                        "values",
+                        List.of("1", "4")),
+                "platform technical id field cannot be used for user platform matching");
+    }
+
+    @Test
+    void acceptsEqualPlatformOnActualArrivalDisplayPlatformDescription() {
+        assertPlatformConditionIsVerified(platformLeaf(
+                "actualArrivalPlatform.displayPlatform.dsc",
+                "EQUAL_PLATFORM",
+                "value",
+                "1"));
+    }
+
+    @Test
+    void acceptsInOnKnownStopPointIdAfterPlatformTechnicalIdBlocking() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "IN",
+                        "values", List.of("TNPNTS00000000000009")))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
     private void assertPlatformConditionIsVerified(Map<String, Object> leaf) {
         AlertVerificationOutcome validated = validator.validate(platformOutcome(leaf));
 

@@ -383,6 +383,10 @@ public class AlertVerificationOutcomeValidator {
             rejectCatalogField(context, field, "field contains suspicious content.");
             return;
         }
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(field)) {
+            rejectPlatformTechnicalId(context, field, operator);
+            return;
+        }
 
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
                 .orElse(null);
@@ -504,6 +508,10 @@ public class AlertVerificationOutcomeValidator {
                 + " operator=" + operator + " path=" + arrayPath);
         String absoluteField = arrayPath + "." + relativeField;
         logPlatformValidation(absoluteField, operator);
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(absoluteField)) {
+            rejectPlatformTechnicalId(context, absoluteField, operator);
+            return;
+        }
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
                 .orElse(null);
         if (capability == null) {
@@ -911,7 +919,7 @@ public class AlertVerificationOutcomeValidator {
                 validateStopPointIdCondition(context, field, operator, stopPointLeaf);
             }
             case PLATFORM -> validatePlatformValues(context, operator, values, field);
-            case STRING, OBJECT, TEMPORAL -> {
+            case STRING, OBJECT, TEMPORAL, PLATFORM_TECHNICAL_ID -> {
                 // No extra type checks are needed beyond operator allow-list for the current MVP.
             }
         }
@@ -933,6 +941,14 @@ public class AlertVerificationOutcomeValidator {
     private void rejectPlatformCondition(ValidationContext context, String field, String operator, String reason) {
         logPlatformRejection(field, operator, reason);
         context.fail("Verified alert platform condition is not supported: " + reason);
+    }
+
+    private void rejectPlatformTechnicalId(ValidationContext context, String field, String operator) {
+        String reason = "platform technical id field cannot be used for user platform matching; "
+                + "use platform .dsc with EQUAL_PLATFORM/IN_PLATFORMS.";
+        System.out.println("[IIA][ALERT_VERIFY][PLATFORM_VALIDATOR] rejected field=" + field
+                + " operator=" + operator + " reason=" + reason);
+        context.fail(reason);
     }
 
     private void logPlatformValidation(String field, String operator) {

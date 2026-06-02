@@ -12,6 +12,19 @@ import java.util.stream.Collectors;
 public final class ServiceDataCapabilityCatalog {
 
     private static final List<String> STOP_POINT_ID_FIELDS = registerStopPointIdFields();
+    private static final Set<String> PLATFORM_TECHNICAL_ID_FIELDS = Set.of(
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.arrivalPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.departurePlatform.id");
 
     private static final List<FieldCapability> FIELDS = List.of(
             field("payload.ongroundServiceEvent.eventsType", FieldType.ENUM_ARRAY,
@@ -93,9 +106,8 @@ public final class ServiceDataCapabilityCatalog {
                     temporalOps(), List.of(), "Estimated arrival timestamp.", "estimated arrival"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].estimatedDepartureTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Estimated departure timestamp.", "estimated departure"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Actual departure platform id.", "binario partenza", "departure platform", "platform 1", "binario 1"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id",
+                    "Actual departure platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc",
                     "Actual departure platform description.", "binario partenza", "departure platform description"),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc",
@@ -109,9 +121,8 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.source", FieldType.ENUM,
                     ops("EQUALS", "IN"), List.of("MONITORED", "OPERATOR", "EMULATED"),
                     "Actual departure platform source.", "platform source", "origine binario partenza"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Actual arrival platform id.", "binario arrivo", "arrival platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.id",
+                    "Actual arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.dsc",
                     "Actual arrival platform description.", "binario arrivo", "arrival platform description"),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.dsc",
@@ -125,14 +136,12 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.source", FieldType.ENUM,
                     ops("EQUALS", "IN"), List.of("MONITORED", "OPERATOR", "EMULATED"),
                     "Actual arrival platform source.", "platform source", "origine binario arrivo"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Timetabled arrival platform id.", "binario previsto", "piattaforma prevista", "timetabled platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id",
+                    "Timetabled arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc",
                     "Timetabled arrival platform description.", "binario previsto", "piattaforma prevista", "timetabled platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Timetabled departure platform id.", "binario previsto", "piattaforma prevista", "timetabled platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id",
+                    "Timetabled departure platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc",
                     "Timetabled departure platform description.", "binario previsto", "piattaforma prevista", "timetabled platform"),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.dsc",
@@ -143,12 +152,10 @@ public final class ServiceDataCapabilityCatalog {
                     "Previous departure platform description.", "binario partenza precedente", "previous departure platform"),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.dsc",
                     "Previous display departure platform description.", "binario partenza precedente", "previous display departure platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.departurePlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Monitored departure platform id.", "monitored departure platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.arrivalPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED"), List.of(),
-                    "Monitored arrival platform id.", "monitored arrival platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.departurePlatform.id",
+                    "Monitored departure platform technical id."),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.arrivalPlatform.id",
+                    "Monitored arrival platform technical id."),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay", FieldType.NUMBER,
                     numericOps(), List.of(), "Arrival delay.", "arrival delay", "ritardo arrivo"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay", FieldType.NUMBER,
@@ -304,6 +311,10 @@ public final class ServiceDataCapabilityCatalog {
         return FIELDS.size();
     }
 
+    public static boolean isPlatformTechnicalIdField(String field) {
+        return PLATFORM_TECHNICAL_ID_FIELDS.contains(field);
+    }
+
     static List<String> stopPointIdFields() {
         return STOP_POINT_ID_FIELDS;
     }
@@ -386,6 +397,13 @@ public final class ServiceDataCapabilityCatalog {
         return field(field, FieldType.PLATFORM, platformOps(), List.of(), description, languageMappings);
     }
 
+    private static FieldCapability platformTechnicalIdField(String field, String description) {
+        if (!isPlatformTechnicalIdField(field)) {
+            throw new IllegalArgumentException("Unsupported platform technical id field: " + field);
+        }
+        return field(field, FieldType.PLATFORM_TECHNICAL_ID, Set.of(), List.of(), description);
+    }
+
     private static Set<String> temporalOps() {
         return ServiceDataTemporalCapabilityCatalog.temporalOperators();
     }
@@ -404,7 +422,8 @@ public final class ServiceDataCapabilityCatalog {
         ARRAY,
         OBJECT,
         TEMPORAL,
-        PLATFORM
+        PLATFORM,
+        PLATFORM_TECHNICAL_ID
     }
 
     public record FieldCapability(

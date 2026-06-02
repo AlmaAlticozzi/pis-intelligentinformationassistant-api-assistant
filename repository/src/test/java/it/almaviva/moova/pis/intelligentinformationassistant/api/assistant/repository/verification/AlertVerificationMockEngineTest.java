@@ -94,7 +94,9 @@ class AlertVerificationMockEngineTest {
                 "Avvisami quando una corsa e in partenza da Firenze dal binario 1 e passa da Siena");
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
-        assertThat(outcome.technicalSpecification().toString()).contains("Firenze", "Siena", "actualDeparturePlatform", "1");
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("Firenze", "Siena", "actualDeparturePlatform.displayPlatform.dsc", "EQUAL_PLATFORM", "1")
+                .doesNotContain("actualDeparturePlatform.displayPlatform.id");
     }
 
     @Test

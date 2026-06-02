@@ -168,7 +168,7 @@ public class AlertVerificationMockEngine {
         }
         if (containsAny(normalizedPrompt, "binario", "platform")) {
             eventName = "PLATFORM_EVENT";
-            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id", "EQUALS_NORMALIZED", platformValue(normalizedPrompt)));
+            checks.add(leaf("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc", "EQUAL_PLATFORM", platformValue(normalizedPrompt)));
         }
         if (containsAny(normalizedPrompt, "transito", "transit", "non si ferma", "passing through")) {
             eventName = "JOURNEY_TRANSIT";
