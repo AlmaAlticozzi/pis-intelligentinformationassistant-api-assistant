@@ -145,4 +145,45 @@ class AgentPreviewConditionExtractorTest {
                 .satisfies(array -> assertThat(array.path())
                         .isEqualTo("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]"));
     }
+
+    @Test
+    void recognizesPlatformConstraintComparisonMovementAndCurrentChangeEvent() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED")),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "timetabledDeparturePlatform.dsc",
+                                                        "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                                        "otherField", "actualDeparturePlatform.platform.dsc"),
+                                                Map.of(
+                                                        "field", "previousDeparturePlatform.platform.dsc",
+                                                        "operator", "EQUAL_PLATFORM",
+                                                        "value", "5"),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "IN_PLATFORMS",
+                                                        "values", List.of("7", "8"))))))));
+        AgentPreviewConditionExtractor.ConditionSummary result = extractor.extract(new AlertAgentGenerationPreviewData(
+                "ALRT1", "Platform movement", "VERIFIED", "VERIFIED", false, null, 1,
+                "Prompt", "Verified.", null, null, "EVENT_INTERPRETER", "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                Map.of("condition", condition),
+                Map.of("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition)),
+                List.of("PLATFORM_CHANGED"), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY)));
+
+        assertThat(result.platformChange()).isTrue();
+        assertThat(result.platformConstraint()).isTrue();
+        assertThat(result.platformComparison()).isTrue();
+        assertThat(result.platformMovement()).isTrue();
+        assertThat(result.platformConstraintLeaves()).hasSize(2);
+        assertThat(result.platformComparisonLeaves()).hasSize(1);
+    }
 }

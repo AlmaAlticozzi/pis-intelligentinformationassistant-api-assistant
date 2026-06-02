@@ -204,6 +204,51 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void dslPreviewRendersHumanPlatformOperatorsAndCurrentChangedEvent() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(platformOperatorsPreviewData(), null);
+
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.ongroundServiceEvent.eventsType")
+                .contains("operator: CONTAINS_ANY")
+                .contains("- DEPARTURE_PLATFORM_CHANGED")
+                .contains("- ARRIVAL_PLATFORM_CHANGED")
+                .contains("operator: EQUAL_PLATFORM")
+                .contains("value: 5")
+                .contains("operator: NOT_EQUAL_PLATFORM")
+                .contains("operator: IN_PLATFORMS")
+                .contains("- 7")
+                .contains("- 8")
+                .contains("operator: NOT_IN_PLATFORMS")
+                .contains("- 1")
+                .contains("- 12")
+                .contains("operator: PLATFORM_NOT_EQUALS_FIELD")
+                .contains("otherField: actualDeparturePlatform.platform.dsc");
+    }
+
+    @Test
+    void realisticDeparturePlatformChangeProducesReadOnlyRuntimeSupportedPreview() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(realisticDeparturePlatformChangePreviewData(), null);
+
+        assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getDslPreview()).isNotNull();
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getValidationPlan()).isNotNull();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.stopPointJourney.stopPoint.id")
+                .contains("value: TNPNTS00000000005442")
+                .contains("field: payload.ongroundServiceEvent.eventsType")
+                .contains("value: DEPARTURE_PLATFORM_CHANGED")
+                .contains("operator: PLATFORM_NOT_EQUALS_FIELD")
+                .contains("otherField: actualDeparturePlatform.platform.dsc");
+        assertThat(response.getValidationPlan().getPositiveExamples())
+                .extracting(example -> example.getDescription())
+                .contains("ServiceData current eventsType contains DEPARTURE_PLATFORM_CHANGED and timetabled departure platform differs from actual departure platform.");
+        assertThat(response.getWarnings())
+                .contains("Read-only preview generated from verified Alert artifacts; no Agent Definition has been created.");
+    }
+
+    @Test
     void validationPlanMentionsIdBasedLocationMatch() {
         AgentGenerationPreviewResponse response = mapper.toResponse(stopPointIdEqualsPreviewData(), null);
 
@@ -422,8 +467,7 @@ class AgentGenerationPreviewMapperTest {
         assertThat(response.getValidationPlan().getPositiveExamples())
                 .extracting(example -> example.getDescription())
                 .containsExactly(
-                        "ServiceData event with current eventsType containing DEPARTURE_PLATFORM_CHANGED.",
-                        "ServiceData event with current eventsType containing ARRIVAL_PLATFORM_CHANGED.");
+                        "ServiceData current eventsType contains DEPARTURE_PLATFORM_CHANGED and timetabled departure platform differs from actual departure platform.");
         assertThat(response.getWarnings()).containsExactly(
                 AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING,
                 AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING);
@@ -859,6 +903,88 @@ class AgentGenerationPreviewMapperTest {
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "agentName", "ServiceDataFieldMatchAlertAgent",
                 "description", "Detects a departure platform change.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return dataWithArtifacts(technicalSpecification, blueprint);
+    }
+
+    private AlertAgentGenerationPreviewData platformOperatorsPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED")),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "previousDeparturePlatform.platform.dsc",
+                                                        "operator", "EQUAL_PLATFORM",
+                                                        "value", "5"),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "IN_PLATFORMS",
+                                                        "values", List.of("7", "8")),
+                                                Map.of(
+                                                        "field", "timetabledDeparturePlatform.dsc",
+                                                        "operator", "NOT_IN_PLATFORMS",
+                                                        "values", List.of("1", "12")),
+                                                Map.of(
+                                                        "field", "timetabledDeparturePlatform.dsc",
+                                                        "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                                        "otherField", "actualDeparturePlatform.platform.dsc"),
+                                                Map.of(
+                                                        "field", "timetabledArrivalPlatform.dsc",
+                                                        "operator", "NOT_EQUAL_PLATFORM",
+                                                        "value", "3")))))));
+        return platformPreviewData(condition, "Detects platform movement.");
+    }
+
+    private AlertAgentGenerationPreviewData realisticDeparturePlatformChangePreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPoint.id",
+                                "operator", "EQUALS",
+                                "value", "TNPNTS00000000005442"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_PLATFORM_CHANGED"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", "timetabledDeparturePlatform.dsc",
+                                                "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                                "otherField", "actualDeparturePlatform.platform.dsc")))));
+        return platformPreviewData(condition, "Detects a current departure platform change.");
+    }
+
+    private AlertAgentGenerationPreviewData platformPreviewData(
+            Map<String, Object> condition,
+            String description) {
+        Map<String, Object> technicalSpecification = Map.of(
+                "source", "SERVICE_DATA",
+                "schemaVersion", "iia.alert.technical-specification/v2",
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition,
+                "deduplicationKeyTemplate", "SERVICE_DATA:${journeyId}:${stopPointId}:${conditionHash}");
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ServiceDataFieldMatchAlertAgent",
+                "description", description,
                 "triggerType", "EVENT",
                 "requiredSources", List.of("SERVICE_DATA"),
                 "evaluationMode", "STATELESS_EVENT_MATCH",

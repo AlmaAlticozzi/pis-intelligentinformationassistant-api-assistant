@@ -99,6 +99,9 @@ public class AgentGenerationPreviewMapper {
                 + ", cancellation=" + conditionSummary.cancellation()
                 + ", delay=" + conditionSummary.delay()
                 + ", platformChange=" + conditionSummary.platformChange()
+                + ", platformConstraint=" + conditionSummary.platformConstraint()
+                + ", platformComparison=" + conditionSummary.platformComparison()
+                + ", platformMovement=" + conditionSummary.platformMovement()
                 + ", serviceType=" + conditionSummary.serviceType());
         if (!conditionSummary.stopPointIds().isEmpty()) {
             System.out.println("[IIA][AGENT_PREVIEW][LOCATION] alertId=" + data.alertId()

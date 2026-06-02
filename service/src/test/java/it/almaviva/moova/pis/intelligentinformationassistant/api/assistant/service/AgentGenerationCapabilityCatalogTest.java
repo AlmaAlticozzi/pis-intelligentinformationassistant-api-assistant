@@ -1,5 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -110,5 +111,37 @@ class AgentGenerationCapabilityCatalogTest {
                 "DSL");
 
         assertThat(catalog.evaluateRuntimeSupport(snapshot).supported()).isTrue();
+    }
+
+    @Test
+    void acceptsPlatformOperatorsAndCurrentPlatformChangedEvents() {
+        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
+                List.of("SERVICE_DATA"),
+                List.of("READ_SERVICE_DATA"),
+                "EVENT",
+                "STATELESS_EVENT_MATCH",
+                "ServiceDataV2",
+                "CANDIDATE_SUGGESTION",
+                List.of("SERVICE_DATA_JOURNEY"),
+                Set.of(
+                        "CONTAINS_ANY",
+                        "EQUAL_PLATFORM",
+                        "NOT_EQUAL_PLATFORM",
+                        "IN_PLATFORMS",
+                        "NOT_IN_PLATFORMS",
+                        "PLATFORM_EQUALS_FIELD",
+                        "PLATFORM_NOT_EQUALS_FIELD"),
+                true,
+                "DSL",
+                "DSL");
+
+        assertThat(catalog.evaluateRuntimeSupport(snapshot).supported()).isTrue();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.eventsType",
+                "CONTAINS_ANY")).isTrue();
+        assertThat(List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED"))
+                .allSatisfy(value -> assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(
+                        "payload.ongroundServiceEvent.eventsType",
+                        value)).isTrue());
     }
 }

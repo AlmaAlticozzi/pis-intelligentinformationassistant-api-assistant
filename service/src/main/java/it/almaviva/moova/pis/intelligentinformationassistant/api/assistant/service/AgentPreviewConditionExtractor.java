@@ -22,6 +22,8 @@ class AgentPreviewConditionExtractor {
     private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
     private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+    private static final Set<String> PLATFORM_VALUE_OPERATORS = Set.of(
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
     private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
             "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 
@@ -66,6 +68,13 @@ class AgentPreviewConditionExtractor {
         List<ConditionLeaf> platformChangeLeaves = leaves.stream()
                 .filter(this::isPlatformChangeLeaf)
                 .toList();
+        List<ConditionLeaf> platformConstraintLeaves = leaves.stream()
+                .filter(leaf -> PLATFORM_VALUE_OPERATORS.contains(leaf.operator()))
+                .toList();
+        List<ConditionLeaf> platformComparisonLeaves = leaves.stream()
+                .filter(leaf -> PLATFORM_FIELD_COMPARE_OPERATORS.contains(leaf.operator()))
+                .toList();
+        boolean platformMovement = hasPlatformMovement(platformConstraintLeaves);
         boolean delay = leaves.stream().anyMatch(this::isDelayLeaf)
                 || containsDelay(data.interpretedEventNames())
                 || containsDelay(Arrays.asList(data.prompt(), stringValue(mapValue(data.agentBlueprintPreview().get("output"))
@@ -99,6 +108,11 @@ class AgentPreviewConditionExtractor {
                 delay,
                 !platformChangeLeaves.isEmpty(),
                 platformChangeLeaves,
+                !platformConstraintLeaves.isEmpty(),
+                platformConstraintLeaves,
+                !platformComparisonLeaves.isEmpty(),
+                platformComparisonLeaves,
+                platformMovement,
                 serviceType,
                 dslOperators,
                 temporalFilter,
@@ -222,6 +236,17 @@ class AgentPreviewConditionExtractor {
                                 || value.contains("PLATFORM_CHANGE"));
     }
 
+    private boolean hasPlatformMovement(List<ConditionLeaf> platformLeaves) {
+        boolean hasPrevious = platformLeaves.stream().anyMatch(leaf -> containsPlatformSegment(leaf, "PREVIOUS"));
+        boolean hasActual = platformLeaves.stream().anyMatch(leaf -> containsPlatformSegment(leaf, "ACTUAL"));
+        return hasPrevious && hasActual;
+    }
+
+    private boolean containsPlatformSegment(ConditionLeaf leaf, String segment) {
+        String field = leaf.field() == null ? "" : leaf.field().toUpperCase();
+        return field.contains(segment) && field.contains("PLATFORM");
+    }
+
     private boolean containsDelay(List<String> values) {
         return values != null && values.stream()
                 .filter(value -> value != null)
@@ -319,6 +344,11 @@ class AgentPreviewConditionExtractor {
             boolean delay,
             boolean platformChange,
             List<ConditionLeaf> platformChangeLeaves,
+            boolean platformConstraint,
+            List<ConditionLeaf> platformConstraintLeaves,
+            boolean platformComparison,
+            List<ConditionLeaf> platformComparisonLeaves,
+            boolean platformMovement,
             String serviceType,
             Set<String> dslOperators,
             boolean temporalFilter,

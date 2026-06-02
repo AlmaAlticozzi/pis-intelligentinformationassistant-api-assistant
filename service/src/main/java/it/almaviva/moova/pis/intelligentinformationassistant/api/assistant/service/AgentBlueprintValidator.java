@@ -4,6 +4,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PlatformNormalizer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -39,10 +40,18 @@ public class AgentBlueprintValidator {
             "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
     private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+    private static final Set<String> PLATFORM_VALUE_OPERATORS = Set.of(
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM");
+    private static final Set<String> PLATFORM_VALUES_OPERATORS = Set.of(
+            "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+    private static final Set<String> PLATFORM_OPERATORS = Set.of(
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final AgentGenerationCapabilityCatalog capabilityCatalog;
+    private final PlatformNormalizer platformNormalizer = new PlatformNormalizer();
 
     @Inject
     public AgentBlueprintValidator(AgentGenerationCapabilityCatalog capabilityCatalog) {
@@ -269,6 +278,11 @@ public class AgentBlueprintValidator {
             System.out.println("[IIA][AGENT_PREVIEW][ARRAY] validating relative field=" + field
                     + " operator=" + operator + " path=" + arrayPath);
             String absoluteField = arrayPath + "." + field;
+            if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(absoluteField)
+                    && PLATFORM_OPERATORS.contains(operator)) {
+                errors.add(path + ": platform technical id field is not supported for user platform matching: " + field);
+                return;
+            }
             ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
                     .orElse(null);
             if (capability == null) {
@@ -283,6 +297,10 @@ public class AgentBlueprintValidator {
                 validatePlatformFieldComparison(leaf, path, absoluteField, arrayPath, errors);
                 return;
             }
+            if (capability.type() == ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+                validatePlatformValue(leaf, path, absoluteField, operator, errors);
+                return;
+            }
             if (isStopPointIdField(absoluteField)) {
                 validateStopPointIdValue(leaf, path, absoluteField, operator, errors);
                 return;
@@ -290,6 +308,11 @@ public class AgentBlueprintValidator {
             if (isTemporalOperator(operator)) {
                 validateTemporalValue(leaf, path, absoluteField, operator, errors);
             }
+            return;
+        }
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(field)
+                && PLATFORM_OPERATORS.contains(operator)) {
+            errors.add(path + ": platform technical id field is not supported for user platform matching: " + field);
             return;
         }
         if (PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
@@ -300,6 +323,20 @@ public class AgentBlueprintValidator {
                 return;
             }
             validatePlatformFieldComparison(leaf, path, field, null, errors);
+            return;
+        }
+        ServiceDataCapabilityCatalog.FieldCapability platformCapability = ServiceDataCapabilityCatalog.findField(field)
+                .orElse(null);
+        if (platformCapability != null && platformCapability.type() == ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+            if (!platformCapability.supportsOperator(operator)) {
+                errors.add(path + ": operator is not supported on platform field " + field + ": " + operator);
+                return;
+            }
+            validatePlatformValue(leaf, path, field, operator, errors);
+            return;
+        }
+        if ("payload.ongroundServiceEvent.eventsType".equals(field)) {
+            validateCurrentEventType(leaf, path, field, operator, errors);
             return;
         }
         if (isStopPointIdField(field)) {
@@ -347,11 +384,76 @@ public class AgentBlueprintValidator {
         String otherField = arrayPath != null && !rawOtherField.startsWith("payload.")
                 ? arrayPath + "." + rawOtherField
                 : rawOtherField;
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(otherField)) {
+            errors.add(path + ": platform field comparison otherField cannot be a platform technical id field: "
+                    + rawOtherField);
+            return;
+        }
         ServiceDataCapabilityCatalog.FieldCapability otherCapability =
                 ServiceDataCapabilityCatalog.findField(otherField).orElse(null);
         if (otherCapability == null || otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
             errors.add(path + ": platform field comparison otherField is not a supported platform description field: "
                     + rawOtherField);
+        }
+    }
+
+    private void validatePlatformValue(
+            Map<String, Object> leaf,
+            String path,
+            String field,
+            String operator,
+            List<String> errors) {
+        if (PLATFORM_VALUE_OPERATORS.contains(operator)) {
+            Object value = leaf.get("value");
+            if (!(value instanceof String text) || text.isBlank() || !platformNormalizer.normalize(text).hasNumber()) {
+                errors.add(path + ": " + operator + " requires a non-empty human platform value for " + field);
+            }
+            return;
+        }
+        if (PLATFORM_VALUES_OPERATORS.contains(operator)) {
+            Object values = leaf.get("values");
+            if (!(values instanceof List<?> platforms) || platforms.isEmpty()) {
+                errors.add(path + ": " + operator + " requires a non-empty values array for " + field);
+                return;
+            }
+            if (!platforms.stream().allMatch(value -> value instanceof String text
+                    && !text.isBlank()
+                    && platformNormalizer.normalize(text).hasNumber())) {
+                errors.add(path + ": " + operator + " requires only non-empty human platform values for " + field);
+            }
+        }
+    }
+
+    private void validateCurrentEventType(
+            Map<String, Object> leaf,
+            String path,
+            String field,
+            String operator,
+            List<String> errors) {
+        ServiceDataCapabilityCatalog.FieldCapability capability =
+                ServiceDataCapabilityCatalog.findField(field).orElse(null);
+        if (capability == null || !capability.supportsOperator(operator)) {
+            errors.add(path + ": operator is not supported on current eventsType field: " + operator);
+            return;
+        }
+        List<?> values;
+        if ("CONTAINS_ANY".equals(operator)) {
+            if (!(leaf.get("values") instanceof List<?> candidates) || candidates.isEmpty()) {
+                errors.add(path + ": CONTAINS_ANY requires a non-empty values array for " + field);
+                return;
+            }
+            values = candidates;
+        } else {
+            Object value = leaf.get("value");
+            if (value == null) {
+                errors.add(path + ": " + operator + " requires value for " + field);
+                return;
+            }
+            values = List.of(value);
+        }
+        if (values.stream().anyMatch(value -> value == null
+                || !ServiceDataCapabilityCatalog.isAllowedEnumValue(field, value))) {
+            errors.add(path + ": enum value is not supported on current eventsType field.");
         }
     }
 

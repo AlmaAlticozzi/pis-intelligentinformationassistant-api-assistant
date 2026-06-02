@@ -137,6 +137,36 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsHumanPlatformOperatorsAndMovement() {
+        AlertAgentGenerationPreviewData data = previewData(platformMovementCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains(
+                "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+    }
+
+    @Test
+    void previewValidatorRejectsEmptyPlatformValuesArrays() {
+        for (String operator : List.of("IN_PLATFORMS", "NOT_IN_PLATFORMS")) {
+            AlertAgentGenerationPreviewData data = previewData(platformLeafCondition(
+                    "timetabledDeparturePlatform.dsc",
+                    operator,
+                    "values",
+                    List.of()));
+
+            AgentBlueprintValidationResult result =
+                    validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+            assertThat(result.valid()).as(operator).isFalse();
+            assertThat(result.errors()).as(operator)
+                    .anyMatch(error -> error.contains("missing value/values") && error.contains(operator));
+        }
+    }
+
+    @Test
     void previewValidatorRejectsPlatformNotEqualsFieldWithoutOtherField() {
         AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(false));
 
@@ -145,6 +175,53 @@ class AgentBlueprintValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.errors()).anyMatch(error -> error.contains("missing otherField")
                 && error.contains("PLATFORM_NOT_EQUALS_FIELD"));
+    }
+
+    @Test
+    void previewValidatorRejectsPlatformNotEqualsFieldWithStopPointOtherField() {
+        AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(
+                "timetabledDeparturePlatform.dsc",
+                "timetabledCallStart.stopPoint.id"));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("otherField is not a supported platform description field"));
+    }
+
+    @Test
+    void previewValidatorRejectsPlatformNotEqualsFieldWithTechnicalId() {
+        AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(
+                "timetabledDeparturePlatform.dsc",
+                "actualDeparturePlatform.platform.id"));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("otherField cannot be a platform technical id field"));
+    }
+
+    @Test
+    void previewValidatorRejectsPlatformNotEqualsFieldOnTechnicalId() {
+        AlertAgentGenerationPreviewData data = previewData(platformFieldComparisonCondition(
+                "actualDeparturePlatform.platform.id",
+                "actualDeparturePlatform.platform.dsc"));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("platform technical id field is not supported"));
+    }
+
+    @Test
+    void previewValidatorAcceptsCurrentDeparturePlatformChangedWithStructuralComparison() {
+        AlertAgentGenerationPreviewData data = previewData(currentDeparturePlatformChangedCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("CONTAINS", "PLATFORM_NOT_EQUALS_FIELD");
     }
 
     @Test
@@ -566,6 +643,73 @@ class AgentBlueprintValidatorTest {
                 "anyElement", Map.of(
                         "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                         "conditions", leaf));
+    }
+
+    private Map<String, Object> platformFieldComparisonCondition(String field, String otherField) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "field", field,
+                                "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                "otherField", otherField)));
+    }
+
+    private Map<String, Object> platformLeafCondition(
+            String field,
+            String operator,
+            String valueKey,
+            Object value) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "field", field,
+                                "operator", operator,
+                                valueKey, value)));
+    }
+
+    private Map<String, Object> platformMovementCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of(
+                                        "field", "previousDeparturePlatform.platform.dsc",
+                                        "operator", "EQUAL_PLATFORM",
+                                        "value", "5"),
+                                Map.of(
+                                        "field", "actualDeparturePlatform.platform.dsc",
+                                        "operator", "IN_PLATFORMS",
+                                        "values", List.of("7", "8")),
+                                Map.of(
+                                        "field", "timetabledDeparturePlatform.dsc",
+                                        "operator", "NOT_IN_PLATFORMS",
+                                        "values", List.of("1", "12")),
+                                Map.of(
+                                        "field", "timetabledArrivalPlatform.dsc",
+                                        "operator", "NOT_EQUAL_PLATFORM",
+                                        "value", "3")))));
+    }
+
+    private Map<String, Object> currentDeparturePlatformChangedCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_PLATFORM_CHANGED"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", "timetabledDeparturePlatform.dsc",
+                                                "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                                "otherField", "actualDeparturePlatform.platform.dsc")))));
     }
 
     private Map<String, Object> platformChangedAnyCondition() {

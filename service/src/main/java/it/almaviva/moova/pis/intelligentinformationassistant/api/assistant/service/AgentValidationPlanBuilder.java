@@ -18,6 +18,12 @@ class AgentValidationPlanBuilder {
         if (conditionSummary.temporalFilter()) {
             return temporalPlan(conditionSummary);
         }
+        if (conditionSummary.platformChange()
+                || conditionSummary.platformConstraint()
+                || conditionSummary.platformComparison()
+                || conditionSummary.platformMovement()) {
+            return platformPlan(conditionSummary);
+        }
         if (conditionSummary.stopPointIds() != null && !conditionSummary.stopPointIds().isEmpty()) {
             String ids = String.join(", ", conditionSummary.stopPointIds());
             String candidate = conditionSummary.stopPointIds().getFirst();
@@ -30,23 +36,6 @@ class AgentValidationPlanBuilder {
                             AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                     .edgeCases(List.of(
                             "A ServiceData event with a similar stopPoint.nameLong but a different stopPoint.id must not match the id-based location condition."));
-        }
-        if (conditionSummary.platformChange()) {
-            return new AgentValidationPlan()
-                    .positiveExamples(List.of(
-                            example("ServiceData event with current eventsType containing DEPARTURE_PLATFORM_CHANGED.",
-                                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION),
-                            example("ServiceData event with current eventsType containing ARRIVAL_PLATFORM_CHANGED.",
-                                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
-                    .negativeExamples(List.of(
-                            example("ServiceData event without current arrival or departure platform change eventsType.",
-                                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
-                            example("ServiceData event with platform confirmed but not changed.",
-                                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
-                    .edgeCases(List.of(
-                            "ServiceData event without vehicleJourneyName is rejected safely or produces a guarded output.",
-                            "ServiceData event without stopPoint.nameLong still detects the platform change but uses a guarded reason template.",
-                            "ServiceData event with both arrival and departure platform changes produces a single guarded candidate output."));
         }
         if (conditionSummary.delay()
                 && conditionSummary.location() != null
@@ -114,6 +103,60 @@ class AgentValidationPlanBuilder {
                         "ServiceData event with an eventName outside the interpreted event set.",
                         AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))
                 .edgeCases(List.of("ServiceData event without journeyId or with an incomplete target is rejected safely."));
+    }
+
+    private AgentValidationPlan platformPlan(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        List<AgentValidationExample> positiveExamples = new ArrayList<>();
+        List<AgentValidationExample> negativeExamples = new ArrayList<>();
+        List<String> edgeCases = new ArrayList<>();
+        if (conditionSummary.platformConstraint()) {
+            positiveExamples.add(example(
+                    "ServiceData platform \"Platform 1\" matches user platform \"1\".",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData platform \"Platform 11\" does not match user platform \"1\".",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+            edgeCases.add("ServiceData platform \"Platform 01\" matches normalized user platform \"1\".");
+        }
+        if (conditionSummary.platformConstraintLeaves().stream()
+                .anyMatch(leaf -> "IN_PLATFORMS".equals(leaf.operator())
+                        || "NOT_IN_PLATFORMS".equals(leaf.operator()))) {
+            positiveExamples.add(example(
+                    "ServiceData platform \"Platform 4\" matches IN_PLATFORMS [\"1\", \"4\"].",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData platform \"Platform 14\" does not match IN_PLATFORMS [\"1\", \"4\"].",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        if (conditionSummary.platformChange()) {
+            positiveExamples.add(example(
+                    "ServiceData current eventsType contains DEPARTURE_PLATFORM_CHANGED and timetabled departure platform differs from actual departure platform.",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData current eventsType contains DEPARTURE_PLATFORM_CHANGED but timetabled departure platform equals actual departure platform.",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        if (conditionSummary.platformMovement()) {
+            positiveExamples.add(example(
+                    "ServiceData previous departure platform is \"5\" and actual departure platform matches IN_PLATFORMS [\"7\", \"8\"].",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData previous departure platform is \"5\" but actual departure platform is \"9\".",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        if (positiveExamples.isEmpty()) {
+            positiveExamples.add(example(
+                    "ServiceData timetabled platform differs from the compared actual platform.",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData timetabled platform equals the compared actual platform.",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        edgeCases.add("Human platform matching is normalized: platform \"1\" must not match platform \"11\".");
+        return new AgentValidationPlan()
+                .positiveExamples(List.copyOf(positiveExamples))
+                .negativeExamples(List.copyOf(negativeExamples))
+                .edgeCases(List.copyOf(edgeCases));
     }
 
     private AgentValidationPlan temporalPlan(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
