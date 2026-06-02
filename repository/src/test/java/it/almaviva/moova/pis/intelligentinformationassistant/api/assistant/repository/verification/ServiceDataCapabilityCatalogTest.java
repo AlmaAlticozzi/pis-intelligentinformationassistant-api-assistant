@@ -243,6 +243,24 @@ class ServiceDataCapabilityCatalogTest {
     }
 
     @Test
+    void currentEventTypesIncludePlatformChangeAndJourneyEventValues() {
+        String field = "payload.ongroundServiceEvent.eventsType";
+
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).isTrue();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_ANY")).isTrue();
+        assertThat(List.of(
+                "DEPARTING",
+                "DEPARTED",
+                "ARRIVING",
+                "ARRIVED",
+                "DEPARTURE_PLATFORM_CHANGED",
+                "ARRIVAL_PLATFORM_CHANGED"))
+                .allSatisfy(value -> assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(field, value))
+                        .as(value)
+                        .isTrue());
+    }
+
+    @Test
     void replacementTemporalFieldsAcceptTemporalOperators() {
         List<String> temporalFields = List.of(
                 "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].arrivalTime",

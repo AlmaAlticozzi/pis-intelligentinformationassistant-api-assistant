@@ -148,6 +148,17 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsCurrentEventPlatformChangedAnyWithStructuralComparison() {
+        AlertAgentGenerationPreviewData data = previewData(platformChangedAnyCondition());
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).contains("CONTAINS_ANY", "PLATFORM_NOT_EQUALS_FIELD");
+    }
+
+    @Test
     void rejectsUnsupportedSource() {
         AlertAgentGenerationPreviewData data = previewData(condition("CONTAINS_ANY", true));
 
@@ -555,6 +566,23 @@ class AgentBlueprintValidatorTest {
                 "anyElement", Map.of(
                         "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                         "conditions", leaf));
+    }
+
+    private Map<String, Object> platformChangedAnyCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED")),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", "timetabledDeparturePlatform.dsc",
+                                                "operator", "PLATFORM_NOT_EQUALS_FIELD",
+                                                "otherField", "actualDeparturePlatform.platform.dsc")))));
     }
 
     private Map<String, Object> eventTemporalCondition(String operator) {

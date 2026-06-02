@@ -54,7 +54,7 @@ class AlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("\"cambia origine\", \"cambio origine\" and \"origine cambiata\" mean changes CONTAINS CHANGED_ORIGIN")
                 .contains("\"cambia destinazione\", \"cambio destinazione\" and \"destinazione cambiata\" mean changes CONTAINS CHANGED_DESTINATION")
-                .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" are directly represented by platform change status or changes enum evidence")
+                .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" are represented by current payload.ongroundServiceEvent.eventsType evidence")
                 .contains("\"field\":\"changes\",\"operator\":\"CONTAINS\",\"value\":\"CHANGED_ORIGIN\"")
                 .contains("Do not reject change prompts as stateful comparison when the requested change is directly represented by the ServiceData changes enum");
     }
@@ -103,7 +103,13 @@ class AlertVerificationPromptBuilderTest {
                 .contains("previousArrivalPlatform")
                 .contains("timetabled != actual")
                 .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"PLATFORM_NOT_EQUALS_FIELD\",\"otherField\":\"actualDeparturePlatform.platform.dsc\"")
-                .contains("keep the resolved Genova P.P. current stop at top level");
+                .contains("payload.ongroundServiceEvent.eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED")
+                .contains("payload.ongroundServiceEvent.eventsType CONTAINS ARRIVAL_PLATFORM_CHANGED")
+                .contains("payload.ongroundServiceEvent.eventsType CONTAINS_ANY [\"DEPARTURE_PLATFORM_CHANGED\",\"ARRIVAL_PLATFORM_CHANGED\"]")
+                .contains("do not use departureStatuses[].status or arrivalStatuses[].status as the principal platform-change signal")
+                .contains("keep the resolved Genova P.P. current stop at top level")
+                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTURE_PLATFORM_CHANGED\"")
+                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS_ANY\",\"values\":[\"DEPARTURE_PLATFORM_CHANGED\",\"ARRIVAL_PLATFORM_CHANGED\"]");
     }
 
     @Test
@@ -113,6 +119,8 @@ class AlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("mappedBy must contain exactly the field used by the condition")
                 .contains("mappedBy must contain the exact platform description field used by the condition")
+                .contains("For a platform change requirement, mappedBy must include payload.ongroundServiceEvent.eventsType")
+                .contains("For a movement requirement such as \"spostato dal binario X al binario Y\", mappedBy must include payload.ongroundServiceEvent.eventsType")
                 .contains("Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN")
                 .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"NOT_IN\"")
                 .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTED\"");

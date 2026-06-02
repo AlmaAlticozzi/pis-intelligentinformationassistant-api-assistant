@@ -28,7 +28,9 @@ public final class ServiceDataCapabilityCatalog {
 
     private static final List<FieldCapability> FIELDS = List.of(
             field("payload.ongroundServiceEvent.eventsType", FieldType.ENUM_ARRAY,
-                    ops("CONTAINS", "CONTAINS_ANY"), List.of("DEPARTED", "ARRIVED"),
+                    ops("CONTAINS", "CONTAINS_ANY"), List.of(
+                            "DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED",
+                            "DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED"),
                     "Current event operational type.", "parte", "partenza", "arriva", "arrivo"),
             field("payload.ongroundServiceEvent.stopPoint.nameLong", FieldType.STRING,
                     ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),

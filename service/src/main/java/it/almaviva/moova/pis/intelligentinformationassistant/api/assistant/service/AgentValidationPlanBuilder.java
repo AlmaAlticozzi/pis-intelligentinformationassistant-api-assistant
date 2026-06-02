@@ -34,12 +34,12 @@ class AgentValidationPlanBuilder {
         if (conditionSummary.platformChange()) {
             return new AgentValidationPlan()
                     .positiveExamples(List.of(
-                            example("ServiceData event with departure status DEPARTURE_PLATFORM_CHANGED.",
+                            example("ServiceData event with current eventsType containing DEPARTURE_PLATFORM_CHANGED.",
                                     AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION),
-                            example("ServiceData event with arrival status ARRIVAL_PLATFORM_CHANGED.",
+                            example("ServiceData event with current eventsType containing ARRIVAL_PLATFORM_CHANGED.",
                                     AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION)))
                     .negativeExamples(List.of(
-                            example("ServiceData event without arrival or departure platform change statuses.",
+                            example("ServiceData event without current arrival or departure platform change eventsType.",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT),
                             example("ServiceData event with platform confirmed but not changed.",
                                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT)))

@@ -980,6 +980,77 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsCurrentDeparturePlatformChangeEventWithStructuralComparison() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String timetabledField =
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc";
+        String actualField =
+                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_PLATFORM_CHANGED"),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", platformFieldComparisonLeaf(
+                                        "timetabledDeparturePlatform.dsc",
+                                        "PLATFORM_NOT_EQUALS_FIELD",
+                                        "actualDeparturePlatform.platform.dsc"))))),
+                coverageFor(eventField, timetabledField, actualField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsUndirectedMovedPlatformEventWithDepartureAndArrivalBranches() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED")),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", Map.of("any", List.of(
+                                        Map.of("all", List.of(
+                                                platformLeaf(
+                                                        "previousDeparturePlatform.platform.dsc",
+                                                        "EQUAL_PLATFORM",
+                                                        "value",
+                                                        "5"),
+                                                platformLeaf(
+                                                        "actualDeparturePlatform.platform.dsc",
+                                                        "IN_PLATFORMS",
+                                                        "values",
+                                                        List.of("7", "8")))),
+                                        Map.of("all", List.of(
+                                                platformLeaf(
+                                                        "previousArrivalPlatform.platform.dsc",
+                                                        "EQUAL_PLATFORM",
+                                                        "value",
+                                                        "5"),
+                                                platformLeaf(
+                                                        "actualArrivalPlatform.platform.dsc",
+                                                        "IN_PLATFORMS",
+                                                        "values",
+                                                        List.of("7", "8")))))))))),
+                coverageFor(
+                        eventField,
+                        detailsPath + ".previousDeparturePlatform.platform.dsc",
+                        detailsPath + ".actualDeparturePlatform.platform.dsc",
+                        detailsPath + ".previousArrivalPlatform.platform.dsc",
+                        detailsPath + ".actualArrivalPlatform.platform.dsc")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsEqualPlatformWithoutValue() {
         assertPlatformConditionIsRejected(
                 Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "EQUAL_PLATFORM"),

@@ -414,16 +414,16 @@ class AgentGenerationPreviewMapperTest {
                 .containsEntry("operatorAction", "CHECK_PLATFORM_CHANGE_AND_PASSENGER_INFORMATION_PROCEDURES");
         assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
         assertThat(response.getDslPreview().getDsl())
-                .contains("operator: CONTAINS\n      value: DEPARTURE_PLATFORM_CHANGED")
-                .contains("operator: CONTAINS\n      value: ARRIVAL_PLATFORM_CHANGED")
+                .contains("field: payload.ongroundServiceEvent.eventsType")
+                .contains("operator: CONTAINS_ANY\n    values:\n      - DEPARTURE_PLATFORM_CHANGED\n      - ARRIVAL_PLATFORM_CHANGED")
                 .contains("reasonTemplate: Train ${payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName} received a platform change at ${payload.stopPointJourney.stopPoint.nameLong}.")
                 .contains("operatorAdviceTemplate: Verify the platform change and update passenger information procedures.")
                 .doesNotContain("field: payload.stopPointJourney.stopPoint.nameLong");
         assertThat(response.getValidationPlan().getPositiveExamples())
                 .extracting(example -> example.getDescription())
                 .containsExactly(
-                        "ServiceData event with departure status DEPARTURE_PLATFORM_CHANGED.",
-                        "ServiceData event with arrival status ARRIVAL_PLATFORM_CHANGED.");
+                        "ServiceData event with current eventsType containing DEPARTURE_PLATFORM_CHANGED.",
+                        "ServiceData event with current eventsType containing ARRIVAL_PLATFORM_CHANGED.");
         assertThat(response.getWarnings()).containsExactly(
                 AgentGenerationPreviewMapper.LLM_VALIDATED_PREVIEW_WARNING,
                 AgentGenerationPreviewMapper.DSL_DIAGNOSTIC_WARNING);
@@ -801,15 +801,9 @@ class AgentGenerationPreviewMapperTest {
     private AlertAgentGenerationPreviewData platformChangeAnyLocationPreviewData() {
         Map<String, Object> condition = Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
-                "any", List.of(
-                        Map.of(
-                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
-                                "operator", "CONTAINS",
-                                "value", "DEPARTURE_PLATFORM_CHANGED"),
-                        Map.of(
-                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
-                                "operator", "CONTAINS",
-                                "value", "ARRIVAL_PLATFORM_CHANGED")));
+                "field", "payload.ongroundServiceEvent.eventsType",
+                "operator", "CONTAINS_ANY",
+                "values", List.of("DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED"));
         Map<String, Object> technicalSpecification = Map.of(
                 "triggerType", "EVENT",
                 "evaluationMode", "STATELESS_EVENT_MATCH",
