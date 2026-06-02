@@ -980,6 +980,48 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsCurrentDepartureLocationSetsWithPositiveAndNegativePlatformSets() {
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String platformField = detailsPath + ".timetabledDeparturePlatform.dsc";
+        List<String> ids = List.of(
+                RHO_FIERAMILANO_ID,
+                "TNPNTS00000000000028",
+                "TNPNTS00000000000029");
+
+        AlertVerificationOutcome positive = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "IN", "values", ids),
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "DEPARTED"),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", platformLeaf(
+                                        "timetabledDeparturePlatform.dsc",
+                                        "IN_PLATFORMS",
+                                        "values",
+                                        List.of("1", "4")))))),
+                coverageFor(stopPointField, eventField, platformField)));
+        AlertVerificationOutcome negative = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "NOT_IN", "values", ids),
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "DEPARTED"),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", platformLeaf(
+                                        "timetabledDeparturePlatform.dsc",
+                                        "NOT_IN_PLATFORMS",
+                                        "values",
+                                        List.of("1", "12")))))),
+                coverageFor(stopPointField, eventField, platformField)));
+
+        assertThat(positive.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(negative.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsCurrentDeparturePlatformChangeEventWithStructuralComparison() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String timetabledField =
@@ -1109,6 +1151,16 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsEqualPlatformOnActualDepartureDisplayPlatformTechnicalId() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "actualDeparturePlatform.displayPlatform.id",
+                        "EQUAL_PLATFORM",
+                        "value",
+                        "1"),
+                "platform technical id field cannot be used for user platform matching");
+    }
+
+    @Test
     void rejectsEqualsOnActualDepartureDisplayPlatformTechnicalId() {
         assertPlatformConditionIsRejected(platformLeaf(
                         "actualDeparturePlatform.displayPlatform.id",
@@ -1209,6 +1261,21 @@ class AlertVerificationOutcomeValidatorTest {
                     "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
                             + "to bind the predicate to a current ServiceData event.");
         }
+    }
+
+    @Test
+    void rejectsAdvancedPlatformNumericOperatorOnStopPointId() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS", "value", "DEPARTED"),
+                        Map.of("field", field, "operator", "PLATFORM_NUMBER_EVEN"))),
+                coverageFor("payload.ongroundServiceEvent.eventsType", field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("operator is not allowed");
     }
 
     @Test

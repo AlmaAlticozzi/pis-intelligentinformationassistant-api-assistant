@@ -34,6 +34,7 @@ class AlertVerifyLocationResolutionIntegrationTest {
     private static final String RHO_ID = "TNPNTS00000000005467";
     private static final String MALPENSA_T1_ID = "TNPNTS00000000000028";
     private static final String MALPENSA_T2_ID = "TNPNTS00000000000029";
+    private static final String LUNIGIANA_ID = "TNPNTS00000000000031";
 
     @Test
     void rhoExactProducesStopPointIdEquals() {
@@ -117,6 +118,54 @@ class AlertVerifyLocationResolutionIntegrationTest {
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.warnings())
                 .contains("locationResolution contains resolved mentions but technicalSpecification does not use stopPoint.id.");
+    }
+
+    @Test
+    void numericDeparturePlatformPromptDoesNotInventLocationFilter() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando un treno \u00e8 in partenza da binario maggiore di 5",
+                verifiedOutcomeJson(
+                        numericGreaterThanDeparturePlatformCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().get("condition").toString())
+                .contains("DEPARTING", "actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_GREATER_THAN")
+                .doesNotContain("stopPoint.id");
+    }
+
+    @Test
+    void postPlatformLocationPromptKeepsResolvedCurrentStopAndEvenPredicate() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando una corsa parte da un binario pari a Lunigiana",
+                verifiedOutcomeJson(
+                        evenDeparturePlatformAtStopCondition(LUNIGIANA_ID),
+                        coverage(
+                                "payload.stopPointJourney.stopPoint.id",
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().get("condition").toString())
+                .contains(LUNIGIANA_ID, "DEPARTED", "PLATFORM_NUMBER_EVEN");
+    }
+
+    @Test
+    void preciseEnglishDepartureSuffixPromptUsesSingleCompletedEventWithoutLocation() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Notify me when a train departs from a platform with a letter",
+                verifiedOutcomeJson(
+                        letterSuffixDeparturePlatformCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().get("condition").toString())
+                .contains("operator=CONTAINS", "value=DEPARTED", "PLATFORM_HAS_LETTER_SUFFIX")
+                .doesNotContain("CONTAINS_ANY", "stopPoint.id");
     }
 
     @SuppressWarnings("unchecked")
@@ -252,15 +301,65 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 """.formatted(value);
     }
 
-    private String coverage(String field) {
+    private String numericGreaterThanDeparturePlatformCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTING"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "actualDeparturePlatform.platform.dsc", "operator": "PLATFORM_NUMBER_GREATER_THAN", "value": 5}
+                    }}
+                  ]
+                }
+                """;
+    }
+
+    private String evenDeparturePlatformAtStopCondition(String id) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.stopPointJourney.stopPoint.id", "operator": "EQUALS", "value": "%s"},
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTED"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "actualDeparturePlatform.platform.dsc", "operator": "PLATFORM_NUMBER_EVEN"}
+                    }}
+                  ]
+                }
+                """.formatted(id);
+    }
+
+    private String letterSuffixDeparturePlatformCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTED"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "actualDeparturePlatform.platform.dsc", "operator": "PLATFORM_HAS_LETTER_SUFFIX"}
+                    }}
+                  ]
+                }
+                """;
+    }
+
+    private String coverage(String... fields) {
+        String mappedBy = java.util.Arrays.stream(fields)
+                .map(field -> "\"" + field + "\"")
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
         return """
                 {
                   "requirements": [
-                    {"text": "condition", "required": true, "mappable": true, "mappedBy": ["%s"], "reason": ""}
+                    {"text": "condition", "required": true, "mappable": true, "mappedBy": [%s], "reason": ""}
                   ],
                   "allRequiredRequirementsMapped": true
                 }
-                """.formatted(field);
+                """.formatted(mappedBy);
     }
 
     private String locationResolution(String id) {

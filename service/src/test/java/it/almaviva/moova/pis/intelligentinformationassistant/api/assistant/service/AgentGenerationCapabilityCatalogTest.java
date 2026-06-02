@@ -149,4 +149,31 @@ class AgentGenerationCapabilityCatalogTest {
                         "payload.ongroundServiceEvent.eventsType",
                         value)).isTrue());
     }
+
+    @Test
+    void previewSupportsEveryPlatformOperatorAcceptedByAlertVerify() {
+        Set<String> verifyPlatformOperators = ServiceDataCapabilityCatalog.findField(
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc")
+                .orElseThrow()
+                .operators();
+
+        assertThat(verifyPlatformOperators).containsExactlyInAnyOrder(
+                "EQUAL_PLATFORM",
+                "NOT_EQUAL_PLATFORM",
+                "IN_PLATFORMS",
+                "NOT_IN_PLATFORMS",
+                "PLATFORM_EQUALS_FIELD",
+                "PLATFORM_NOT_EQUALS_FIELD",
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL",
+                "PLATFORM_NUMBER_BETWEEN",
+                "PLATFORM_NUMBER_EVEN",
+                "PLATFORM_NUMBER_ODD",
+                "PLATFORM_NUMBER_DOUBLE_DIGIT",
+                "PLATFORM_HAS_LETTER_SUFFIX",
+                "PLATFORM_NUMBER_MULTIPLE_OF");
+        assertThat(catalog.supportedDslOperators()).containsAll(verifyPlatformOperators);
+    }
 }
