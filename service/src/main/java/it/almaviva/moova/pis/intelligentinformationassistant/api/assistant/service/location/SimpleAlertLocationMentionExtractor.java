@@ -31,6 +31,14 @@ public class SimpleAlertLocationMentionExtractor {
                     0.82));
 
     private static final Pattern GENERIC_AT_PATTERN = Pattern.compile("\\ba\\s+(.+)$", PATTERN_FLAGS);
+    private static final Pattern PLATFORM_BOUNDARY_PATTERN = Pattern.compile(
+            "\\s+(?:(?:sul(?:la)?|al(?:la)?|in|dal(?:la)?|del(?:la)?|di)\\s+)?"
+                    + "(binario|platform|track|quay|banchina|marciapiede|tronco|piattaforma)\\b",
+            PATTERN_FLAGS);
+    private static final Pattern TRAILING_LOCATION_CLAUSE_PATTERN = Pattern.compile(
+            "\\s+(?:parte|arriva|transita|ferma|subisce)\\b.*$",
+            PATTERN_FLAGS);
+    private static final Pattern ALTERNATIVE_LOCATION_PATTERN = Pattern.compile("\\s+o\\s+", PATTERN_FLAGS);
     private static final List<String> TRAILING_BOUNDARIES = List.of(
             " quando ",
             " se ",
@@ -58,28 +66,32 @@ public class SimpleAlertLocationMentionExtractor {
             return log(new AlertLocationExtractionResult(true, List.of(explicitMention.get()), List.of()));
         }
 
-        Optional<AlertLocationMention> genericMention = extractGenericAtMention(prompt);
-        if (genericMention.isPresent()) {
+        List<AlertLocationMention> genericMentions = extractGenericAtMentions(prompt);
+        if (!genericMentions.isEmpty()) {
             return log(new AlertLocationExtractionResult(
                     true,
-                    List.of(genericMention.get()),
+                    genericMentions,
                     List.of("Generic location pattern matched by simple deterministic extractor.")));
         }
 
         return log(AlertLocationExtractionResult.empty());
     }
 
-    private Optional<AlertLocationMention> extractGenericAtMention(String prompt) {
+    private List<AlertLocationMention> extractGenericAtMentions(String prompt) {
         Matcher matcher = GENERIC_AT_PATTERN.matcher(prompt);
         if (!matcher.find()) {
-            return Optional.empty();
+            return List.of();
         }
 
-        String rawText = cleanLocationText(matcher.group(1));
-        if (rawText.isBlank() || !startsLikeLocationName(rawText)) {
-            return Optional.empty();
+        String cleanedText = cleanLocationText(matcher.group(1));
+        if (cleanedText.isBlank()) {
+            return List.of();
         }
-        return Optional.of(new AlertLocationMention(rawText, AlertLocationSemanticRole.GENERIC_STOP_POINT, 0.55));
+        return ALTERNATIVE_LOCATION_PATTERN.splitAsStream(cleanedText)
+                .map(String::trim)
+                .filter(rawText -> !rawText.isBlank() && startsLikeLocationName(rawText))
+                .map(rawText -> new AlertLocationMention(rawText, AlertLocationSemanticRole.GENERIC_STOP_POINT, 0.55))
+                .toList();
     }
 
     private boolean startsLikeLocationName(String rawText) {
@@ -93,14 +105,28 @@ public class SimpleAlertLocationMentionExtractor {
     }
 
     private static String cleanLocationText(String value) {
-        String cleaned = value == null ? "" : value.trim();
+        String rawMention = value == null ? "" : value.trim();
+        String cleaned = rawMention;
+        Matcher platformBoundaryMatcher = PLATFORM_BOUNDARY_PATTERN.matcher(cleaned);
+        String boundaryToken = null;
+        if (platformBoundaryMatcher.find()) {
+            boundaryToken = platformBoundaryMatcher.group(1);
+            cleaned = cleaned.substring(0, platformBoundaryMatcher.start());
+        }
         for (String boundary : TRAILING_BOUNDARIES) {
             int index = cleaned.toLowerCase(Locale.ROOT).indexOf(boundary);
             if (index >= 0) {
                 cleaned = cleaned.substring(0, index);
             }
         }
-        return cleaned.replaceAll("[,.;:!?]+$", "").trim();
+        cleaned = TRAILING_LOCATION_CLAUSE_PATTERN.matcher(cleaned).replaceFirst("");
+        cleaned = cleaned.replaceAll("[,.;:!?]+$", "").trim();
+        if (boundaryToken != null) {
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_BOUNDARY] raw mention=" + rawMention
+                    + " cleaned mention=" + cleaned
+                    + " detected boundary token=" + boundaryToken);
+        }
+        return cleaned;
     }
 
     private record Rule(Pattern pattern, AlertLocationSemanticRole semanticRole, double confidence) {
