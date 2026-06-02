@@ -64,9 +64,21 @@ class ServiceDataCapabilityCatalogTest {
             "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].replacementType");
 
+    private static final List<String> PLATFORM_DESCRIPTION_FIELDS = List.of(
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.dsc",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.dsc");
+
     @Test
     void allowedFieldCountIncludesControlledExpansion() {
-        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(101);
+        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(107);
     }
 
     @Test
@@ -130,6 +142,39 @@ class ServiceDataCapabilityCatalogTest {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS_NORMALIZED")).as(field).isFalse();
         });
+    }
+
+    @Test
+    void platformDescriptionFieldsAllowOnlyPlatformOperators() {
+        assertThat(PLATFORM_DESCRIPTION_FIELDS).allSatisfy(field -> {
+            assertThat(ServiceDataCapabilityCatalog.findField(field))
+                    .as(field)
+                    .isPresent()
+                    .get()
+                    .satisfies(capability -> {
+                        assertThat(capability.type()).isEqualTo(ServiceDataCapabilityCatalog.FieldType.PLATFORM);
+                        assertThat(capability.operators()).containsExactlyInAnyOrder(
+                                "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+                    });
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
+        });
+    }
+
+    @Test
+    void platformOperatorsAreNotAllowedOnTechnicalIds() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.stopPoint.id",
+                "EQUAL_PLATFORM"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id",
+                "EQUAL_PLATFORM"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id",
+                "CONTAINS_NORMALIZED"))
+                .isFalse();
     }
 
     @Test

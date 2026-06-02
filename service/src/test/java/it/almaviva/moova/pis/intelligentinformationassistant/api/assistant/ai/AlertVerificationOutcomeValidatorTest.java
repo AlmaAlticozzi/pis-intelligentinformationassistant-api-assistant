@@ -815,6 +815,108 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(validated.rejectedReason()).contains("correlate stopPoint.nameLong");
     }
 
+    @Test
+    void acceptsEqualPlatformOnTimetabledDeparturePlatform() {
+        assertPlatformConditionIsVerified(platformLeaf(
+                "timetabledDeparturePlatform.dsc",
+                "EQUAL_PLATFORM",
+                "value",
+                "1"));
+    }
+
+    @Test
+    void acceptsInPlatformsOnActualDeparturePlatform() {
+        assertPlatformConditionIsVerified(platformLeaf(
+                "actualDeparturePlatform.platform.dsc",
+                "IN_PLATFORMS",
+                "values",
+                List.of("1", "4")));
+    }
+
+    @Test
+    void acceptsNotInPlatformsOnTimetabledArrivalPlatform() {
+        assertPlatformConditionIsVerified(platformLeaf(
+                "timetabledArrivalPlatform.dsc",
+                "NOT_IN_PLATFORMS",
+                "values",
+                List.of("11", "12")));
+    }
+
+    @Test
+    void rejectsEqualPlatformWithoutValue() {
+        assertPlatformConditionIsRejected(
+                Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "EQUAL_PLATFORM"),
+                "requires value");
+    }
+
+    @Test
+    void rejectsInPlatformsWithoutValues() {
+        assertPlatformConditionIsRejected(
+                Map.of("field", "actualDeparturePlatform.platform.dsc", "operator", "IN_PLATFORMS"),
+                "requires a non-empty values array");
+    }
+
+    @Test
+    void rejectsInPlatformsWithEmptyValues() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "actualDeparturePlatform.platform.dsc",
+                        "IN_PLATFORMS",
+                        "values",
+                        List.of()),
+                "requires a non-empty values array");
+    }
+
+    @Test
+    void rejectsEqualPlatformOnStopPointId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "EQUAL_PLATFORM",
+                        "value", "1"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("operator is not allowed");
+    }
+
+    @Test
+    void rejectsContainsOnPlatformDescription() {
+        assertPlatformConditionIsRejected(platformLeaf(
+                        "timetabledDeparturePlatform.dsc",
+                        "CONTAINS",
+                        "value",
+                        "1"),
+                "operator is not allowed");
+    }
+
+    private void assertPlatformConditionIsVerified(Map<String, Object> leaf) {
+        AlertVerificationOutcome validated = validator.validate(platformOutcome(leaf));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertPlatformConditionIsRejected(Map<String, Object> leaf, String reason) {
+        AlertVerificationOutcome validated = validator.validate(platformOutcome(leaf));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reason);
+    }
+
+    private AlertVerificationOutcome platformOutcome(Map<String, Object> leaf) {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[]." + leaf.get("field");
+        return outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of("all", List.of(leaf)))))), coverageFor(field));
+    }
+
+    private Map<String, Object> platformLeaf(String field, String operator, String valueKey, Object value) {
+        return Map.of("field", field, "operator", operator, valueKey, value);
+    }
+
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
         return outcomeWithConditionAndCoverage(
                 condition,

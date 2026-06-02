@@ -8,6 +8,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalOperator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PlatformNormalizer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -36,6 +37,8 @@ public class AlertVerificationOutcomeValidator {
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final Set<String> PLATFORM_OPERATORS = Set.of(
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
     private static final String STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH =
             "payload.stopPointJourney.stopPointsJourneyDetails[]";
     private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
@@ -58,6 +61,7 @@ public class AlertVerificationOutcomeValidator {
             "PLATFORM_EVENT",
             "GENERIC_SERVICE_DATA_EVENT");
     private final StopPointIdConditionValidator stopPointIdConditionValidator = new StopPointIdConditionValidator();
+    private final PlatformNormalizer platformNormalizer = new PlatformNormalizer();
     @Inject
     TemporalConfiguration temporalConfiguration;
 
@@ -364,6 +368,7 @@ public class AlertVerificationOutcomeValidator {
         String field = stringValue(leaf.get("field"));
         String operator = stringValue(leaf.get("operator"));
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][CATALOG] validating field=" + field + " operator=" + operator);
+        logPlatformValidation(field, operator);
 
         if (field == null || field.isBlank()) {
             if (LOCAL_TIME_BETWEEN.equals(operator) || isPotentialTemporalOperator(operator)) {
@@ -382,6 +387,7 @@ public class AlertVerificationOutcomeValidator {
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
                 .orElse(null);
         if (capability == null) {
+            logPlatformRejection(field, operator, "field is not allowed by the ServiceData capability catalog.");
             rejectCatalogField(context, field, "field is not allowed by the ServiceData capability catalog.");
             return;
         }
@@ -394,6 +400,7 @@ public class AlertVerificationOutcomeValidator {
                 rejectTemporalCondition(context, field, operator, "operator is not supported on this field.");
                 return;
             }
+            logPlatformRejection(field, operator, "operator is not allowed for this field.");
             rejectCatalogField(context, field, "operator is not allowed for this field.");
             return;
         }
@@ -496,9 +503,11 @@ public class AlertVerificationOutcomeValidator {
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] validating relative field=" + relativeField
                 + " operator=" + operator + " path=" + arrayPath);
         String absoluteField = arrayPath + "." + relativeField;
+        logPlatformValidation(absoluteField, operator);
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
                 .orElse(null);
         if (capability == null) {
+            logPlatformRejection(absoluteField, operator, "relative field is not allowed.");
             rejectArrayCondition(context, arrayPath, "relative field is not allowed: " + relativeField);
             return;
         }
@@ -507,6 +516,7 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         if (!capability.supportsOperator(operator)) {
+            logPlatformRejection(absoluteField, operator, "operator is not allowed for relative field.");
             rejectArrayCondition(context, arrayPath,
                     "operator is not allowed for relative field " + relativeField + ": " + operator);
             return;
@@ -850,7 +860,7 @@ public class AlertVerificationOutcomeValidator {
         if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)) {
             return;
         }
-        if (List.of("IN", "CONTAINS_ANY").contains(operator)) {
+        if (List.of("IN", "CONTAINS_ANY", "IN_PLATFORMS", "NOT_IN_PLATFORMS").contains(operator)) {
             if (!(values instanceof List<?> valueList) || valueList.isEmpty()) {
                 rejectCatalogField(context, field, "operator " + operator + " requires a non-empty values array.");
                 return;
@@ -900,9 +910,42 @@ public class AlertVerificationOutcomeValidator {
                 stopPointLeaf.put("values", values);
                 validateStopPointIdCondition(context, field, operator, stopPointLeaf);
             }
+            case PLATFORM -> validatePlatformValues(context, operator, values, field);
             case STRING, OBJECT, TEMPORAL -> {
                 // No extra type checks are needed beyond operator allow-list for the current MVP.
             }
+        }
+    }
+
+    private void validatePlatformValues(
+            ValidationContext context,
+            String operator,
+            List<?> values,
+            String field) {
+        if (!values.stream().allMatch(value -> value instanceof String text
+                && !text.isBlank()
+                && platformNormalizer.normalize(text).hasNumber())) {
+            rejectPlatformCondition(context, field, operator,
+                    "platform values must be non-empty strings with a platform number.");
+        }
+    }
+
+    private void rejectPlatformCondition(ValidationContext context, String field, String operator, String reason) {
+        logPlatformRejection(field, operator, reason);
+        context.fail("Verified alert platform condition is not supported: " + reason);
+    }
+
+    private void logPlatformValidation(String field, String operator) {
+        if (PLATFORM_OPERATORS.contains(operator)) {
+            System.out.println("[IIA][ALERT_VERIFY][PLATFORM_VALIDATOR] validating field=" + field
+                    + " operator=" + operator);
+        }
+    }
+
+    private void logPlatformRejection(String field, String operator, String reason) {
+        if (PLATFORM_OPERATORS.contains(operator)) {
+            System.out.println("[IIA][ALERT_VERIFY][PLATFORM_VALIDATOR] rejected field=" + field
+                    + " operator=" + operator + " reason=" + reason);
         }
     }
 

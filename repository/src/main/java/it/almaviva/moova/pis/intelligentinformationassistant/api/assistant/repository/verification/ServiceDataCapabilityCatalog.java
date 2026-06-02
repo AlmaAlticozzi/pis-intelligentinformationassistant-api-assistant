@@ -94,10 +94,11 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.stopPointJourney.stopPointsJourneyDetails[].estimatedDepartureTime", FieldType.TEMPORAL,
                     temporalOps(), List.of(), "Estimated departure timestamp.", "estimated departure"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Actual departure platform id.", "binario partenza", "departure platform", "platform 1", "binario 1"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc",
+                    "Actual departure platform description.", "binario partenza", "departure platform description"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc",
                     "Actual departure platform description.", "binario partenza", "departure platform description"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.isConfirmed", FieldType.BOOLEAN,
                     ops("EQUALS"), List.of(), "Actual departure platform confirmed flag.", "binario partenza confermato"),
@@ -109,10 +110,11 @@ public final class ServiceDataCapabilityCatalog {
                     ops("EQUALS", "IN"), List.of("MONITORED", "OPERATOR", "EMULATED"),
                     "Actual departure platform source.", "platform source", "origine binario partenza"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Actual arrival platform id.", "binario arrivo", "arrival platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.dsc", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.dsc",
+                    "Actual arrival platform description.", "binario arrivo", "arrival platform description"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.dsc",
                     "Actual arrival platform description.", "binario arrivo", "arrival platform description"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", FieldType.BOOLEAN,
                     ops("EQUALS"), List.of(), "Actual arrival platform confirmed flag.", "binario arrivo confermato"),
@@ -124,22 +126,28 @@ public final class ServiceDataCapabilityCatalog {
                     ops("EQUALS", "IN"), List.of("MONITORED", "OPERATOR", "EMULATED"),
                     "Actual arrival platform source.", "platform source", "origine binario arrivo"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Timetabled arrival platform id.", "binario previsto", "piattaforma prevista", "timetabled platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc",
                     "Timetabled arrival platform description.", "binario previsto", "piattaforma prevista", "timetabled platform"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Timetabled departure platform id.", "binario previsto", "piattaforma prevista", "timetabled platform"),
-            field("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc",
                     "Timetabled departure platform description.", "binario previsto", "piattaforma prevista", "timetabled platform"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.dsc",
+                    "Previous arrival platform description.", "binario arrivo precedente", "previous arrival platform"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.dsc",
+                    "Previous display arrival platform description.", "binario arrivo precedente", "previous display arrival platform"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.dsc",
+                    "Previous departure platform description.", "binario partenza precedente", "previous departure platform"),
+            platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.dsc",
+                    "Previous display departure platform description.", "binario partenza precedente", "previous display departure platform"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.departurePlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Monitored departure platform id.", "monitored departure platform"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.arrivalPlatform.id", FieldType.STRING,
-                    ops("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED"), List.of(),
+                    ops("EQUALS_NORMALIZED"), List.of(),
                     "Monitored arrival platform id.", "monitored arrival platform"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay", FieldType.NUMBER,
                     numericOps(), List.of(), "Arrival delay.", "arrival delay", "ritardo arrivo"),
@@ -374,8 +382,16 @@ public final class ServiceDataCapabilityCatalog {
         return ops("EXISTS", "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL", "EQUALS");
     }
 
+    private static FieldCapability platformField(String field, String description, String... languageMappings) {
+        return field(field, FieldType.PLATFORM, platformOps(), List.of(), description, languageMappings);
+    }
+
     private static Set<String> temporalOps() {
         return ServiceDataTemporalCapabilityCatalog.temporalOperators();
+    }
+
+    private static Set<String> platformOps() {
+        return ops("EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
     }
 
     public enum FieldType {
@@ -387,7 +403,8 @@ public final class ServiceDataCapabilityCatalog {
         STOP_POINT_ID,
         ARRAY,
         OBJECT,
-        TEMPORAL
+        TEMPORAL,
+        PLATFORM
     }
 
     public record FieldCapability(

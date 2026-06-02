@@ -30,6 +30,8 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedDslOperator("LOCAL_TIME_BETWEEN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_IN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_NOT_IN")).isTrue();
+        assertThat(catalog.supportedDslOperators()).contains(
+                "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
         assertThat(catalog.supportedDslLogicalNodes()).contains("anyElement");
         assertThat(catalog.isSupportedTemporalField("payload.ongroundServiceEvent.eventGenerationTime")).isTrue();
         assertThat(catalog.isSupportedTemporalField(

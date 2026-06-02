@@ -31,7 +31,8 @@ public class AgentGenerationCapabilityCatalog {
             "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "NOT_EQUALS",
             "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL",
             "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "LOCAL_TIME_BETWEEN",
-            "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN");
+            "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN",
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
     private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any", "anyElement");
     private static final String NEXT_CALLS_ARRAY_PATH =
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[]";
