@@ -19,11 +19,19 @@ class AgentPreviewConditionExtractor {
     private static final Set<String> LEAF_FIELDS = Set.of("type", "field", "operator", "value", "values", "otherField");
     private static final Set<String> GROUP_FIELDS = Set.of("type", "all", "any");
     private static final Set<String> ANY_ELEMENT_FIELDS = Set.of("type", "anyElement");
-    private static final Set<String> VALUELESS_OPERATORS = Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+    private static final Set<String> VALUELESS_OPERATORS = Set.of(
+            "EXISTS", "NOT_NULL", "NOT_EMPTY",
+            "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX");
     private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
     private static final Set<String> PLATFORM_VALUE_OPERATORS = Set.of(
-            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
     private static final Pattern LOCATION_IN_TEXT = Pattern.compile(
             "(?i)\\b(?:at|a)\\s+([A-Z\\p{L}][\\p{L}0-9 '\\-]+?)(?:[.!?,]|$)");
 

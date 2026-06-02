@@ -113,6 +113,35 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptContainsAdvancedNumericPlatformMappingsExamplesAndBayRejection() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL")
+                .contains("PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL")
+                .contains("PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD")
+                .contains("PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX")
+                .contains("PLATFORM_NUMBER_MULTIPLE_OF")
+                .contains("\"maggiore di N\" and \"superiore a N\"")
+                .contains("\"tra X e Y\" and \"compreso tra X e Y\"")
+                .contains("\"con una lettera\", \"con suffisso lettera\" and \"tipo 3A\"")
+                .contains("Bay/terminal/dead-end platform is not available in the ServiceData Capability Catalog.")
+                .contains("\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5")
+                .contains("\"operator\":\"PLATFORM_NUMBER_BETWEEN\",\"value\":{\"min\":3,\"max\":8}")
+                .contains("\"operator\":\"PLATFORM_NUMBER_EVEN\"")
+                .contains("\"operator\":\"PLATFORM_HAS_LETTER_SUFFIX\"")
+                .contains("Every numeric/property platform predicate must be accompanied by a top-level payload.ongroundServiceEvent.eventsType")
+                .contains("use actualDeparturePlatform.platform.dsc for departure and actualArrivalPlatform.platform.dsc for arrival by default")
+                .contains("use timetabledDeparturePlatform.dsc or timetabledArrivalPlatform.dsc only when the user explicitly says previsto, programmato, da orario")
+                .contains("Do not invent a location requirement when the prompt contains only a platform constraint")
+                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTING\"")
+                .contains("\"field\":\"actualDeparturePlatform.platform.dsc\",\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5")
+                .contains("\"field\":\"actualArrivalPlatform.platform.dsc\",\"operator\":\"PLATFORM_NUMBER_BETWEEN\",\"value\":{\"min\":3,\"max\":8}")
+                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"IN\",\"values\":[\"<resolvedLunigianaStopPointIds>\"]")
+                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5");
+    }
+
+    @Test
     void promptMapsRequirementCoverageToActualCurrentStopAndPlatformFields() {
         LlmRequest request = builder().build(promptData());
 

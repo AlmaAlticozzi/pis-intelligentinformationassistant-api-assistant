@@ -39,9 +39,34 @@ public class AlertVerificationOutcomeValidator {
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
     private static final Set<String> PLATFORM_OPERATORS = Set.of(
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
-            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD",
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
     private static final Set<String> PLATFORM_FIELD_COMPARE_OPERATORS = Set.of(
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+    private static final Set<String> VALUELESS_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX");
+    private static final Set<String> NUMERIC_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
+    private static final Set<String> NUMERIC_PROPERTY_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
+    private static final Set<String> CURRENT_PLATFORM_EVENT_TYPES = Set.of(
+            "DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED");
+    private static final String PLATFORM_NUMERIC_EVENT_BINDING_REASON =
+            "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
+                    + "to bind the predicate to a current ServiceData event.";
+    private static final String BAY_PLATFORM_REJECTION_REASON =
+            "Bay/terminal/dead-end platform is not available in the ServiceData Capability Catalog.";
     private static final String STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH =
             "payload.stopPointJourney.stopPointsJourneyDetails[]";
     private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
@@ -77,6 +102,9 @@ public class AlertVerificationOutcomeValidator {
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
+        }
+        if (isUnsupportedBayPlatformPrompt(originalPrompt)) {
+            return rejected(outcome, BAY_PLATFORM_REJECTION_REASON);
         }
         if (outcome.decision() == AlertVerificationDecision.ERROR) {
             System.out.println("[IIA][ALERT_VERIFY][VALIDATOR] Validation passed");
@@ -226,6 +254,10 @@ public class AlertVerificationOutcomeValidator {
         }
 
         validateTechnicalCondition(context, context.technicalSpecification);
+        if (context.failureReason != null) {
+            return;
+        }
+        validatePlatformNumericEventBinding(context);
         if (context.failureReason != null) {
             return;
         }
@@ -873,7 +905,11 @@ public class AlertVerificationOutcomeValidator {
             validatePlatformFieldComparison(context, capability, operator, leaf, field, arrayPath);
             return;
         }
-        if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)) {
+        if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)
+                || VALUELESS_PLATFORM_OPERATORS.contains(operator)) {
+            if (leaf.containsKey("value") || leaf.containsKey("values")) {
+                rejectCatalogField(context, field, "operator " + operator + " does not accept value.");
+            }
             return;
         }
         if (List.of("IN", "CONTAINS_ANY", "IN_PLATFORMS", "NOT_IN_PLATFORMS").contains(operator)) {
@@ -994,6 +1030,28 @@ public class AlertVerificationOutcomeValidator {
             String operator,
             List<?> values,
             String field) {
+        if (NUMERIC_PLATFORM_OPERATORS.contains(operator)) {
+            if (values.size() != 1 || !(values.getFirst() instanceof Number number)) {
+                rejectPlatformCondition(context, field, operator, "numeric platform operator requires numeric value.");
+                return;
+            }
+            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0) {
+                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_MULTIPLE_OF requires numeric value greater than 0.");
+            }
+            return;
+        }
+        if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
+            if (values.size() != 1 || !(values.getFirst() instanceof Map<?, ?> range)
+                    || !(range.get("min") instanceof Number min)
+                    || !(range.get("max") instanceof Number max)) {
+                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_BETWEEN requires value with numeric min and max.");
+                return;
+            }
+            if (min.doubleValue() > max.doubleValue()) {
+                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_BETWEEN requires min less than or equal to max.");
+            }
+            return;
+        }
         if (!values.stream().allMatch(value -> value instanceof String text
                 && !text.isBlank()
                 && platformNormalizer.normalize(text).hasNumber())) {
@@ -1033,6 +1091,10 @@ public class AlertVerificationOutcomeValidator {
         }
     }
 
+    private boolean isUnsupportedBayPlatformPrompt(String prompt) {
+        return prompt != null && prompt.toLowerCase(Locale.ROOT).contains("binario tronco");
+    }
+
     private void validateLocationResolutionSoftRules(ValidationContext context) {
         Object locationResolution = context.technicalSpecification.get("locationResolution");
         if (locationResolution == null) {
@@ -1042,6 +1104,66 @@ public class AlertVerificationOutcomeValidator {
                 && context.conditionFields.stream().noneMatch(StopPointIdConditionValidator::isStopPointIdField)) {
             context.warn("locationResolution contains resolved mentions but technicalSpecification does not use stopPoint.id.");
         }
+    }
+
+    private void validatePlatformNumericEventBinding(ValidationContext context) {
+        Object condition = context.technicalSpecification.get("condition");
+        if (!containsPlatformNumericPropertyOperator(condition)) {
+            return;
+        }
+        boolean bound = condition instanceof Map<?, ?> conditionMap
+                && containsTopLevelCurrentPlatformEventBinding(conditionMap);
+        System.out.println("[IIA][ALERT_VERIFY][PLATFORM_NUMERIC_EVENT_BINDING] "
+                + (bound ? "validated" : "rejected")
+                + " reason=" + (bound ? "current ServiceData eventsType binding found" : PLATFORM_NUMERIC_EVENT_BINDING_REASON));
+        if (!bound) {
+            context.fail(PLATFORM_NUMERIC_EVENT_BINDING_REASON);
+        }
+    }
+
+    private boolean containsPlatformNumericPropertyOperator(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            String operator = stringValue(map.get("operator"));
+            if (operator != null && NUMERIC_PROPERTY_PLATFORM_OPERATORS.contains(operator)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::containsPlatformNumericPropertyOperator);
+        }
+        if (node instanceof Collection<?> collection) {
+            return collection.stream().anyMatch(this::containsPlatformNumericPropertyOperator);
+        }
+        return false;
+    }
+
+    private boolean containsTopLevelCurrentPlatformEventBinding(Map<?, ?> node) {
+        if (isCurrentPlatformEventBinding(node)) {
+            return true;
+        }
+        for (String group : List.of("all", "any")) {
+            if (!(node.get(group) instanceof List<?> children)) {
+                continue;
+            }
+            for (Object child : children) {
+                if (child instanceof Map<?, ?> childMap && isCurrentPlatformEventBinding(childMap)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isCurrentPlatformEventBinding(Map<?, ?> leaf) {
+        if (!"payload.ongroundServiceEvent.eventsType".equals(stringValue(leaf.get("field")))) {
+            return false;
+        }
+        String operator = stringValue(leaf.get("operator"));
+        if ("CONTAINS".equals(operator)) {
+            return CURRENT_PLATFORM_EVENT_TYPES.contains(stringValue(leaf.get("value")));
+        }
+        if ("CONTAINS_ANY".equals(operator) && leaf.get("values") instanceof List<?> values && !values.isEmpty()) {
+            return values.stream().map(this::stringValue).allMatch(CURRENT_PLATFORM_EVENT_TYPES::contains);
+        }
+        return false;
     }
 
     private boolean containsResolvedLocationStatus(Object value) {

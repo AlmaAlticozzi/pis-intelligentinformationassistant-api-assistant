@@ -70,6 +70,28 @@ public class PlatformNormalizer {
         return normalize(value).hasLetterSuffix();
     }
 
+    public boolean isEven(String value) {
+        return extractPlatformNumber(value).filter(number -> number % 2 == 0).isPresent();
+    }
+
+    public boolean isOdd(String value) {
+        return extractPlatformNumber(value).filter(number -> number % 2 != 0).isPresent();
+    }
+
+    public boolean isDoubleDigit(String value) {
+        return extractPlatformNumber(value).filter(number -> number >= 10 && number <= 99).isPresent();
+    }
+
+    public boolean isMultipleOf(String value, int divisor) {
+        return divisor > 0 && extractPlatformNumber(value).filter(number -> number % divisor == 0).isPresent();
+    }
+
+    public boolean isBetween(String value, int min, int max) {
+        return min <= max && extractPlatformNumber(value)
+                .filter(number -> number >= min && number <= max)
+                .isPresent();
+    }
+
     private Optional<PlatformParts> findPlatformParts(String normalizedText) {
         Matcher prefixedMatcher = PREFIX_THEN_PLATFORM.matcher(normalizedText);
         if (prefixedMatcher.find()) {

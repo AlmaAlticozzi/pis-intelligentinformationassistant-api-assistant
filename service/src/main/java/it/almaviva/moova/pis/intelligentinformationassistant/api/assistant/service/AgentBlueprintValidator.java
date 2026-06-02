@@ -44,9 +44,32 @@ public class AgentBlueprintValidator {
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM");
     private static final Set<String> PLATFORM_VALUES_OPERATORS = Set.of(
             "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+    private static final Set<String> VALUELESS_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX");
+    private static final Set<String> NUMERIC_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
+    private static final Set<String> NUMERIC_PROPERTY_PLATFORM_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
+    private static final Set<String> CURRENT_PLATFORM_EVENT_TYPES = Set.of(
+            "DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED");
+    private static final String PLATFORM_NUMERIC_EVENT_BINDING_REASON =
+            "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
+                    + "to bind the predicate to a current ServiceData event.";
     private static final Set<String> PLATFORM_OPERATORS = Set.of(
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
-            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD",
+            "PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -151,6 +174,7 @@ public class AgentBlueprintValidator {
             System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] operators found=" + temporalOperators);
         }
         validateConditionCapabilities(conditionSummary.condition(), "condition", null, errors);
+        validatePlatformNumericEventBinding(conditionSummary.condition(), errors);
 
         Set<String> forbidden = new LinkedHashSet<>();
         findForbidden(blueprint, forbidden);
@@ -241,6 +265,64 @@ public class AgentBlueprintValidator {
                 }
             }
         }
+    }
+
+    private void validatePlatformNumericEventBinding(Map<String, Object> condition, List<String> errors) {
+        if (!containsPlatformNumericPropertyOperator(condition)) {
+            return;
+        }
+        boolean bound = containsTopLevelCurrentPlatformEventBinding(condition);
+        System.out.println("[IIA][AGENT_PREVIEW][PLATFORM_NUMERIC_EVENT_BINDING] "
+                + (bound ? "validated" : "rejected")
+                + " reason=" + (bound ? "current ServiceData eventsType binding found" : PLATFORM_NUMERIC_EVENT_BINDING_REASON));
+        if (!bound) {
+            errors.add(PLATFORM_NUMERIC_EVENT_BINDING_REASON);
+        }
+    }
+
+    private boolean containsPlatformNumericPropertyOperator(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            String operator = stringValue(map.get("operator"));
+            if (operator != null && NUMERIC_PROPERTY_PLATFORM_OPERATORS.contains(operator)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::containsPlatformNumericPropertyOperator);
+        }
+        if (node instanceof List<?> list) {
+            return list.stream().anyMatch(this::containsPlatformNumericPropertyOperator);
+        }
+        return false;
+    }
+
+    private boolean containsTopLevelCurrentPlatformEventBinding(Map<?, ?> node) {
+        if (isCurrentPlatformEventBinding(node)) {
+            return true;
+        }
+        for (String group : List.of("all", "any")) {
+            if (!(node.get(group) instanceof List<?> children)) {
+                continue;
+            }
+            for (Object child : children) {
+                if (child instanceof Map<?, ?> childMap && isCurrentPlatformEventBinding(childMap)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isCurrentPlatformEventBinding(Map<?, ?> leaf) {
+        if (!"payload.ongroundServiceEvent.eventsType".equals(stringValue(leaf.get("field")))) {
+            return false;
+        }
+        String operator = stringValue(leaf.get("operator"));
+        if ("CONTAINS".equals(operator)) {
+            return CURRENT_PLATFORM_EVENT_TYPES.contains(stringValue(leaf.get("value")));
+        }
+        if ("CONTAINS_ANY".equals(operator) && leaf.get("values") instanceof List<?> values && !values.isEmpty()) {
+            return values.stream().map(this::stringValue).allMatch(CURRENT_PLATFORM_EVENT_TYPES::contains);
+        }
+        return false;
     }
 
     private void validateAnyElement(Object value, String path, String parentArrayPath, List<String> errors) {
@@ -403,6 +485,32 @@ public class AgentBlueprintValidator {
             String field,
             String operator,
             List<String> errors) {
+        if (VALUELESS_PLATFORM_OPERATORS.contains(operator)) {
+            if (leaf.containsKey("value") || leaf.containsKey("values")) {
+                errors.add(path + ": " + operator + " does not accept value for " + field);
+            }
+            return;
+        }
+        if (NUMERIC_PLATFORM_OPERATORS.contains(operator)) {
+            Object value = leaf.get("value");
+            if (!(value instanceof Number number)) {
+                errors.add(path + ": " + operator + " requires numeric value for " + field);
+            } else if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0) {
+                errors.add(path + ": PLATFORM_NUMBER_MULTIPLE_OF requires numeric value greater than 0 for " + field);
+            }
+            return;
+        }
+        if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
+            Object value = leaf.get("value");
+            if (!(value instanceof Map<?, ?> range)
+                    || !(range.get("min") instanceof Number min)
+                    || !(range.get("max") instanceof Number max)) {
+                errors.add(path + ": PLATFORM_NUMBER_BETWEEN requires value with numeric min and max for " + field);
+            } else if (min.doubleValue() > max.doubleValue()) {
+                errors.add(path + ": PLATFORM_NUMBER_BETWEEN requires min less than or equal to max for " + field);
+            }
+            return;
+        }
         if (PLATFORM_VALUE_OPERATORS.contains(operator)) {
             Object value = leaf.get("value");
             if (!(value instanceof String text) || text.isBlank() || !platformNormalizer.normalize(text).hasNumber()) {

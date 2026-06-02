@@ -417,7 +417,17 @@ public final class ServiceDataCapabilityCatalog {
                 "IN_PLATFORMS",
                 "NOT_IN_PLATFORMS",
                 "PLATFORM_EQUALS_FIELD",
-                "PLATFORM_NOT_EQUALS_FIELD");
+                "PLATFORM_NOT_EQUALS_FIELD",
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL",
+                "PLATFORM_NUMBER_BETWEEN",
+                "PLATFORM_NUMBER_EVEN",
+                "PLATFORM_NUMBER_ODD",
+                "PLATFORM_NUMBER_DOUBLE_DIGIT",
+                "PLATFORM_HAS_LETTER_SUFFIX",
+                "PLATFORM_NUMBER_MULTIPLE_OF");
     }
 
     public enum FieldType {

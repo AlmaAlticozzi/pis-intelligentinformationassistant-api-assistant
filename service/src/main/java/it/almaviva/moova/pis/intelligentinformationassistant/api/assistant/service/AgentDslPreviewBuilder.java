@@ -10,7 +10,10 @@ import java.util.Map;
 
 class AgentDslPreviewBuilder {
 
-    private static final java.util.Set<String> VALUELESS_OPERATORS = java.util.Set.of("EXISTS", "NOT_NULL", "NOT_EMPTY");
+    private static final java.util.Set<String> VALUELESS_OPERATORS = java.util.Set.of(
+            "EXISTS", "NOT_NULL", "NOT_EMPTY",
+            "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT", "PLATFORM_HAS_LETTER_SUFFIX");
 
     BuildResult build(
             AlertAgentGenerationPreviewData data,

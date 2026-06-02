@@ -118,6 +118,33 @@ class AgentValidationPlanBuilder {
                     AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
             edgeCases.add("ServiceData platform \"Platform 01\" matches normalized user platform \"1\".");
         }
+        if (hasPlatformOperator(conditionSummary, "PLATFORM_NUMBER_GREATER_THAN")) {
+            positiveExamples.add(example(
+                    currentPlatformEventPrefix(conditionSummary)
+                            + " and platform \"Platform 6\" satisfies PLATFORM_NUMBER_GREATER_THAN 5.",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData platform \"Platform 5\" does not satisfy PLATFORM_NUMBER_GREATER_THAN 5.",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        if (hasPlatformOperator(conditionSummary, "PLATFORM_NUMBER_EVEN")) {
+            positiveExamples.add(example(
+                    currentPlatformEventPrefix(conditionSummary)
+                            + " and platform \"Platform 4\" satisfies PLATFORM_NUMBER_EVEN.",
+                    AgentValidationExample.ExpectedOutputEnum.CANDIDATE_SUGGESTION));
+            negativeExamples.add(example(
+                    "ServiceData platform \"Platform 5\" does not satisfy PLATFORM_NUMBER_EVEN.",
+                    AgentValidationExample.ExpectedOutputEnum.NO_OUTPUT));
+        }
+        if (hasPlatformOperator(conditionSummary, "PLATFORM_HAS_LETTER_SUFFIX")) {
+            edgeCases.add("ServiceData platform \"Platform 03A\" has main number 3 and satisfies PLATFORM_HAS_LETTER_SUFFIX.");
+        }
+        if (conditionSummary.platformConstraintLeaves().stream()
+                .anyMatch(leaf -> leaf.operator() != null
+                        && (leaf.operator().startsWith("PLATFORM_NUMBER_")
+                        || "PLATFORM_HAS_LETTER_SUFFIX".equals(leaf.operator())))) {
+            edgeCases.add("The current ServiceData event must also match payload.ongroundServiceEvent.eventsType.");
+        }
         if (conditionSummary.platformConstraintLeaves().stream()
                 .anyMatch(leaf -> "IN_PLATFORMS".equals(leaf.operator())
                         || "NOT_IN_PLATFORMS".equals(leaf.operator()))) {
@@ -157,6 +184,46 @@ class AgentValidationPlanBuilder {
                 .positiveExamples(List.copyOf(positiveExamples))
                 .negativeExamples(List.copyOf(negativeExamples))
                 .edgeCases(List.copyOf(edgeCases));
+    }
+
+    private boolean hasPlatformOperator(
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
+            String operator) {
+        return conditionSummary.platformConstraintLeaves().stream()
+                .anyMatch(leaf -> operator.equals(leaf.operator()));
+    }
+
+    private String currentPlatformEventPrefix(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {
+        return "ServiceData current eventsType contains "
+                + java.util.Optional.ofNullable(findCurrentPlatformEvent(conditionSummary.condition()))
+                .orElse("DEPARTED");
+    }
+
+    private String findCurrentPlatformEvent(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            if ("payload.ongroundServiceEvent.eventsType".equals(String.valueOf(map.get("field")))) {
+                if (map.get("value") != null) {
+                    return String.valueOf(map.get("value"));
+                }
+                if (map.get("values") instanceof List<?> values && !values.isEmpty()) {
+                    return String.valueOf(values.getFirst());
+                }
+            }
+            for (Object value : map.values()) {
+                String event = findCurrentPlatformEvent(value);
+                if (event != null) {
+                    return event;
+                }
+            }
+        } else if (node instanceof List<?> list) {
+            for (Object value : list) {
+                String event = findCurrentPlatformEvent(value);
+                if (event != null) {
+                    return event;
+                }
+            }
+        }
+        return null;
     }
 
     private AgentValidationPlan temporalPlan(AgentPreviewConditionExtractor.ConditionSummary conditionSummary) {

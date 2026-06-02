@@ -48,6 +48,26 @@ class PlatformNormalizerTest {
     }
 
     @Test
+    void evaluatesAdvancedNumericPlatformPropertiesWithoutLosingSuffixSemantics() {
+        assertThat(normalizer.isDoubleDigit("Platform 12")).isTrue();
+        assertThat(normalizer.extractPlatformNumber("binario 5A")).contains(5);
+        assertThat(normalizer.hasLetterSuffix("binario 5A")).isTrue();
+        assertThat(normalizer.isEven("Platform 6")).isTrue();
+        assertThat(normalizer.isOdd("Platform 7")).isTrue();
+        assertThat(normalizer.isMultipleOf("Platform 9", 3)).isTrue();
+        assertThat(normalizer.isBetween("Platform 10", 5, 12)).isTrue();
+        assertThat(normalizer.isEven("foo")).isFalse();
+        assertThat(normalizer.isOdd("foo")).isFalse();
+        assertThat(normalizer.isDoubleDigit("foo")).isFalse();
+        assertThat(normalizer.isMultipleOf("foo", 3)).isFalse();
+        assertThat(normalizer.isBetween("foo", 1, 9)).isFalse();
+
+        assertThat(normalizer.extractPlatformNumber("Platform 3A")).contains(3);
+        assertThat(normalizer.isBetween("Platform 3A", 2, 4)).isTrue();
+        assertThat(normalizer.samePlatform("3A", "3")).isFalse();
+    }
+
+    @Test
     void checksPlatformMembershipUsingSemanticComparison() {
         assertThat(normalizer.inPlatforms("Platform 4", List.of("1", "4"))).isTrue();
         assertThat(normalizer.inPlatforms("Platform 14", List.of("1", "4"))).isFalse();

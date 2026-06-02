@@ -227,6 +227,24 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void dslPreviewRendersAdvancedPlatformNumericOperators() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(advancedPlatformOperatorsPreviewData(), null);
+
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.ongroundServiceEvent.eventsType")
+                .contains("field: actualDeparturePlatform.platform.dsc")
+                .contains("field: actualArrivalPlatform.platform.dsc")
+                .contains("operator: PLATFORM_NUMBER_GREATER_THAN")
+                .contains("value: 5")
+                .contains("operator: PLATFORM_NUMBER_BETWEEN")
+                .contains("min: 3")
+                .contains("max: 8")
+                .contains("operator: PLATFORM_NUMBER_EVEN")
+                .contains("operator: PLATFORM_HAS_LETTER_SUFFIX");
+    }
+
+    @Test
     void realisticDeparturePlatformChangeProducesReadOnlyRuntimeSupportedPreview() {
         AgentGenerationPreviewResponse response = mapper.toResponse(realisticDeparturePlatformChangePreviewData(), null);
 
@@ -967,6 +985,35 @@ class AgentGenerationPreviewMapperTest {
                                                 "operator", "PLATFORM_NOT_EQUALS_FIELD",
                                                 "otherField", "actualDeparturePlatform.platform.dsc")))));
         return platformPreviewData(condition, "Detects a current departure platform change.");
+    }
+
+    private AlertAgentGenerationPreviewData advancedPlatformOperatorsPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTING", "ARRIVED")),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_NUMBER_GREATER_THAN",
+                                                        "value", 5),
+                                                Map.of(
+                                                        "field", "actualArrivalPlatform.platform.dsc",
+                                                        "operator", "PLATFORM_NUMBER_BETWEEN",
+                                                        "value", Map.of("min", 3, "max", 8)),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_NUMBER_EVEN"),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_HAS_LETTER_SUFFIX")))))));
+        return platformPreviewData(condition, "Detects advanced numeric platform properties.");
     }
 
     private AlertAgentGenerationPreviewData platformPreviewData(

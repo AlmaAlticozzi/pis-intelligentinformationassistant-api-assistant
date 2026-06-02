@@ -74,6 +74,44 @@ class AgentValidationPlanBuilderTest {
                         "ServiceData previous departure platform is \"5\" but actual departure platform is \"9\".");
     }
 
+    @Test
+    void advancedPlatformPlanDocumentsNumericAndSuffixExamples() {
+        AgentValidationPlan plan = plan(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTED"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_NUMBER_GREATER_THAN",
+                                                        "value", 5),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_NUMBER_EVEN"),
+                                                Map.of(
+                                                        "field", "actualDeparturePlatform.platform.dsc",
+                                                        "operator", "PLATFORM_HAS_LETTER_SUFFIX"))))))));
+
+        assertThat(descriptions(plan.getPositiveExamples()))
+                .contains(
+                        "ServiceData current eventsType contains DEPARTED and platform \"Platform 6\" satisfies PLATFORM_NUMBER_GREATER_THAN 5.",
+                        "ServiceData current eventsType contains DEPARTED and platform \"Platform 4\" satisfies PLATFORM_NUMBER_EVEN.");
+        assertThat(descriptions(plan.getNegativeExamples()))
+                .contains(
+                        "ServiceData platform \"Platform 5\" does not satisfy PLATFORM_NUMBER_GREATER_THAN 5.",
+                        "ServiceData platform \"Platform 5\" does not satisfy PLATFORM_NUMBER_EVEN.");
+        assertThat(plan.getEdgeCases())
+                .contains(
+                        "ServiceData platform \"Platform 03A\" has main number 3 and satisfies PLATFORM_HAS_LETTER_SUFFIX.",
+                        "The current ServiceData event must also match payload.ongroundServiceEvent.eventsType.");
+    }
+
     private AgentValidationPlan plan(Map<String, Object> condition) {
         AlertAgentGenerationPreviewData data = new AlertAgentGenerationPreviewData(
                 "ALRT1", "Platform", "VERIFIED", "VERIFIED", false, null, 1,

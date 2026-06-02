@@ -161,7 +161,7 @@ public class AlertVerificationPromptBuilder {
                 ServiceData Capability Catalog:
                 %s
                 Platform catalog guidance:
-                - For user-facing binario/platform/quay/banchina/marciapiede/tronco values, use only platform description fields ending in .dsc with EQUAL_PLATFORM, NOT_EQUAL_PLATFORM, IN_PLATFORMS or NOT_IN_PLATFORMS.
+                - For user-facing binario/platform/quay/banchina/marciapiede values, use only platform description fields ending in .dsc with the allowed PLATFORM operators.
                 - For platform description field-to-field comparisons, use PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD with "otherField".
                 - Never use platform technical id fields for user-facing platform matching.
                 - Do not invent fields that are absent from the ServiceData Capability Catalog.
@@ -172,11 +172,21 @@ public class AlertVerificationPromptBuilder {
         return """
                 Semantic interpretation rules:
                 - Interpret natural language semantically before choosing DSL operators.
-                - platform is not a location: binario, platform, quay, banchina, marciapiede and tronco constraints are separate from stop-point location constraints.
+                - platform is not a location: binario, platform, quay, banchina and marciapiede constraints are separate from stop-point location constraints.
                 - "arriva a Garibaldi sul binario 1" means location Garibaldi plus arrival platform 1. The platform boundary must not become part of the location.
                 - Arrival wording such as "arriva", "arrivo" or "in arrivo" selects arrival event/status and arrival platform fields.
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
+                - Platform numeric/property predicates always require a top-level payload.ongroundServiceEvent.eventsType binding: "in partenza", "si verifica in partenza" and "sta partendo" -> CONTAINS DEPARTING; "parte", "e partita" and "partita" -> CONTAINS DEPARTED; "in arrivo" and "sta arrivando" -> CONTAINS ARRIVING; "arriva", "e arrivata" and "arrivata" -> CONTAINS ARRIVED.
+                - If a platform numeric/property prompt omits arrival/departure direction, use payload.ongroundServiceEvent.eventsType CONTAINS_ANY ["DEPARTING","DEPARTED","ARRIVING","ARRIVED"] and construct an any condition with actualDeparturePlatform.platform.dsc and actualArrivalPlatform.platform.dsc branches.
+                - Platform numeric mappings: "maggiore di N" and "superiore a N" -> PLATFORM_NUMBER_GREATER_THAN; "almeno N", "maggiore o uguale a N" and "da N in su" -> PLATFORM_NUMBER_GREATER_OR_EQUAL.
+                - Platform numeric mappings: "minore di N" and "inferiore a N" -> PLATFORM_NUMBER_LESS_THAN; "al massimo N", "minore o uguale a N" and "fino a N" -> PLATFORM_NUMBER_LESS_OR_EQUAL.
+                - Platform numeric mappings: "tra X e Y" and "compreso tra X e Y" -> PLATFORM_NUMBER_BETWEEN with value {"min":X,"max":Y}; "multiplo di N" -> PLATFORM_NUMBER_MULTIPLE_OF.
+                - Platform property mappings: "pari" -> PLATFORM_NUMBER_EVEN; "dispari" -> PLATFORM_NUMBER_ODD; "a doppia cifra" -> PLATFORM_NUMBER_DOUBLE_DIGIT; "con una lettera", "con suffisso lettera" and "tipo 3A" -> PLATFORM_HAS_LETTER_SUFFIX.
+                - For numeric platform operators, a description such as "3A" uses main number 3. The suffix remains discriminating for EQUAL_PLATFORM and is detected by PLATFORM_HAS_LETTER_SUFFIX.
+                - For platform numeric/property predicates, use actualDeparturePlatform.platform.dsc for departure and actualArrivalPlatform.platform.dsc for arrival by default because the predicate describes the effective realtime platform of the current event.
+                - For platform numeric/property predicates, use timetabledDeparturePlatform.dsc or timetabledArrivalPlatform.dsc only when the user explicitly says previsto, programmato, da orario, pianificato, timetabled or scheduled.
+                - If the user explicitly asks for a real, confirmed, effective or monitored platform, use the coherent actual arrival/departure platform description field.
                 - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
                 - "weekend" and "fine settimana" mean SATURDAY plus SUNDAY.
                 - "non il weekend" and "escluso weekend" mean LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
@@ -227,9 +237,14 @@ public class AlertVerificationPromptBuilder {
                 - Use EQUAL_PLATFORM or NOT_EQUAL_PLATFORM with a non-empty "value" for one human platform value.
                 - Use IN_PLATFORMS or NOT_IN_PLATFORMS with a non-empty "values" array for multiple human platform values.
                 - Use PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD with a non-empty "otherField" to compare two whitelisted platform description fields. Inside anyElement, use relative field paths for both "field" and "otherField".
+                - PLATFORM_NUMBER_GREATER_THAN, PLATFORM_NUMBER_GREATER_OR_EQUAL, PLATFORM_NUMBER_LESS_THAN, PLATFORM_NUMBER_LESS_OR_EQUAL and PLATFORM_NUMBER_MULTIPLE_OF require numeric "value". PLATFORM_NUMBER_MULTIPLE_OF requires value greater than 0.
+                - PLATFORM_NUMBER_BETWEEN requires "value":{"min":N,"max":N} with numeric min less than or equal to max.
+                - PLATFORM_NUMBER_EVEN, PLATFORM_NUMBER_ODD, PLATFORM_NUMBER_DOUBLE_DIGIT and PLATFORM_HAS_LETTER_SUFFIX do not use value.
+                - Every numeric/property platform predicate must be accompanied by a top-level payload.ongroundServiceEvent.eventsType condition using CONTAINS or CONTAINS_ANY with DEPARTING, DEPARTED, ARRIVING or ARRIVED.
                 - For a current platform change event, use payload.ongroundServiceEvent.eventsType with CONTAINS DEPARTURE_PLATFORM_CHANGED, CONTAINS ARRIVAL_PLATFORM_CHANGED or CONTAINS_ANY ["DEPARTURE_PLATFORM_CHANGED","ARRIVAL_PLATFORM_CHANGED"] according to the requested direction.
                 - Do not use departureStatuses[].status or arrivalStatuses[].status as the principal signal for a current platform change or movement prompt.
-                - If the user says only binario/platform/quay/banchina/marciapiede/tronco plus a human value, use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure.
+                - For equality platform operators, if the user says only binario/platform/quay/banchina/marciapiede plus a human value, use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure.
+                - For numeric/property platform operators, use actualArrivalPlatform.platform.dsc for arrival and actualDeparturePlatform.platform.dsc for departure by default. Use timetabled* only for explicit previsto, programmato, da orario, pianificato, timetabled or scheduled wording.
                 - Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks for a real, confirmed, effective, current, monitored or updated platform, or for a platform change or movement.
                 - Do not use CONTAINS for platform. Do not simulate human platform matching with CONTAINS, CONTAINS_IGNORE_CASE or CONTAINS_NORMALIZED.
                 - Do not compare human platform values with platform technical id fields.
@@ -271,6 +286,7 @@ public class AlertVerificationPromptBuilder {
                 - Do not use timetabledCallEnd.stopPoint.id for a current arrival stop such as "arriva a X".
                 - Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints such as "origine della corsa", "destinazione della corsa", "corsa con origine X" or "corsa con destinazione Y".
                 - Keep platform constraints inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[]: timetabledArrivalPlatform.dsc for default arrival platform matching and timetabledDeparturePlatform.dsc for default departure platform matching.
+                - Exception for numeric/property platform operators: keep the constraint inside anyElement but default to actualArrivalPlatform.platform.dsc or actualDeparturePlatform.platform.dsc and add the top-level current payload.ongroundServiceEvent.eventsType binding.
                 - Keep current platform-change event evidence at top level on payload.ongroundServiceEvent.eventsType. Keep structural platform comparisons inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[].
                 - Do not use departureStatuses[].status or arrivalStatuses[].status as the principal signal for a current platform change or movement prompt.
                 - A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement.
@@ -294,6 +310,7 @@ public class AlertVerificationPromptBuilder {
                 - Requests that require creating Agent Definition, Agent Run, Suggestion, executable code, or Agent Profile.
                 - Alert or Agent activation time windows, such as "Attiva questo alert solo il weekend", because they are activation policy and not ServiceData predicates.
                 - Passenger count, train color, or other required constraints absent from the catalog.
+                - "binario tronco" is not supported. Reject with reason: "Bay/terminal/dead-end platform is not available in the ServiceData Capability Catalog."
                 """;
     }
 
@@ -307,6 +324,8 @@ public class AlertVerificationPromptBuilder {
                 - mappedBy must contain only field paths present in the ServiceData Capability Catalog.
                 - For a resolved current-stop location matched through payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id, mappedBy must contain exactly the field used by the condition.
                 - For a platform requirement, mappedBy must contain the exact platform description field used by the condition, for example payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc.
+                - For a platform numeric/property requirement, mappedBy must include payload.ongroundServiceEvent.eventsType and the exact actual* or explicit timetabled* platform description field used by the condition.
+                - Do not invent a location requirement when the prompt contains only a platform constraint. Phrases such as "un binario", "a platform" or "una plataforma" are not locations.
                 - For a platform change requirement, mappedBy must include payload.ongroundServiceEvent.eventsType and the exact structural platform description fields used by the field-to-field comparison.
                 - For a movement requirement such as "spostato dal binario X al binario Y", mappedBy must include payload.ongroundServiceEvent.eventsType and the exact previous and actual platform description fields used by the condition.
                 - Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN.
@@ -474,6 +493,73 @@ public class AlertVerificationPromptBuilder {
                       {"field":"actualArrivalPlatform.platform.dsc","operator":"IN_PLATFORMS","values":["7","8"]}
                     ]}
                   ]}}}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - departure platform number greater than 5:
+                Prompt: "Avvertimi quando un treno e in partenza da binario maggiore di 5"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTING"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualDeparturePlatform.platform.dsc","operator":"PLATFORM_NUMBER_GREATER_THAN","value":5}
+                  }}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - arrival platform number between 3 and 8:
+                Prompt: "Avvertimi quando una corsa arriva a un binario compreso tra 3 e 8"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualArrivalPlatform.platform.dsc","operator":"PLATFORM_NUMBER_BETWEEN","value":{"min":3,"max":8}}
+                  }}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - even departure platform:
+                Prompt: "Avvertimi quando una corsa parte da un binario pari"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualDeparturePlatform.platform.dsc","operator":"PLATFORM_NUMBER_EVEN"}
+                  }}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - departure platform with letter suffix:
+                Prompt: "Avvertimi quando una corsa parte da un binario con una lettera"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualDeparturePlatform.platform.dsc","operator":"PLATFORM_HAS_LETTER_SUFFIX"}
+                  }}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - resolved location plus even departure platform:
+                Prompt: "Avvertimi quando una corsa parte da Lunigiana da un binario pari"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedLunigianaStopPointIds>"]},
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"actualDeparturePlatform.platform.dsc","operator":"PLATFORM_NUMBER_EVEN"}
+                  }}
+                ]}
+                Decision: VERIFIED
+
+                Positive example - explicitly timetabled departure platform:
+                Prompt: "Avvertimi quando una corsa parte da binario previsto maggiore di 5"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"field":"timetabledDeparturePlatform.dsc","operator":"PLATFORM_NUMBER_GREATER_THAN","value":5}
+                  }}
                 ]}
                 Decision: VERIFIED
 

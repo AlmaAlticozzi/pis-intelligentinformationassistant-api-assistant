@@ -1148,6 +1148,90 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsAdvancedPlatformNumericOperatorsOnDescriptionField() {
+        for (Map<String, Object> leaf : List.of(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_OR_EQUAL", "value", 5),
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_LESS_THAN", "value", 5),
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_LESS_OR_EQUAL", "value", 5),
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8)),
+                platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_EVEN"),
+                platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_ODD"),
+                platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_DOUBLE_DIGIT"),
+                platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_HAS_LETTER_SUFFIX"),
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 3))) {
+            assertPlatformConditionWithEventIsVerified("DEPARTED", leaf);
+        }
+    }
+
+    @Test
+    void acceptsAdvancedPlatformNumericOperatorsBoundToCoherentCurrentEvents() {
+        assertPlatformConditionWithEventIsVerified("DEPARTING",
+                platformLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5));
+        assertPlatformConditionWithEventIsVerified("DEPARTED",
+                platformValuelessLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_EVEN"));
+        assertPlatformConditionWithEventIsVerified("ARRIVED",
+                platformLeaf("actualArrivalPlatform.platform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8)));
+        assertPlatformConditionWithEventIsVerified("DEPARTED",
+                platformValuelessLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_HAS_LETTER_SUFFIX"));
+        assertPlatformConditionWithEventIsVerified("DEPARTED",
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5));
+    }
+
+    @Test
+    void rejectsAdvancedPlatformNumericOperatorsWithoutCurrentEventBinding() {
+        for (Map<String, Object> leaf : List.of(
+                platformLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                platformLeaf("actualArrivalPlatform.platform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8)),
+                platformValuelessLeaf("actualDeparturePlatform.platform.dsc", "PLATFORM_HAS_LETTER_SUFFIX"))) {
+            assertPlatformConditionIsRejected(leaf,
+                    "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
+                            + "to bind the predicate to a current ServiceData event.");
+        }
+    }
+
+    @Test
+    void rejectsInvalidAdvancedPlatformNumericShapes() {
+        assertPlatformConditionIsRejected(
+                platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN"),
+                "requires value");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("max", 8)),
+                "requires value with numeric min and max");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3)),
+                "requires value with numeric min and max");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 8, "max", 3)),
+                "requires min less than or equal to max");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 0),
+                "greater than 0");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.id", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                "platform technical id field cannot be used");
+        assertPlatformConditionIsRejected(
+                platformLeaf("passingType", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                "operator is not allowed");
+    }
+
+    @Test
+    void rejectsBayPlatformPromptWithCatalogReason() {
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithCondition(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", "payload.stopPointJourney.stopPointsJourneyDetails[].passingType",
+                                "operator", "EQUALS",
+                                "value", "TRANSIT")))),
+                "Avvertimi quando una corsa parte da un binario tronco");
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason())
+                .isEqualTo("Bay/terminal/dead-end platform is not available in the ServiceData Capability Catalog.");
+    }
+
+    @Test
     void acceptsInOnKnownStopPointIdAfterPlatformTechnicalIdBlocking() {
         String field = "payload.ongroundServiceEvent.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
@@ -1183,8 +1267,28 @@ class AlertVerificationOutcomeValidatorTest {
                                 "conditions", Map.of("all", List.of(leaf)))))), coverageFor(field));
     }
 
+    private void assertPlatformConditionWithEventIsVerified(String eventType, Map<String, Object> leaf) {
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String platformField = detailsPath + "." + leaf.get("field");
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", eventType),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", leaf)))),
+                coverageFor(eventField, platformField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
     private Map<String, Object> platformLeaf(String field, String operator, String valueKey, Object value) {
         return Map.of("field", field, "operator", operator, valueKey, value);
+    }
+
+    private Map<String, Object> platformValuelessLeaf(String field, String operator) {
+        return Map.of("field", field, "operator", operator);
     }
 
     private Map<String, Object> platformFieldComparisonLeaf(String field, String operator, String otherField) {

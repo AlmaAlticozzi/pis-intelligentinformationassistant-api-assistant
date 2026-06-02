@@ -149,6 +149,55 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsAdvancedPlatformNumericOperators() {
+        for (Map<String, Object> condition : List.of(
+                platformEventBoundCondition("DEPARTING", "actualDeparturePlatform.platform.dsc",
+                        "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                platformEventBoundCondition("ARRIVED", "actualArrivalPlatform.platform.dsc",
+                        "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8)),
+                platformEventBoundValuelessCondition("DEPARTED", "actualDeparturePlatform.platform.dsc",
+                        "PLATFORM_NUMBER_EVEN"))) {
+            AlertAgentGenerationPreviewData data = previewData(condition);
+
+            AgentBlueprintValidationResult result =
+                    validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+            assertThat(result.valid()).isTrue();
+            assertThat(result.runtimeSupported()).isTrue();
+        }
+    }
+
+    @Test
+    void previewValidatorRejectsAdvancedPlatformNumericOperatorWithoutEventBinding() {
+        AlertAgentGenerationPreviewData data = previewData(platformLeafCondition(
+                "actualDeparturePlatform.platform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5));
+
+        AgentBlueprintValidationResult result =
+                validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.runtimeSupported()).isFalse();
+        assertThat(result.errors()).contains(
+                "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
+                        + "to bind the predicate to a current ServiceData event.");
+    }
+
+    @Test
+    void previewValidatorRejectsInvalidAdvancedPlatformNumericConditions() {
+        for (Map<String, Object> condition : List.of(
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3)),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 0),
+                platformLeafCondition("timetabledDeparturePlatform.id", "PLATFORM_NUMBER_GREATER_THAN", "value", 5))) {
+            AlertAgentGenerationPreviewData data = previewData(condition);
+
+            AgentBlueprintValidationResult result =
+                    validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+            assertThat(result.valid()).isFalse();
+        }
+    }
+
+    @Test
     void previewValidatorRejectsEmptyPlatformValuesArrays() {
         for (String operator : List.of("IN_PLATFORMS", "NOT_IN_PLATFORMS")) {
             AlertAgentGenerationPreviewData data = previewData(platformLeafCondition(
@@ -669,6 +718,57 @@ class AgentBlueprintValidatorTest {
                                 "field", field,
                                 "operator", operator,
                                 valueKey, value)));
+    }
+
+    private Map<String, Object> platformValuelessCondition(String field, String operator) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "field", field,
+                                "operator", operator)));
+    }
+
+    private Map<String, Object> platformEventBoundCondition(
+            String eventType,
+            String field,
+            String operator,
+            String valueKey,
+            Object value) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", eventType),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", field,
+                                                "operator", operator,
+                                                valueKey, value)))));
+    }
+
+    private Map<String, Object> platformEventBoundValuelessCondition(
+            String eventType,
+            String field,
+            String operator) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", eventType),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", field,
+                                                "operator", operator)))));
     }
 
     private Map<String, Object> platformMovementCondition() {

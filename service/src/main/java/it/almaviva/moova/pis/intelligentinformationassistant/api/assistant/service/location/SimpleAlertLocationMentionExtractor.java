@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,7 +29,13 @@ public class SimpleAlertLocationMentionExtractor {
                     0.88),
             new Rule(Pattern.compile("\\bpassa\\s+da\\s+(.+)$", PATTERN_FLAGS),
                     AlertLocationSemanticRole.NEXT_TRANSIT_STOP_POINT,
-                    0.82));
+                    0.82),
+            new Rule(Pattern.compile("\\barrives?\\s+at\\s+(.+)$", PATTERN_FLAGS),
+                    AlertLocationSemanticRole.ARRIVAL_EVENT_STOP_POINT,
+                    0.90),
+            new Rule(Pattern.compile("\\bdeparts?\\s+from\\s+(.+)$", PATTERN_FLAGS),
+                    AlertLocationSemanticRole.DEPARTURE_EVENT_STOP_POINT,
+                    0.90));
 
     private static final Pattern GENERIC_AT_PATTERN = Pattern.compile("\\ba\\s+(.+)$", PATTERN_FLAGS);
     private static final Pattern EXCLUDED_LOCATION_PATTERN = Pattern.compile(
@@ -39,8 +46,8 @@ public class SimpleAlertLocationMentionExtractor {
                     + "|tranne|eccetto|esclus[ao])\\s+(.+)$",
             PATTERN_FLAGS);
     private static final Pattern PLATFORM_BOUNDARY_PATTERN = Pattern.compile(
-            "\\s+(?:(?:sul(?:la)?|al(?:la)?|in|dal(?:la)?|del(?:la)?|di)\\s+)?"
-                    + "(binario|platform|track|quay|banchina|marciapiede|tronco|piattaforma)\\b",
+            "(?:^|\\s+)(?:(?:sul(?:la)?|al(?:la)?|in|dal(?:la)?|del(?:la)?|di|da|on|from|at|de|d['\u2019]|une?|una|un|a|einem?|einer|von)\\s+)*"
+                    + "(binario|platform|track|quay|banchina|marciapiede|tronco|piattaforma|voie|quai|v[i\u00eda]a|anden|and\u00e9n|gleis|bahnsteig)\\b",
             PATTERN_FLAGS);
     private static final Pattern TRAILING_PLATFORM_CONTEXT_PATTERN = Pattern.compile(
             "\\s+(?:(?:e|o)\\s+)?(?:che\\s+)?(?:non\\s+sia\\s+)?"
@@ -62,6 +69,12 @@ public class SimpleAlertLocationMentionExtractor {
             " nel ",
             " nella ",
             " per ");
+    private static final Pattern LOCATION_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+");
+    private static final Set<String> FUNCTION_WORDS = Set.of(
+            "a", "al", "alla", "da", "dal", "dalla", "de", "di", "del", "della", "in", "un", "uno", "una",
+            "at", "from", "on", "the", "an", "of",
+            "d", "du", "des", "une", "la", "le", "el",
+            "von", "einem", "einer", "ein", "eine", "der", "die", "das");
 
     public AlertLocationExtractionResult extract(String prompt) {
         System.out.println("[IIA][LOCATION_EXTRACTOR] prompt=" + prompt);
@@ -104,8 +117,9 @@ public class SimpleAlertLocationMentionExtractor {
             return List.of();
         }
 
-        String cleanedText = cleanLocationText(matcher.group(1));
-        if (cleanedText.isBlank()) {
+        CleanedLocation cleanedLocation = cleanLocationText(matcher.group(1));
+        String cleanedText = cleanedLocation.text();
+        if (!isMeaningfulLocationCandidate(cleanedLocation)) {
             return List.of();
         }
         return ALTERNATIVE_LOCATION_PATTERN.splitAsStream(cleanedText)
@@ -121,11 +135,12 @@ public class SimpleAlertLocationMentionExtractor {
             return List.of();
         }
         String rawMention = matcher.group(1);
-        String cleanedText = cleanLocationText(rawMention);
+        CleanedLocation cleanedLocation = cleanLocationText(rawMention);
+        String cleanedText = cleanedLocation.text();
         System.out.println("[IIA][LOCATION_EXTRACTOR] location pattern type=NEGATED/EXCLUDED"
                 + " raw mention=" + rawMention
                 + " cleaned mention=" + cleanedText);
-        if (cleanedText.isBlank()) {
+        if (!isMeaningfulLocationCandidate(cleanedLocation)) {
             return List.of();
         }
         return EXCLUDED_LOCATION_SEPARATOR_PATTERN.splitAsStream(cleanedText)
@@ -145,7 +160,7 @@ public class SimpleAlertLocationMentionExtractor {
         return result;
     }
 
-    private static String cleanLocationText(String value) {
+    private static CleanedLocation cleanLocationText(String value) {
         String rawMention = value == null ? "" : value.trim();
         String cleaned = rawMention;
         Matcher platformBoundaryMatcher = PLATFORM_BOUNDARY_PATTERN.matcher(cleaned);
@@ -168,7 +183,36 @@ public class SimpleAlertLocationMentionExtractor {
                     + " cleaned mention=" + cleaned
                     + " detected boundary token=" + boundaryToken);
         }
-        return cleaned;
+        return new CleanedLocation(rawMention, cleaned, boundaryToken);
+    }
+
+    private static boolean isMeaningfulLocationCandidate(CleanedLocation location) {
+        String cleaned = location.text();
+        if (cleaned.isBlank()) {
+            return discard(location, "empty after normalization");
+        }
+        if (!location.boundaryDetected()) {
+            return true;
+        }
+        Matcher matcher = LOCATION_TOKEN_PATTERN.matcher(cleaned);
+        boolean hasInformativeToken = false;
+        while (matcher.find()) {
+            String token = matcher.group();
+            String lowered = token.toLowerCase(Locale.ROOT);
+            boolean acronymOrCode = token.codePoints().anyMatch(Character::isDigit)
+                    || token.length() >= 2 && token.equals(token.toUpperCase(Locale.ROOT));
+            if (!FUNCTION_WORDS.contains(lowered) && (token.length() >= 3 || acronymOrCode)) {
+                hasInformativeToken = true;
+                break;
+            }
+        }
+        return hasInformativeToken || discard(location, "no informative location token after platform boundary");
+    }
+
+    private static boolean discard(CleanedLocation location, String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_BOUNDARY] discarded non-location candidate raw="
+                + location.raw() + " cleaned=" + location.text() + " reason=" + reason);
+        return false;
     }
 
     private record Rule(Pattern pattern, AlertLocationSemanticRole semanticRole, double confidence) {
@@ -177,11 +221,17 @@ public class SimpleAlertLocationMentionExtractor {
             if (!matcher.find()) {
                 return Optional.empty();
             }
-            String rawText = cleanLocationText(matcher.group(1));
-            if (rawText.isBlank()) {
+            CleanedLocation cleanedLocation = cleanLocationText(matcher.group(1));
+            if (!isMeaningfulLocationCandidate(cleanedLocation)) {
                 return Optional.empty();
             }
-            return Optional.of(new AlertLocationMention(rawText, semanticRole, confidence));
+            return Optional.of(new AlertLocationMention(cleanedLocation.text(), semanticRole, confidence));
+        }
+    }
+
+    private record CleanedLocation(String raw, String text, String boundaryToken) {
+        boolean boundaryDetected() {
+            return boundaryToken != null;
         }
     }
 }

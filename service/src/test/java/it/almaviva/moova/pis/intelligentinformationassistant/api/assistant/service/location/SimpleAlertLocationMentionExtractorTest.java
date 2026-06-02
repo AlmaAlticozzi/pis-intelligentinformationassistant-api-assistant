@@ -205,4 +205,34 @@ class SimpleAlertLocationMentionExtractorTest {
                         .extracting(AlertLocationMention::rawText)
                         .isEqualTo(location));
     }
+
+    @Test
+    void platformOnlyPromptsDoNotProduceLocationMentions() {
+        List<String> prompts = List.of(
+                "Avvertimi quando una corsa parte da un binario con una lettera",
+                "Avvertimi quando un treno \u00e8 in partenza da binario maggiore di 5",
+                "Avvertimi quando una corsa arriva a un binario compreso tra 3 e 8",
+                "Notify me when a train departs from a platform with a letter",
+                "Notify me when a train departs from track greater than 5",
+                "Alerte-moi quand un train part d'une voie avec une lettre",
+                "Av\u00edsame cuando un tren sale de una plataforma con letra",
+                "Informiere mich, wenn ein Zug von einem Gleis mit Buchstabe abf\u00e4hrt");
+
+        assertThat(prompts).allSatisfy(prompt ->
+                assertThat(extractor.extract(prompt).mentions()).as(prompt).isEmpty());
+    }
+
+    @Test
+    void meaningfulLocationsRemainAvailableAroundPlatformConstraints() {
+        Map<String, String> promptsByLocation = Map.of(
+                "Lunigiana", "Avvertimi quando una corsa parte da Lunigiana da un binario pari",
+                "Rho Fieramilano", "Avvertimi quando una corsa parte da Rho Fieramilano dal binario 2",
+                "Garibaldi", "Notify me when a train arrives at Garibaldi on platform 1",
+                "Genova P.P", "Avvertimi quando un treno viene spostato dal binario 5 al binario 7 o 8 a Genova P.P.");
+
+        assertThat(promptsByLocation).allSatisfy((location, prompt) ->
+                assertThat(extractor.extract(prompt).mentions()).singleElement()
+                        .extracting(AlertLocationMention::rawText)
+                        .isEqualTo(location));
+    }
 }
