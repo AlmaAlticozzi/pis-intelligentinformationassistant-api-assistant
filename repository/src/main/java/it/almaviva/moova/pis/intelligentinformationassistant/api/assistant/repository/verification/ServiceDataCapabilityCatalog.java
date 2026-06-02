@@ -323,7 +323,7 @@ public final class ServiceDataCapabilityCatalog {
         StringBuilder builder = new StringBuilder();
         builder.append("Location resolution guidance: use stopPoint.id when a user location has been resolved ")
                 .append("to one or more PIS point ids from points.json; use EQUALS for one resolved id and IN ")
-                .append("for multiple resolved candidate ids; use nameLong/nameShort CONTAINS_NORMALIZED only ")
+                .append("for multiple resolved candidate ids; use NOT_IN to exclude resolved candidate ids; use nameLong/nameShort CONTAINS_NORMALIZED only ")
                 .append("as fallback when no resolved id exists.")
                 .append('\n');
         for (FieldCapability field : FIELDS) {
@@ -376,7 +376,7 @@ public final class ServiceDataCapabilityCatalog {
         return field(
                 field,
                 FieldType.STOP_POINT_ID,
-                ops("EQUALS", "IN"),
+                ops("EQUALS", "IN", "NOT_IN"),
                 List.of(),
                 "Stable PIS stop point identifier resolved from points.json",
                 "location",

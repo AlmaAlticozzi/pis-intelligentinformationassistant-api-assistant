@@ -330,14 +330,14 @@ public class AgentBlueprintValidator {
             }
             return;
         }
-        if ("IN".equals(operator)) {
+        if ("IN".equals(operator) || "NOT_IN".equals(operator)) {
             Object values = leaf.get("values");
             if (!(values instanceof List<?> ids) || ids.isEmpty()) {
-                errors.add(path + ": stopPoint.id IN requires a non-empty values array for " + field);
+                errors.add(path + ": stopPoint.id " + operator + " requires a non-empty values array for " + field);
                 return;
             }
             if (!ids.stream().allMatch(value -> value instanceof String id && !id.isBlank())) {
-                errors.add(path + ": stopPoint.id IN requires only non-empty string values for " + field);
+                errors.add(path + ": stopPoint.id " + operator + " requires only non-empty string values for " + field);
             }
             return;
         }

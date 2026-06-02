@@ -101,7 +101,7 @@ class ServiceDataCapabilityCatalogTest {
 
     @Test
     void stringBooleanEnumNumberAndEnumArrayOperatorsAreCoherent() {
-        assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "IN");
+        assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "IN", "NOT_IN");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
                 "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", "EQUALS");
@@ -138,10 +138,11 @@ class ServiceDataCapabilityCatalogTest {
     }
 
     @Test
-    void catalogAllowsEqualsAndInOnAllStopPointIdFields() {
+    void catalogAllowsEqualsInAndNotInOnAllStopPointIdFields() {
         assertThat(STOP_POINT_ID_FIELDS).allSatisfy(field -> {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS")).as(field).isTrue();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "IN")).as(field).isTrue();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "NOT_IN")).as(field).isTrue();
         });
     }
 
@@ -214,6 +215,7 @@ class ServiceDataCapabilityCatalogTest {
         assertThat(ServiceDataCapabilityCatalog.compactPromptCatalog())
                 .contains("use stopPoint.id when a user location has been resolved")
                 .contains("use EQUALS for one resolved id")
+                .contains("use NOT_IN to exclude resolved candidate ids")
                 .contains("use nameLong/nameShort CONTAINS_NORMALIZED only as fallback")
                 .contains("payload.ongroundServiceEvent.stopPoint.id")
                 .contains("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id");

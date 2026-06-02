@@ -60,6 +60,33 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptContainsPlatformSemanticsAndCorrelatedExamples() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("platform is not a location")
+                .contains("EQUAL_PLATFORM")
+                .contains("IN_PLATFORMS")
+                .contains("NOT_IN_PLATFORMS")
+                .contains("Use the same anyElement for stopPoint and platform")
+                .contains("Do not use CONTAINS for platform")
+                .contains("\"field\":\"timetabledArrivalPlatform.dsc\",\"operator\":\"EQUAL_PLATFORM\",\"value\":\"1\"")
+                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"IN_PLATFORMS\",\"values\":[\"1\",\"4\"]")
+                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"NOT_IN_PLATFORMS\",\"values\":[\"1\",\"12\"]");
+    }
+
+    @Test
+    void promptDefaultsHumanPlatformsToTimetabledFieldsAndLimitsActualFields() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure")
+                .contains("Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks")
+                .contains("Do not compare human platform values with platform technical id fields")
+                .contains("Do not use payload.ongroundServiceEvent.stopPoint.id as the sole location constraint");
+    }
+
+    @Test
     void promptStatesInRequiresValuesArray() {
         LlmRequest request = builder().build(promptData());
 

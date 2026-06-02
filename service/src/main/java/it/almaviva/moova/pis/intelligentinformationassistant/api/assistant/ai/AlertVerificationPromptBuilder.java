@@ -160,6 +160,10 @@ public class AlertVerificationPromptBuilder {
         return """
                 ServiceData Capability Catalog:
                 %s
+                Platform catalog guidance:
+                - For user-facing binario/platform/quay/banchina/marciapiede/tronco values, use only platform description fields ending in .dsc with EQUAL_PLATFORM, NOT_EQUAL_PLATFORM, IN_PLATFORMS or NOT_IN_PLATFORMS.
+                - Never use platform technical id fields for user-facing platform matching.
+                - Do not invent fields that are absent from the ServiceData Capability Catalog.
                 """.formatted(ServiceDataCapabilityCatalog.compactPromptCatalog());
     }
 
@@ -167,6 +171,11 @@ public class AlertVerificationPromptBuilder {
         return """
                 Semantic interpretation rules:
                 - Interpret natural language semantically before choosing DSL operators.
+                - platform is not a location: binario, platform, quay, banchina, marciapiede and tronco constraints are separate from stop-point location constraints.
+                - "arriva a Garibaldi sul binario 1" means location Garibaldi plus arrival platform 1. The platform boundary must not become part of the location.
+                - Arrival wording such as "arriva", "arrivo" or "in arrivo" selects arrival event/status and arrival platform fields.
+                - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
+                - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
                 - "non si ferma" / "passing through" is supported when mapped to passingType = TRANSIT.
                 - "weekend" and "fine settimana" mean SATURDAY plus SUNDAY.
                 - "non il weekend" and "escluso weekend" mean LOCAL_DAY_OF_WEEK_NOT_IN with days ["SATURDAY","SUNDAY"].
@@ -207,6 +216,12 @@ public class AlertVerificationPromptBuilder {
                 - For operator CONTAINS, use "value".
                 - For operator CONTAINS_ANY, use "values": [...].
                 - Do not generate IN with empty values.
+                - Use EQUAL_PLATFORM or NOT_EQUAL_PLATFORM with a non-empty "value" for one human platform value.
+                - Use IN_PLATFORMS or NOT_IN_PLATFORMS with a non-empty "values" array for multiple human platform values.
+                - If the user says only binario/platform/quay/banchina/marciapiede/tronco plus a human value, use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure.
+                - Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks for a real, confirmed, effective, current, monitored or updated platform, or for a platform change or movement.
+                - Do not use CONTAINS for platform. Do not simulate human platform matching with CONTAINS, CONTAINS_IGNORE_CASE or CONTAINS_NORMALIZED.
+                - Do not compare human platform values with platform technical id fields.
                 - If only one enum value is needed, prefer EQUALS unless the catalog or semantics require IN.
                 - If multiple enum values are acceptable, use IN with non-empty values.
                 - For EXISTS, NOT_NULL, NOT_EMPTY no value is required when the operator is allowed by the catalog.
@@ -240,6 +255,10 @@ public class AlertVerificationPromptBuilder {
                 Array correlation rules:
                 - If multiple constraints must match the same ServiceData array element, use anyElement with that array path and relative fields inside conditions.
                 - Inside anyElement, fields are relative to the same array item.
+                - Use the same anyElement for stopPoint and platform when both constraints refer to the same stop: path payload.stopPointJourney.stopPointsJourneyDetails[].
+                - For arrival, correlate timetabledCallEnd.stopPoint.id or callEnd.stopPoint.id with timetabledArrivalPlatform.dsc inside that same anyElement.
+                - For departure, correlate timetabledCallStart.stopPoint.id or callStart.stopPoint.id with timetabledDeparturePlatform.dsc inside that same anyElement.
+                - Do not use payload.ongroundServiceEvent.stopPoint.id as the sole location constraint when a platform constraint inside stopPointsJourneyDetails[] refers to the same stop.
                 - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
                 - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
                 - Outer path must be payload.stopPointJourney.stopPointsJourneyDetails[].
@@ -367,6 +386,34 @@ public class AlertVerificationPromptBuilder {
                     }
                   }
                 }
+                Decision: VERIFIED
+
+                Positive example - arrival platform correlated with resolved location:
+                Prompt: "Avvertimi quando un treno arriva a Garibaldi sul binario 1"
+                Meaning: location Garibaldi plus arrival platform 1.
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallEnd.stopPoint.id","operator":"EQUALS","value":"<resolvedGaribaldiStopPointId>"},
+                  {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
+                ]}}}
+                Decision: VERIFIED
+
+                Positive example - departure platforms correlated with resolved locations:
+                Prompt: "Avvertimi quando una corsa parte da Buonarroti o Malpensa dal binario 1 o 4"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallStart.stopPoint.id","operator":"IN","values":["<resolvedBuonarrotiStopPointId>","<resolvedMalpensaStopPointId>"]},
+                  {"field":"timetabledDeparturePlatform.dsc","operator":"IN_PLATFORMS","values":["1","4"]}
+                ]}}}
+                Decision: VERIFIED
+
+                Positive example - excluded departure locations and platforms:
+                Prompt: "Avvertimi quando una corsa e in partenza da localita diversa da Cairoli, Cascina, San Donato e non dal binario 1 o 12"
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[
+                  {"field":"timetabledCallStart.stopPoint.id","operator":"NOT_IN","values":["<resolvedCairoliStopPointId>","<resolvedCascinaStopPointId>","<resolvedSanDonatoStopPointId>"]},
+                  {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
+                ]}}}
                 Decision: VERIFIED
 
                 Negative example - do not add timestamp existence for transit stop:

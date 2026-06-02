@@ -30,7 +30,7 @@ public class AgentGenerationCapabilityCatalog {
             "CONTAINS", "CONTAINS_ANY", "CONTAINS_IGNORE_CASE", "CONTAINS_NORMALIZED",
             "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "NOT_EQUALS",
             "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL",
-            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "LOCAL_TIME_BETWEEN",
+            "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "NOT_IN", "LOCAL_TIME_BETWEEN",
             "LOCAL_DAY_OF_WEEK_IN", "LOCAL_DAY_OF_WEEK_NOT_IN",
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS");
     private static final Set<String> DSL_LOGICAL_NODES = orderedSet("all", "any", "anyElement");

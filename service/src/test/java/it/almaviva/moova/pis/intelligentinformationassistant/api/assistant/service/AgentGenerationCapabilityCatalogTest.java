@@ -27,6 +27,7 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedDslOperator("LESS_OR_EQUAL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_NULL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_EMPTY")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("NOT_IN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_TIME_BETWEEN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_IN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LOCAL_DAY_OF_WEEK_NOT_IN")).isTrue();

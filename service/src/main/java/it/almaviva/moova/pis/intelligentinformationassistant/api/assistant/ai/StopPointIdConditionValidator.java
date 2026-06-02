@@ -30,7 +30,7 @@ final class StopPointIdConditionValidator {
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][POINT_ID] field=" + field
                 + " operator=" + operator + " ids=" + ids);
 
-        if (!"EQUALS".equals(operator) && !"IN".equals(operator)) {
+        if (!"EQUALS".equals(operator) && !"IN".equals(operator) && !"NOT_IN".equals(operator)) {
             return Result.invalid("operator is not allowed for stopPoint id field.");
         }
         if ("EQUALS".equals(operator)) {
@@ -42,12 +42,12 @@ final class StopPointIdConditionValidator {
         }
         Object values = leaf.get("values");
         if (!(values instanceof List<?> valueList) || valueList.isEmpty()) {
-            return Result.invalid("stopPoint id IN requires a non-empty values array.");
+            return Result.invalid("stopPoint id " + operator + " requires a non-empty values array.");
         }
         List<String> stringIds = new ArrayList<>();
         for (Object value : valueList) {
             if (!(value instanceof String id) || id.isBlank()) {
-                return Result.invalid("stopPoint id IN requires only non-empty string values.");
+                return Result.invalid("stopPoint id " + operator + " requires only non-empty string values.");
             }
             stringIds.add(id.trim());
         }
@@ -55,7 +55,7 @@ final class StopPointIdConditionValidator {
     }
 
     private List<String> extractIds(String operator, Map<?, ?> leaf) {
-        if ("IN".equals(operator) && leaf.get("values") instanceof List<?> values) {
+        if (List.of("IN", "NOT_IN").contains(operator) && leaf.get("values") instanceof List<?> values) {
             return values.stream()
                     .map(String::valueOf)
                     .toList();

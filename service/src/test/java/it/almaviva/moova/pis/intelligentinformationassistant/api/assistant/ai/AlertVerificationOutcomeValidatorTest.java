@@ -57,6 +57,19 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsNotInOnKnownResolvedStopPointIds() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_IN",
+                        "values", List.of(MALPENSA_T1_ID, MALPENSA_T2_ID)))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsContainsNormalizedOnStopPointId() {
         String field = "payload.ongroundServiceEvent.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
