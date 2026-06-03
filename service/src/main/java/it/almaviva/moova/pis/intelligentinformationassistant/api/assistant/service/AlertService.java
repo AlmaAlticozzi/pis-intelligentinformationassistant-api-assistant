@@ -130,6 +130,9 @@ public class AlertService {
     @ConfigProperty(name = "iia.alert-verification.location-understanding.enabled", defaultValue = "false")
     boolean locationUnderstandingEnabled;
 
+    @ConfigProperty(name = "fnd.default-schema", defaultValue = "")
+    String defaultSchema;
+
     @ConfigProperty(name = "iia.agent-generation-preview.use-llm", defaultValue = "false")
     boolean agentGenerationPreviewUseLlm;
 
@@ -410,6 +413,7 @@ public class AlertService {
     }
 
     public AlertDetail createAlert(AlertCreateRequest request) {
+        logCreateTenantDebug("before-save", null);
         if (!Boolean.TRUE.equals(request.getVerifyImmediately())) {
             AlertDetail createdAlert = createDraftAlertInNewTransaction(request);
             System.out.println("[IIA][ALERT_CREATE] Alert created as DRAFT because verifyImmediately=false alertId=" + createdAlert.getId());
@@ -874,13 +878,17 @@ public class AlertService {
     }
 
     private void scheduleAsyncVerification(String alertId, boolean enableAfterVerification) {
-        String tenantId = resolveTenantIdForAsyncVerification(alertId);
+        ResolvedAsyncTenant tenant = resolveTenantIdForAsyncVerification(alertId);
+        System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] before scheduling async verification alertId=" + alertId
+                + " capturedTenant=" + safeTenant(tenant.tenantId())
+                + " capturedTenantSource=" + tenant.source()
+                + " defaultSchemaFallback=" + normalizedDefaultSchema());
         managedExecutor.runAsync(() -> alertAsyncVerificationService.verifyCreatedAlertAsync(
-                        alertId, enableAfterVerification, tenantId))
+                        alertId, enableAfterVerification, tenant.tenantId()))
                 .exceptionally(ex -> {
                     String shortMessage = shortTechnicalMessage(ex);
                     System.out.println("[IIA][ALERT_VERIFY][ASYNC_ERROR] alertId=" + alertId + " error=" + shortMessage);
-                    alertAsyncVerificationService.markCreatedAlertVerificationError(alertId, shortMessage, tenantId);
+                    alertAsyncVerificationService.markCreatedAlertVerificationError(alertId, shortMessage, tenant.tenantId());
                     System.out.println("[IIA][ALERT_CREATE] finalStatus=ERROR enabled=false");
                     return null;
                 });
@@ -966,7 +974,7 @@ public class AlertService {
         System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);
     }
 
-    private String resolveTenantIdForAsyncVerification(String alertId) {
+    private ResolvedAsyncTenant resolveTenantIdForAsyncVerification(String alertId) {
         String tenantId = tenantContext == null ? null : tenantContext.getTenantId();
         String source = "tenantContext";
         if ((tenantId == null || tenantId.isBlank())
@@ -976,10 +984,60 @@ public class AlertService {
             tenantId = tenantResolver.get().resolveTenantId();
             source = "hibernateResolver";
         }
+        if (tenantId == null || tenantId.isBlank()) {
+            tenantId = normalizedDefaultSchema();
+            source = tenantId == null ? "none" : "defaultSchema";
+        }
         System.out.println("[IIA][ALERT_VERIFY][TENANT] async tenant captured alertId=" + alertId
                 + " source=" + source
                 + " present=" + (tenantId != null && !tenantId.isBlank()));
-        return tenantId;
+        System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] async tenant captured alertId=" + alertId
+                + " source=" + source
+                + " tenant=" + safeTenant(tenantId)
+                + " defaultSchemaFallback=" + normalizedDefaultSchema());
+        return new ResolvedAsyncTenant(tenantId, source);
+    }
+
+    private void logCreateTenantDebug(String phase, String alertId) {
+        System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] createAlert " + phase
+                + " alertId=" + safeAlertId(alertId)
+                + " requestContextActive=" + requestContextActive()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " tenant=" + safeTenant(currentTenantId())
+                + " defaultSchema=" + normalizedDefaultSchema()
+                + " x-wtf-profile=<not-accessed>"
+                + " securityPrincipal=<not-accessed>");
+    }
+
+    private String currentTenantId() {
+        if (tenantContext == null) {
+            return null;
+        }
+        String tenantId = tenantContext.getTenantId();
+        return tenantId == null || tenantId.isBlank() ? null : tenantId;
+    }
+
+    private String normalizedDefaultSchema() {
+        return defaultSchema == null || defaultSchema.isBlank() ? null : defaultSchema.trim();
+    }
+
+    private String safeTenant(String tenantId) {
+        return tenantId == null || tenantId.isBlank() ? "<none>" : tenantId;
+    }
+
+    private String safeAlertId(String alertId) {
+        return alertId == null || alertId.isBlank() ? "<not-created-yet>" : alertId;
+    }
+
+    private boolean requestContextActive() {
+        try {
+            return io.quarkus.arc.Arc.container().requestContext().isActive();
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private record ResolvedAsyncTenant(String tenantId, String source) {
     }
 
     private boolean isTenantContextFailure(String message) {

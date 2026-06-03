@@ -203,6 +203,27 @@ class AlertServiceTest {
     }
 
     @Test
+    void createWithVerifyImmediatelyTrueFallsBackToDefaultSchemaForAsyncVerification() {
+        AlertService service = spy(new AlertService());
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
+        service.managedExecutor = managedExecutor;
+        service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
+        service.defaultSchema = "pis_intelligentinformationassistant";
+        AlertCreateRequest request = createRequest(true, true);
+        AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
+        doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return CompletableFuture.completedFuture(null);
+        }).when(managedExecutor).runAsync(any(Runnable.class));
+
+        service.createAlert(request);
+
+        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync(
+                "ALRT1", true, "pis_intelligentinformationassistant");
+    }
+
+    @Test
     void createWithVerifyImmediatelyTrueDoesNotBlockForRejectedResult() {
         AlertService service = spy(new AlertService());
         ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
