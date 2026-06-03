@@ -10,6 +10,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
+import jakarta.enterprise.context.control.RequestContextController;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.SystemException;
@@ -34,6 +35,9 @@ public class AlertAsyncVerificationService {
     @Inject
     TransactionManager transactionManager;
 
+    @Inject
+    RequestContextController requestContextController;
+
     @ConfigProperty(name = "fnd.default-schema", defaultValue = "")
     String defaultSchema;
 
@@ -44,15 +48,25 @@ public class AlertAsyncVerificationService {
 
     @ActivateRequestContext
     public void verifyCreatedAlertAsync(String alertId, boolean enableAfterVerification, String propagatedTenantId) {
+        System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] async task entry alertId=" + alertId
+                + " requestContextActive=" + requestContextActive()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " propagatedTenant=" + safeTenant(normalize(propagatedTenantId)));
+        boolean requestContextActivated = activateRequestContextIfNeeded(alertId);
         boolean tenantInstalled = installTenantIfNeeded(alertId, propagatedTenantId);
         System.out.println("[IIA][ALERT_VERIFY][ASYNC] Started async verification alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] started alertId=" + alertId
                 + " enableAfterVerification=" + enableAfterVerification
-                + " tenantPresent=" + (currentTenantId() != null));
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " requestContextActive=" + requestContextActive());
         try {
             if (currentTenantId() == null) {
                 throw new MissingTenantContextException("Alert verification failed because tenant context is missing during asynchronous verification and no default schema fallback is configured.");
             }
+            System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] before alertService.verifyAlert alertId=" + alertId
+                    + " requestContextActive=" + requestContextActive()
+                    + " tenantPresent=" + (currentTenantId() != null)
+                    + " transactionActive=" + transactionActive());
             AlertDetail finalAlert = verifyAndApplyEnableInNewTransaction(alertId, enableAfterVerification);
             System.out.println("[IIA][ALERT_VERIFY][ASYNC] Completed async verification alertId="
                     + alertId
@@ -83,6 +97,12 @@ public class AlertAsyncVerificationService {
                 System.out.println("[IIA][ALERT_VERIFY][TENANT] cleared propagated async tenant alertId=" + alertId);
                 System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] cleared propagated async tenant alertId=" + alertId
                         + " tenantPresentAfterClear=" + (currentTenantId() != null));
+            }
+            if (requestContextActivated) {
+                requestContextController.deactivate();
+                System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] deactivated async request context alertId=" + alertId
+                        + " requestContextActive=" + requestContextActive()
+                        + " tenantCleared=true");
             }
         }
     }
@@ -154,9 +174,12 @@ public class AlertAsyncVerificationService {
     }
 
     private String shortTechnicalMessage(Throwable throwable) {
-        if (isMissingTenantFailure(throwable)) {
+        if (isMissingTenantFailure(throwable) && currentTenantId() == null) {
             System.out.println("[IIA][ALERT_VERIFY][TENANT] missing tenant context caused async verification failure");
             return "Alert verification failed because tenant context is missing during asynchronous verification.";
+        }
+        if (isHibernateTenantResolverFailure(throwable)) {
+            return "Hibernate tenant resolver returned no tenant because CDI request context is inactive or tenant was not restored in the active request context.";
         }
         String message = throwable.getMessage();
         if ((message == null || message.isBlank()) && throwable.getCause() != null) {
@@ -208,18 +231,41 @@ public class AlertAsyncVerificationService {
         System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] async tenant after propagation alertId=" + alertId
                 + " tenantPresent=" + (currentTenantId() != null)
                 + " tenant=" + safeTenant(currentTenantId())
+                + " requestContextActive=" + requestContextActive()
                 + " source=" + source);
         return true;
+    }
+
+    private boolean activateRequestContextIfNeeded(String alertId) {
+        if (requestContextActive()) {
+            System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] async request context already active alertId=" + alertId
+                    + " requestContextActive=true"
+                    + " tenantPresent=" + (currentTenantId() != null));
+            return false;
+        }
+        if (requestContextController == null) {
+            System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] request context controller unavailable alertId=" + alertId
+                    + " requestContextActive=false");
+            return false;
+        }
+        boolean activated = requestContextController.activate();
+        System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] async request context activated alertId=" + alertId
+                + " activated=" + activated
+                + " requestContextActive=" + requestContextActive()
+                + " tenantPresentBeforeRestore=" + (currentTenantId() != null));
+        return activated;
     }
 
     private void logBeforeRepositoryOperation(String alertId, String operation) {
         System.out.println("[IIA][ALERT_VERIFY][TENANT] before repository operation=" + operation
                 + " alertId=" + alertId
-                + " tenantPresent=" + (currentTenantId() != null));
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " requestContextActive=" + requestContextActive());
         System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] before repository operation=" + operation
                 + " alertId=" + alertId
                 + " tenantPresent=" + (currentTenantId() != null)
                 + " tenant=" + safeTenant(currentTenantId())
+                + " requestContextActive=" + requestContextActive()
                 + " defaultSchemaFallback=" + normalizedDefaultSchema());
     }
 
@@ -243,7 +289,7 @@ public class AlertAsyncVerificationService {
         return tenantId == null || tenantId.isBlank() ? "<none>" : tenantId;
     }
 
-    private boolean requestContextActive() {
+    protected boolean requestContextActive() {
         try {
             return io.quarkus.arc.Arc.container().requestContext().isActive();
         } catch (RuntimeException ex) {
@@ -289,6 +335,19 @@ public class AlertAsyncVerificationService {
                     && (message.contains("tenant identifier")
                     || message.contains("multi-tenancy")
                     || message.contains("tenant context is missing"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isHibernateTenantResolverFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null
+                    && message.contains("SessionFactory configured for multi-tenancy, but no tenant identifier specified")) {
                 return true;
             }
             current = current.getCause();

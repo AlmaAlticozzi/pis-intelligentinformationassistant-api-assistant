@@ -444,6 +444,10 @@ public class AlertService {
     }
 
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
+        System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] AlertService.verifyAlert entry alertId=" + alertId
+                + " requestContextActive=" + requestContextActive()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " transactionActive=" + transactionActive());
         Optional<AlertVerificationPromptData> promptData = alertRepository.getAlertVerificationPromptData(alertId);
         if (promptData.isEmpty()) {
             return Optional.empty();
