@@ -99,16 +99,16 @@ public class AlertAsyncVerificationService {
     }
 
     protected AlertDetail verifyAndApplyEnableInNewTransaction(String alertId, boolean enableAfterVerification) {
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_CONTEXT] before LLM requestContextActive="
+                + io.quarkus.arc.Arc.container().requestContext().isActive());
+        AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
+                .force(Boolean.FALSE);
+        logBeforeRepositoryOperation(alertId, "verifyAlert");
+        AlertDetail verifiedAlert = alertService.verifyAlert(alertId, verificationRequest)
+                .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
+        AlertStatus status = verifiedAlert.getStatus();
+        boolean enabled = AlertStatus.VERIFIED.equals(status) && enableAfterVerification;
         return QuarkusTransaction.requiringNew().call(() -> {
-            System.out.println("[IIA][ALERT_VERIFY][ASYNC_CONTEXT] before LLM requestContextActive="
-                    + io.quarkus.arc.Arc.container().requestContext().isActive());
-            AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
-                    .force(Boolean.FALSE);
-            logBeforeRepositoryOperation(alertId, "verifyAlert");
-            AlertDetail verifiedAlert = alertService.verifyAlert(alertId, verificationRequest)
-                    .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
-            AlertStatus status = verifiedAlert.getStatus();
-            boolean enabled = AlertStatus.VERIFIED.equals(status) && enableAfterVerification;
             logBeforeRepositoryOperation(alertId, "updateAlertEnabledAfterCreateVerification");
             return alertRepository.updateAlertEnabledAfterCreateVerification(alertId, enabled)
                     .orElse(verifiedAlert);

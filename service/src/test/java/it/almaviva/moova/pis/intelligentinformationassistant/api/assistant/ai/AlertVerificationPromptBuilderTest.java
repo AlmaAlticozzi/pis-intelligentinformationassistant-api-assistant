@@ -91,6 +91,67 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptRejectsUnresolvedExcludedLocationWithoutSafeNegativeFallback() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                true,
+                List.of(new AlertVerificationLocationContext.LocationResolution(
+                        "Bologna",
+                        "Bologna",
+                        "DESTINATION_LOCATION",
+                        "DESTINATION_CONSTRAINT",
+                        true,
+                        "EXCLUDE",
+                        "G1",
+                        0.86,
+                        "UNRESOLVED",
+                        List.of(),
+                        List.of(),
+                        true,
+                        true,
+                        0.0,
+                        "Location unresolved; textual fallback is allowed with lower confidence.",
+                        List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id"))),
+                List.of(),
+                List.of());
+
+        LlmRequest request = builder().build(promptDataWithLocation(context));
+
+        assertThat(request.userPrompt())
+                .contains("polarity: EXCLUDE")
+                .contains("status: UNRESOLVED")
+                .contains("For polarity=EXCLUDE and UNRESOLVED locations, use a negative textual fallback only if the catalog explicitly supports a negative operator")
+                .contains("Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort")
+                .contains("Expected decision: REJECTED when no safe negative textual fallback exists")
+                .contains("Excluded destination location 'Bologna' could not be resolved to stopPoint ids");
+    }
+
+    @Test
+    void promptUsesMainEventIntentArrivalForPlatformDirection() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                true,
+                List.of(richResolution(
+                        "Pescara",
+                        "MAIN_EVENT_LOCATION",
+                        "INCLUDE",
+                        List.of("payload.stopPointJourney.stopPoint.id",
+                                "payload.ongroundServiceEvent.stopPoint.id"))),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("PLATFORM", "binario 1"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL")),
+                List.of());
+
+        LlmRequest request = builder().build(promptDataWithLocation(context));
+
+        assertThat(request.userPrompt())
+                .contains("type: MAIN_EVENT_INTENT, rawText: \"ARRIVAL\"")
+                .contains("If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL")
+                .contains("Do not generate DEPARTING/DEPARTED or departure platform fields")
+                .contains("use timetabledArrivalPlatform.dsc with EQUAL_PLATFORM")
+                .contains("\"field\":\"timetabledArrivalPlatform.dsc\",\"operator\":\"EQUAL_PLATFORM\",\"value\":\"1\"");
+    }
+
+    @Test
     void promptContainsPlatformFieldComparisonAndMovementSemantics() {
         LlmRequest request = builder().build(promptData());
 
@@ -269,7 +330,7 @@ class AlertVerificationPromptBuilderTest {
                 .contains("rawText: \"Genova Nervi\"")
                 .contains("status: UNRESOLVED")
                 .contains("fallback: use nameLong CONTAINS_NORMALIZED")
-                .contains("If a location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence");
+                .contains("If an INCLUDE location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence");
     }
 
     @Test
@@ -360,7 +421,7 @@ class AlertVerificationPromptBuilderTest {
                 .contains("Location unresolved.")
                 .contains("Expected condition may use nameLong CONTAINS_NORMALIZED \"Genova Nervi\"")
                 .contains("Expected warning and low confidence; requirementCoverage must mention fallback text matching")
-                .contains("UNRESOLVED -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence");
+                .contains("UNRESOLVED INCLUDE -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence");
     }
 
     @Test

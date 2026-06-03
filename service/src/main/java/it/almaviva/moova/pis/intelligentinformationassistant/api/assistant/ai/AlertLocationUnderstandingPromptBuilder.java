@@ -42,7 +42,10 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
                 - Distinguish the main event location, journey origin, journey destination, route or next-call locations, transit locations, cancelled/suppressed call locations, replacement locations, and generic locations when the role is uncertain.
-                - If a location is necessary to satisfy the user request, requiredCoverage must be true.
+                - If a location is an operational user constraint, requiredCoverage must be true.
+                - Negated or excluded locations are still mandatory user constraints: use requiredCoverage=true and polarity=EXCLUDE.
+                - Do not set requiredCoverage=false just because polarity=EXCLUDE.
+                - Use requiredCoverage=false only for non-operational, ambiguous, descriptive, or non-binding mentions.
                 - If a location is negated or excluded, polarity must be EXCLUDE. Otherwise use INCLUDE.
                 - If several locations are alternatives, use the same logicalGroup value.
                 - Provide confidence for mainEvent and for every location, as a number from 0.0 to 1.0.

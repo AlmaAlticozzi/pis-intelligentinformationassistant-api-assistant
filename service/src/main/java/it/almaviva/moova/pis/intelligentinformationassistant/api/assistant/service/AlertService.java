@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationPolarity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
@@ -432,7 +433,6 @@ public class AlertService {
         return createdAlert;
     }
 
-    @Transactional
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request) {
         Optional<AlertVerificationPromptData> promptData = alertRepository.getAlertVerificationPromptData(alertId);
         if (promptData.isEmpty()) {
@@ -578,14 +578,26 @@ public class AlertService {
         AlertVerificationLocationContext context = new AlertVerificationLocationContext(
                 understanding.hasLocations(),
                 promptResolutions,
+                semanticNonLocationConstraints(understanding),
+                understanding.warnings());
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] semanticContext=" + context);
+        return context;
+    }
+
+    private List<AlertVerificationLocationContext.NonLocationConstraint> semanticNonLocationConstraints(
+            AlertLocationUnderstandingResult understanding) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> constraints = new ArrayList<>(
                 understanding.nonLocationConstraints().stream()
                         .map(constraint -> new AlertVerificationLocationContext.NonLocationConstraint(
                                 constraint.type().name(),
                                 constraint.rawText()))
-                        .toList(),
-                understanding.warnings());
-        System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] semanticContext=" + context);
-        return context;
+                        .toList());
+        if (understanding.mainEvent() != null && understanding.mainEvent().eventIntent() != null) {
+            constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                    "MAIN_EVENT_INTENT",
+                    understanding.mainEvent().eventIntent().name()));
+        }
+        return constraints;
     }
 
     private String resolutionText(AlertLocationUnderstandingLocation location) {
@@ -667,7 +679,7 @@ public class AlertService {
                 location.normalizedText(),
                 location.role().name(),
                 location.relationToMainEvent().name(),
-                location.requiredCoverage(),
+                location.requiredCoverage() || location.polarity() == AlertLocationPolarity.EXCLUDE,
                 location.polarity().name(),
                 location.logicalGroup(),
                 location.confidence(),

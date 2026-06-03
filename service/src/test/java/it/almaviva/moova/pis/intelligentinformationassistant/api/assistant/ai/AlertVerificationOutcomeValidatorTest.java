@@ -153,6 +153,20 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsNegativeTextualDestinationFallbackWithUnsupportedOperator() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_EQUAL",
+                        "value", "Bologna"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("operator is not allowed");
+    }
+
+    @Test
     void validatorRejectsResolvedLocationUsingNameLongIfYouImplementedBlockingRule() {
         String field = "payload.ongroundServiceEvent.stopPoint.nameLong";
         AlertVerificationOutcome base = outcomeWithConditionAndCoverage(Map.of(

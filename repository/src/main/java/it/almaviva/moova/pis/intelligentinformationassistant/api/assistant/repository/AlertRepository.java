@@ -99,6 +99,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return alert.map(this::toAlertDetail);
     }
 
+    @Transactional
     public Optional<AlertVerificationPromptData> getAlertVerificationPromptData(String alertId) {
         return find("codAlert = ?1 and dtDeletedat is null", alertId)
                 .firstResultOptional()
@@ -186,6 +187,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return true;
     }
 
+    @Transactional
     public Optional<AlertDetail> verifyAlert(String alertId, AlertVerificationRequest request, AlertVerificationOutcome outcome) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {
@@ -389,6 +391,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return toAlertDetailForVerification(alert);
     }
 
+    @Transactional
     public Optional<AlertDetail> updateAlertEnabledAfterCreateVerification(String alertId, boolean enabled) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {
@@ -426,6 +429,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return Optional.of(toAlertDetail(alert));
     }
 
+    @Transactional
     public Optional<AlertDetail> markAlertVerificationTechnicalError(String alertId, String warning, String provider, String model) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {

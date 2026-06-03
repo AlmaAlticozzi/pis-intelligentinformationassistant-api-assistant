@@ -176,6 +176,10 @@ public class AlertVerificationPromptBuilder {
                 - "arriva a Garibaldi sul binario 1" means location Garibaldi plus arrival platform 1. The platform boundary must not become part of the location.
                 - Arrival wording such as "arriva", "arrivo" or "in arrivo" selects arrival event/status and arrival platform fields.
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
+                - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL, use arrival semantics: ARRIVED/ARRIVING events, arrival platform fields and arrivalDelay fields. Do not generate DEPARTING/DEPARTED or departure platform fields.
+                - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=DEPARTURE, use departure semantics: DEPARTED/DEPARTING events, departure platform fields and departureDelay fields. Do not generate ARRIVING/ARRIVED or arrival platform fields.
+                - For precise completed arrival wording such as "arriva", prefer payload.ongroundServiceEvent.eventsType CONTAINS ARRIVED. For "in arrivo" or progressive arrival wording, prefer ARRIVING. If truly ambiguous between progress and completion, use ARRIVING/ARRIVED only, never departure events.
+                - For precise completed departure wording such as "parte", prefer payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED. For "in partenza" or progressive departure wording, prefer DEPARTING. If truly ambiguous between progress and completion, use DEPARTING/DEPARTED only, never arrival events.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
                 - Platform numeric/property predicates always require a top-level payload.ongroundServiceEvent.eventsType binding: "in partenza", "si verifica in partenza" and "sta partendo" -> CONTAINS DEPARTING; "parte", "e partita" and "partita" -> CONTAINS DEPARTED; "in arrivo" and "sta arrivando" -> CONTAINS ARRIVING; "arriva", "e arrivata" and "arrivata" -> CONTAINS ARRIVED.
                 - English current-event mapping for platform numeric/property predicates is precise: "departs", "has departed" and "departed" -> CONTAINS DEPARTED; "is departing", "departing" and "about to depart" -> CONTAINS DEPARTING; "arrives", "has arrived" and "arrived" -> CONTAINS ARRIVED; "is arriving", "arriving" and "about to arrive" -> CONTAINS ARRIVING.
@@ -228,6 +232,8 @@ public class AlertVerificationPromptBuilder {
                 - Use only fields/operators from ServiceDataCapabilityCatalog.compactPromptCatalog().
                 - Operators must be allowed for that exact field or relative field.
                 - Do not infer operators not listed in the catalog.
+                - Do not use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.
+                - For excluded unresolved locations, do not invent a negative textual fallback. If the catalog does not support a safe negative textual operator for the exact field, return REJECTED.
                 - Do not use EXISTS, NOT_NULL or NOT_EMPTY unless the catalog allows that operator for that exact field.
                 - Do not use EXISTS on timestamp fields such as passingTime, departureTime, arrivalTime, eventGenerationTime or timetabledCallStart.departureTime.
                 - The existence of an array element is represented by anyElement, not by EXISTS on a timestamp field.
@@ -246,6 +252,8 @@ public class AlertVerificationPromptBuilder {
                 - For a current platform change event, use payload.ongroundServiceEvent.eventsType with CONTAINS DEPARTURE_PLATFORM_CHANGED, CONTAINS ARRIVAL_PLATFORM_CHANGED or CONTAINS_ANY ["DEPARTURE_PLATFORM_CHANGED","ARRIVAL_PLATFORM_CHANGED"] according to the requested direction.
                 - Do not use departureStatuses[].status or arrivalStatuses[].status as the principal signal for a current platform change or movement prompt.
                 - For equality platform operators, if the user says only binario/platform/quay/banchina/marciapiede plus a human value, use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure.
+                - If MAIN_EVENT_INTENT=ARRIVAL and the platform constraint is a simple equality such as "binario 1", use timetabledArrivalPlatform.dsc with EQUAL_PLATFORM unless the user explicitly asks for real/current/effective/updated platform.
+                - If MAIN_EVENT_INTENT=DEPARTURE and the platform constraint is a simple equality such as "binario 1", use timetabledDeparturePlatform.dsc with EQUAL_PLATFORM unless the user explicitly asks for real/current/effective/updated platform.
                 - For numeric/property platform operators, use actualArrivalPlatform.platform.dsc for arrival and actualDeparturePlatform.platform.dsc for departure by default. Use timetabled* only for explicit previsto, programmato, da orario, pianificato, timetabled or scheduled wording.
                 - Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks for a real, confirmed, effective, current, monitored or updated platform, or for a platform change or movement.
                 - Do not use CONTAINS for platform. Do not simulate human platform matching with CONTAINS, CONTAINS_IGNORE_CASE or CONTAINS_NORMALIZED.

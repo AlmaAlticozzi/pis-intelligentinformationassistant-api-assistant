@@ -96,6 +96,30 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void excludedDestinationLocationIsRequiredCoverageEvenWhenUnderstandingMarksItFalse() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(new AlertLocationUnderstandingResult(
+                true,
+                "it",
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.90),
+                List.of(new AlertLocationUnderstandingLocation(
+                        "Bologna",
+                        "Bologna",
+                        AlertLocationRole.DESTINATION_LOCATION,
+                        AlertLocationRelation.DESTINATION_CONSTRAINT,
+                        false,
+                        AlertLocationPolarity.EXCLUDE,
+                        "G1",
+                        0.86)),
+                List.of(),
+                List.of()));
+
+        AlertVerificationLocationContext.LocationResolution bologna = context.resolutions().getFirst();
+        assertThat(bologna.semanticRole()).isEqualTo("DESTINATION_LOCATION");
+        assertThat(bologna.polarity()).isEqualTo("EXCLUDE");
+        assertThat(bologna.requiredCoverage()).isTrue();
+    }
+
+    @Test
     void mapsTransitWithoutTurningItIntoMainEventLocation() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(understanding(
                 location("DUOMO", AlertLocationRole.TRANSIT_LOCATION, AlertLocationRelation.TRANSIT_CONSTRAINT, "G1"),
@@ -133,8 +157,30 @@ class AlertServiceLocationUnderstandingContextTest {
 
         assertThat(context.hasLocationMentions()).isFalse();
         assertThat(context.resolutions()).isEmpty();
-        assertThat(context.nonLocationConstraints()).hasSize(1);
+        assertThat(context.nonLocationConstraints()).hasSize(2);
         assertThat(context.nonLocationConstraints().getFirst().type()).isEqualTo("PLATFORM");
+    }
+
+    @Test
+    void addsMainEventIntentAsNonLocationConstraint() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(new AlertLocationUnderstandingResult(
+                false,
+                "it",
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.80),
+                List.of(),
+                List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                        AlertLocationNonLocationConstraintType.PLATFORM,
+                        "binario 1")),
+                List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .extracting(AlertVerificationLocationContext.NonLocationConstraint::type)
+                .contains("PLATFORM", "MAIN_EVENT_INTENT");
+        assertThat(context.nonLocationConstraints())
+                .anySatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("MAIN_EVENT_INTENT");
+                    assertThat(constraint.rawText()).isEqualTo("ARRIVAL");
+                });
     }
 
     @Test

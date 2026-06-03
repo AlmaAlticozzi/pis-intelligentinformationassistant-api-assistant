@@ -112,12 +112,16 @@ public record AlertVerificationLocationContext(
         section.append("- Non-location constraints such as platform/binario/track/quay are not locations; handle them through the ServiceData catalog.\n");
         section.append("- RESOLVED with one selected candidate -> use EQUALS on the correct stopPoint.id field.\n");
         section.append("- RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field.\n");
-        section.append("- UNRESOLVED -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence.\n");
+        section.append("- For polarity=EXCLUDE and RESOLVED/RESOLVED_AMBIGUOUS locations, use NOT_IN on the correct stopPoint.id field with the resolved ids.\n");
+        section.append("- For polarity=EXCLUDE and UNRESOLVED locations, use a negative textual fallback only if the catalog explicitly supports a negative operator on that exact name field; otherwise return REJECTED.\n");
+        section.append("- Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.\n");
+        section.append("- If an excluded destination location is unresolved and no safe negative textual fallback exists, return REJECTED with a clear reason.\n");
+        section.append("- UNRESOLVED INCLUDE -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence.\n");
         section.append("- NO LOCATION -> do not add any location filter.\n");
         section.append("- If a location has one resolved candidate, use stopPoint.id with EQUALS.\n");
         section.append("- If a location has multiple selected candidates, use stopPoint.id with IN.\n");
         section.append("- Do not use stopPoint.nameLong/nameShort for resolved locations.\n");
-        section.append("- If a location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence.\n");
+        section.append("- If an INCLUDE location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence.\n");
         section.append("- Never invent stopPoint ids.\n");
         section.append("- Never use stopPoint ids not listed in the resolved candidates section.\n");
         section.append("- If the user did not mention a location, do not add any location condition.\n");
@@ -145,6 +149,12 @@ public record AlertVerificationLocationContext(
         section.append("  Expected warning and low confidence; requirementCoverage must mention fallback text matching.\n");
         section.append("- Negative resolved location:\n");
         section.append("  If a location was resolved, do not emit payload.ongroundServiceEvent.stopPoint.nameLong CONTAINS_NORMALIZED \"Rho Fieramilano\".\n");
+        section.append("- Negative unresolved excluded destination:\n");
+        section.append("  User prompt: \"La corsa non deve avere come destinazione Bologna\"\n");
+        section.append("  Location Bologna has polarity=EXCLUDE and status=UNRESOLVED.\n");
+        section.append("  Do not generate timetabledCallEnd.stopPoint.nameLong NOT_EQUAL \"Bologna\" unless NOT_EQUAL is explicitly allowed by the catalog.\n");
+        section.append("  Expected decision: REJECTED when no safe negative textual fallback exists.\n");
+        section.append("  rejectedReason: \"Excluded destination location 'Bologna' could not be resolved to stopPoint ids and the ServiceData catalog does not support a safe negative textual fallback for destination name.\"\n");
     }
 
     private static String nullToEmpty(String value) {

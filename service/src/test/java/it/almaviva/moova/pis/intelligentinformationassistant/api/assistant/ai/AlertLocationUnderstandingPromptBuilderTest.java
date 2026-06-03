@@ -71,4 +71,14 @@ class AlertLocationUnderstandingPromptBuilderTest {
                 .contains("cross-language and multilingual")
                 .contains("do not rely on a closed list of verbs");
     }
+
+    @Test
+    void promptStatesExcludedLocationsRemainRequiredCoverage() {
+        LlmRequest request = builder.build("La corsa non deve avere come destinazione Bologna", "ALRT1");
+
+        assertThat(request.userPrompt())
+                .contains("Negated or excluded locations are still mandatory user constraints")
+                .contains("requiredCoverage=true and polarity=EXCLUDE")
+                .contains("Do not set requiredCoverage=false just because polarity=EXCLUDE");
+    }
 }
