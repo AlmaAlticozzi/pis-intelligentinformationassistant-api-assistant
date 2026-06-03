@@ -48,8 +48,6 @@ quarkus:
       exposed-headers: location
       access-control-max-age: 24H
 
-
-
 iia:
   temporal:
     default-zone: ${IIA_TEMPORAL_DEFAULT_ZONE:Europe/Rome}

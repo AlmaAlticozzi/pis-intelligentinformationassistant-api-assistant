@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
@@ -31,8 +35,11 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationExtractionResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationMention;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolution;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolverService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationSemanticRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationTargetFieldMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PointCandidate;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.SimpleAlertLocationMentionExtractor;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
@@ -82,6 +89,12 @@ public class AlertService {
     AlertLocationResolverService alertLocationResolverService;
 
     @Inject
+    AlertLocationUnderstandingService alertLocationUnderstandingService;
+
+    @Inject
+    AlertLocationTargetFieldMapper alertLocationTargetFieldMapper;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
 
     @Inject
@@ -113,6 +126,9 @@ public class AlertService {
      */
     @ConfigProperty(name = "iia.alert-verification.fallback-on-invalid-llm", defaultValue = "false")
     boolean fallbackOnInvalidLlm;
+
+    @ConfigProperty(name = "iia.alert-verification.location-understanding.enabled", defaultValue = "false")
+    boolean locationUnderstandingEnabled;
 
     @ConfigProperty(name = "iia.agent-generation-preview.use-llm", defaultValue = "false")
     boolean agentGenerationPreviewUseLlm;
@@ -456,6 +472,68 @@ public class AlertService {
 
     private AlertVerificationLocationContext resolveLocationContext(String alertId, String prompt) {
         System.out.println("[IIA][ALERT_VERIFY][LOCATION] alertId=" + alertId + " prompt=" + prompt);
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] alertId=" + alertId
+                + " enabled=" + locationUnderstandingEnabled
+                + " prompt=" + prompt);
+        if (locationUnderstandingEnabled) {
+            Optional<AlertVerificationLocationContext> semanticContext = resolveSemanticLocationContext(alertId, prompt);
+            if (semanticContext.isPresent()) {
+                AlertVerificationLocationContext context = semanticContext.get();
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] finalContext=" + context);
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] compactPromptSection="
+                        + context.compactPromptSection());
+                return context;
+            }
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] falling back to legacy extractor alertId="
+                    + alertId);
+        }
+        return resolveLegacyLocationContext(alertId, prompt);
+    }
+
+    private Optional<AlertVerificationLocationContext> resolveSemanticLocationContext(String alertId, String prompt) {
+        try {
+            AlertLocationUnderstandingService understandingService = alertLocationUnderstandingService == null
+                    ? null
+                    : alertLocationUnderstandingService;
+            if (understandingService == null) {
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] service unavailable alertId=" + alertId);
+                return Optional.empty();
+            }
+            AlertLocationUnderstandingResult understanding = understandingService.understandLocations(prompt, alertId);
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] result=" + understanding);
+            for (AlertLocationUnderstandingLocation location : understanding.locations()) {
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] location rawText="
+                        + location.rawText()
+                        + " role=" + location.role()
+                        + " requiredCoverage=" + location.requiredCoverage()
+                        + " polarity=" + location.polarity()
+                        + " confidence=" + location.confidence());
+            }
+            if (shouldFallbackToLegacy(understanding)) {
+                return Optional.empty();
+            }
+            return Optional.of(toPromptLocationContext(understanding));
+        } catch (RuntimeException ex) {
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] error alertId="
+                    + alertId + " reason=" + shortTechnicalMessage(ex));
+            return Optional.empty();
+        }
+    }
+
+    private boolean shouldFallbackToLegacy(AlertLocationUnderstandingResult understanding) {
+        if (understanding == null) {
+            return true;
+        }
+        if (understanding.hasLocations() || !understanding.nonLocationConstraints().isEmpty()) {
+            return false;
+        }
+        return understanding.warnings().stream()
+                .anyMatch(warning -> warning.contains("LLM response")
+                        || warning.contains("No LlmGateway")
+                        || warning.contains("valid JSON"));
+    }
+
+    private AlertVerificationLocationContext resolveLegacyLocationContext(String alertId, String prompt) {
         SimpleAlertLocationMentionExtractor extractor = alertLocationMentionExtractor == null
                 ? new SimpleAlertLocationMentionExtractor()
                 : alertLocationMentionExtractor;
@@ -472,6 +550,45 @@ public class AlertService {
                 + context.hasLocationMentions() + " resolutions=" + context.resolutions().size());
         System.out.println("[IIA][ALERT_VERIFY][LOCATION] promptSection=" + context.compactPromptSection());
         return context;
+    }
+
+    private AlertVerificationLocationContext toPromptLocationContext(AlertLocationUnderstandingResult understanding) {
+        AlertLocationResolverService resolver = alertLocationResolverService == null
+                ? new AlertLocationResolverService()
+                : alertLocationResolverService;
+        List<AlertLocationMention> mentions = understanding.locations().stream()
+                .map(location -> new AlertLocationMention(
+                        resolutionText(location),
+                        toLegacySemanticRole(location.role()),
+                        location.confidence()))
+                .toList();
+        List<AlertLocationResolution> resolutions = mentions.isEmpty()
+                ? List.of()
+                : resolver.resolve(mentions);
+        List<AlertVerificationLocationContext.LocationResolution> promptResolutions = new ArrayList<>();
+        for (int index = 0; index < understanding.locations().size(); index++) {
+            AlertLocationUnderstandingLocation location = understanding.locations().get(index);
+            AlertLocationResolution resolution = resolutions.get(index);
+            promptResolutions.add(toPromptLocationResolution(location, resolution));
+        }
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                understanding.hasLocations(),
+                promptResolutions,
+                understanding.nonLocationConstraints().stream()
+                        .map(constraint -> new AlertVerificationLocationContext.NonLocationConstraint(
+                                constraint.type().name(),
+                                constraint.rawText()))
+                        .toList(),
+                understanding.warnings());
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] semanticContext=" + context);
+        return context;
+    }
+
+    private String resolutionText(AlertLocationUnderstandingLocation location) {
+        if (location.normalizedText() != null && !location.normalizedText().isBlank()) {
+            return location.normalizedText();
+        }
+        return location.rawText();
     }
 
     private AlertVerificationLocationContext toPromptLocationContext(
@@ -491,7 +608,13 @@ public class AlertService {
                 : resolution.selectedPointIds();
         return new AlertVerificationLocationContext.LocationResolution(
                 resolution.mention().rawText(),
+                "",
                 resolution.mention().semanticRole().name(),
+                "",
+                true,
+                "INCLUDE",
+                "",
+                resolution.mention().confidence(),
                 resolution.pointResolutionResult().status().name(),
                 resolution.pointResolutionResult().candidates().stream()
                         .filter(candidate -> candidate.selected()
@@ -499,8 +622,109 @@ public class AlertService {
                                 || resolution.fallbackToNameLong())
                         .map(candidate -> toPromptLocationCandidate(candidate, selectedPointIds.contains(candidate.id())))
                         .toList(),
+                selectedPointIds,
                 resolution.fallbackToNameLong(),
-                resolution.confidenceImpact());
+                resolution.fallbackToNameLong(),
+                resolution.confidenceImpact(),
+                resolution.fallbackToNameLong()
+                        ? "Location unresolved; textual fallback is allowed with lower confidence."
+                        : "",
+                targetFieldHints(toRole(resolution.mention().semanticRole())));
+    }
+
+    private AlertVerificationLocationContext.LocationResolution toPromptLocationResolution(
+            AlertLocationUnderstandingLocation location,
+            AlertLocationResolution resolution) {
+        List<String> selectedPointIds = resolution.selectedPointIds() == null
+                ? List.of()
+                : resolution.selectedPointIds();
+        List<String> targetFieldHints = targetFieldHints(location.role());
+        String warningReason = location.role() == AlertLocationRole.GENERIC_LOCATION
+                ? "Generic semantic role; use the field most coherent with the main event or reject if unsafe."
+                : "";
+        if (targetFieldHints.isEmpty()) {
+            warningReason = appendWarning(warningReason,
+                    "No supported ServiceData target fields are available for role " + location.role() + ".");
+        }
+        if (resolution.fallbackToNameLong()) {
+            warningReason = appendWarning(warningReason,
+                    "Location unresolved; textual fallback is allowed with lower confidence.");
+        }
+
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_RESOLUTION] rawText="
+                + location.rawText()
+                + " role=" + location.role()
+                + " status=" + resolution.pointResolutionResult().status()
+                + " selectedIds=" + selectedPointIds
+                + " targetFieldHints=" + targetFieldHints);
+
+        return new AlertVerificationLocationContext.LocationResolution(
+                location.rawText(),
+                location.normalizedText(),
+                location.role().name(),
+                location.relationToMainEvent().name(),
+                location.requiredCoverage(),
+                location.polarity().name(),
+                location.logicalGroup(),
+                location.confidence(),
+                resolution.pointResolutionResult().status().name(),
+                resolution.pointResolutionResult().candidates().stream()
+                        .filter(candidate -> candidate.selected()
+                                || selectedPointIds.contains(candidate.id())
+                                || resolution.fallbackToNameLong())
+                        .map(candidate -> toPromptLocationCandidate(candidate, selectedPointIds.contains(candidate.id())))
+                        .toList(),
+                selectedPointIds,
+                resolution.fallbackToNameLong(),
+                resolution.fallbackToNameLong(),
+                resolution.confidenceImpact(),
+                warningReason,
+                targetFieldHints);
+    }
+
+    private String appendWarning(String current, String warning) {
+        if (current == null || current.isBlank()) {
+            return warning;
+        }
+        return current + " " + warning;
+    }
+
+    private List<String> targetFieldHints(AlertLocationRole role) {
+        AlertLocationTargetFieldMapper mapper = alertLocationTargetFieldMapper == null
+                ? new AlertLocationTargetFieldMapper()
+                : alertLocationTargetFieldMapper;
+        return mapper.targetFieldHints(role);
+    }
+
+    private AlertLocationSemanticRole toLegacySemanticRole(AlertLocationRole role) {
+        AlertLocationRole safeRole = role == null ? AlertLocationRole.GENERIC_LOCATION : role;
+        return switch (safeRole) {
+            case MAIN_EVENT_LOCATION -> AlertLocationSemanticRole.EVENT_STOP_POINT;
+            case ORIGIN_LOCATION -> AlertLocationSemanticRole.ORIGIN_STOP_POINT;
+            case DESTINATION_LOCATION -> AlertLocationSemanticRole.DESTINATION_STOP_POINT;
+            case ROUTE_OR_NEXT_CALL_LOCATION -> AlertLocationSemanticRole.NEXT_CALL_STOP_POINT;
+            case TRANSIT_LOCATION -> AlertLocationSemanticRole.NEXT_TRANSIT_STOP_POINT;
+            case CANCELLED_CALL_LOCATION -> AlertLocationSemanticRole.NEXT_CANCELLED_STOP_POINT;
+            case REPLACEMENT_LOCATION -> AlertLocationSemanticRole.REPLACEMENT_STOP_POINT;
+            case GENERIC_LOCATION -> AlertLocationSemanticRole.GENERIC_STOP_POINT;
+        };
+    }
+
+    private AlertLocationRole toRole(AlertLocationSemanticRole semanticRole) {
+        if (semanticRole == null) {
+            return AlertLocationRole.GENERIC_LOCATION;
+        }
+        return switch (semanticRole) {
+            case DEPARTURE_EVENT_STOP_POINT, ARRIVAL_EVENT_STOP_POINT, EVENT_STOP_POINT ->
+                    AlertLocationRole.MAIN_EVENT_LOCATION;
+            case ORIGIN_STOP_POINT -> AlertLocationRole.ORIGIN_LOCATION;
+            case DESTINATION_STOP_POINT -> AlertLocationRole.DESTINATION_LOCATION;
+            case NEXT_CALL_STOP_POINT -> AlertLocationRole.ROUTE_OR_NEXT_CALL_LOCATION;
+            case NEXT_TRANSIT_STOP_POINT -> AlertLocationRole.TRANSIT_LOCATION;
+            case NEXT_CANCELLED_STOP_POINT -> AlertLocationRole.CANCELLED_CALL_LOCATION;
+            case REPLACEMENT_STOP_POINT -> AlertLocationRole.REPLACEMENT_LOCATION;
+            case GENERIC_STOP_POINT, UNKNOWN -> AlertLocationRole.GENERIC_LOCATION;
+        };
     }
 
     private AlertVerificationLocationContext.LocationCandidate toPromptLocationCandidate(PointCandidate candidate) {

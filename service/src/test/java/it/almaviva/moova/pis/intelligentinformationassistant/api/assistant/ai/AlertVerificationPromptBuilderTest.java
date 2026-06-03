@@ -284,6 +284,49 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptBuilderIncludesRichRoleBasedLocationSection() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                true,
+                List.of(
+                        richResolution(
+                                "Garibaldi",
+                                "MAIN_EVENT_LOCATION",
+                                "INCLUDE",
+                                List.of("payload.stopPointJourney.stopPoint.id",
+                                        "payload.ongroundServiceEvent.stopPoint.id")),
+                        richResolution(
+                                "Venezia",
+                                "ROUTE_OR_NEXT_CALL_LOCATION",
+                                "INCLUDE",
+                                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id")),
+                        richResolution(
+                                "Bologna",
+                                "DESTINATION_LOCATION",
+                                "EXCLUDE",
+                                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id"))),
+                List.of(new AlertVerificationLocationContext.NonLocationConstraint("PLATFORM", "binario 1")),
+                List.of("diagnostic warning"));
+
+        LlmRequest request = builder().build(promptDataWithLocation(context));
+
+        assertThat(request.userPrompt())
+                .contains("semanticRole: MAIN_EVENT_LOCATION")
+                .contains("semanticRole: ROUTE_OR_NEXT_CALL_LOCATION")
+                .contains("semanticRole: DESTINATION_LOCATION")
+                .contains("polarity: EXCLUDE")
+                .contains("requiredCoverage: true")
+                .contains("targetFieldHints: [payload.stopPointJourney.stopPoint.id, payload.ongroundServiceEvent.stopPoint.id]")
+                .contains("targetFieldHints: [payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id]")
+                .contains("targetFieldHints: [payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id, payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id]")
+                .contains("Every location with requiredCoverage=true must be represented in technicalSpecification")
+                .contains("Do not put every location on the current stop")
+                .contains("If a required location or role needs data absent from the catalog, return REJECTED")
+                .contains("Recognized non-location constraints")
+                .contains("type: PLATFORM, rawText: \"binario 1\"");
+    }
+
+    @Test
     void builderContainsPositiveExampleForRhoStopPointId() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 
@@ -422,5 +465,36 @@ class AlertVerificationPromptBuilderTest {
                         List.of(),
                         true,
                         0.0)));
+    }
+
+    private AlertVerificationLocationContext.LocationResolution richResolution(
+            String rawText,
+            String role,
+            String polarity,
+            List<String> targetFieldHints) {
+        return new AlertVerificationLocationContext.LocationResolution(
+                rawText,
+                rawText,
+                role,
+                "EVENT_STOP_POINT",
+                true,
+                polarity,
+                "G1",
+                0.90,
+                "RESOLVED",
+                List.of(new AlertVerificationLocationContext.LocationCandidate(
+                        "TNPNTS00000000005467",
+                        rawText,
+                        rawText,
+                        "RAIL",
+                        1.0,
+                        "EXACT_NORMALIZED",
+                        true)),
+                List.of("TNPNTS00000000005467"),
+                false,
+                false,
+                0.90,
+                "",
+                targetFieldHints);
     }
 }

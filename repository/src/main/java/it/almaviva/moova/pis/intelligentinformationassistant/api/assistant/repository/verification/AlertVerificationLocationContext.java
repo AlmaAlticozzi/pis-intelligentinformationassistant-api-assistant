@@ -4,14 +4,22 @@ import java.util.List;
 
 public record AlertVerificationLocationContext(
         boolean hasLocationMentions,
-        List<LocationResolution> resolutions) {
+        List<LocationResolution> resolutions,
+        List<NonLocationConstraint> nonLocationConstraints,
+        List<String> warnings) {
 
     public AlertVerificationLocationContext {
         resolutions = resolutions == null ? List.of() : List.copyOf(resolutions);
+        nonLocationConstraints = nonLocationConstraints == null ? List.of() : List.copyOf(nonLocationConstraints);
+        warnings = warnings == null ? List.of() : List.copyOf(warnings);
+    }
+
+    public AlertVerificationLocationContext(boolean hasLocationMentions, List<LocationResolution> resolutions) {
+        this(hasLocationMentions, resolutions, List.of(), List.of());
     }
 
     public static AlertVerificationLocationContext empty() {
-        return new AlertVerificationLocationContext(false, List.of());
+        return new AlertVerificationLocationContext(false, List.of(), List.of(), List.of());
     }
 
     public boolean hasResolvedLocations() {
@@ -39,8 +47,18 @@ public record AlertVerificationLocationContext(
         section.append("Resolved PIS locations:\n");
         for (LocationResolution resolution : resolutions) {
             section.append("- rawText: \"").append(nullToEmpty(resolution.rawText())).append("\"\n");
+            if (!nullToEmpty(resolution.normalizedText()).isBlank()) {
+                section.append("  normalizedText: \"").append(nullToEmpty(resolution.normalizedText())).append("\"\n");
+            }
             section.append("  semanticRole: ").append(nullToEmpty(resolution.semanticRole())).append("\n");
+            section.append("  relationToMainEvent: ").append(nullToEmpty(resolution.relationToMainEvent())).append("\n");
+            section.append("  requiredCoverage: ").append(resolution.requiredCoverage()).append("\n");
+            section.append("  polarity: ").append(nullToEmpty(resolution.polarity())).append("\n");
+            section.append("  logicalGroup: ").append(nullToEmpty(resolution.logicalGroup())).append("\n");
+            section.append("  understandingConfidence: ").append(resolution.understandingConfidence()).append("\n");
             section.append("  status: ").append(nullToEmpty(resolution.status())).append("\n");
+            section.append("  selectedPointIds: ").append(resolution.selectedPointIds()).append("\n");
+            section.append("  targetFieldHints: ").append(resolution.targetFieldHints()).append("\n");
             if (resolution.candidates().isEmpty()) {
                 section.append("  candidates: []\n");
             } else {
@@ -55,6 +73,22 @@ public record AlertVerificationLocationContext(
             if (resolution.fallbackToNameLong()) {
                 section.append("  fallback: use nameLong CONTAINS_NORMALIZED with rawText and lower confidence\n");
             }
+            if (!nullToEmpty(resolution.warningReason()).isBlank()) {
+                section.append("  warning: ").append(resolution.warningReason()).append("\n");
+            }
+        }
+        if (!nonLocationConstraints.isEmpty()) {
+            section.append("\nRecognized non-location constraints:\n");
+            for (NonLocationConstraint constraint : nonLocationConstraints) {
+                section.append("- type: ").append(nullToEmpty(constraint.type()))
+                        .append(", rawText: \"").append(nullToEmpty(constraint.rawText())).append("\"\n");
+            }
+        }
+        if (!warnings.isEmpty()) {
+            section.append("\nLocation understanding warnings:\n");
+            for (String warning : warnings) {
+                section.append("- ").append(nullToEmpty(warning)).append("\n");
+            }
         }
         section.append("\nRules:\n");
         appendRules(section);
@@ -63,6 +97,19 @@ public record AlertVerificationLocationContext(
     }
 
     private static void appendRules(StringBuilder section) {
+        section.append("- Locations were already semantically understood by the backend and resolved against points.json when possible.\n");
+        section.append("- Every location with requiredCoverage=true must be represented in technicalSpecification.\n");
+        section.append("- The location role determines which ServiceData field/path should be used.\n");
+        section.append("- Do not put every location on the current stop.\n");
+        section.append("- MAIN_EVENT_LOCATION uses current/event stop fields.\n");
+        section.append("- ORIGIN_LOCATION uses origin/callStart fields.\n");
+        section.append("- DESTINATION_LOCATION uses destination/callEnd fields.\n");
+        section.append("- ROUTE_OR_NEXT_CALL_LOCATION uses nextCalls fields.\n");
+        section.append("- TRANSIT_LOCATION uses nextTransitCalls, or nextCalls with passingType TRANSIT only when supported.\n");
+        section.append("- CANCELLED_CALL_LOCATION uses nextCancelledCalls fields.\n");
+        section.append("- REPLACEMENT_LOCATION uses replacement.stopPointReplacements fields.\n");
+        section.append("- If a required location or role needs data absent from the catalog, return REJECTED; do not silently ignore it.\n");
+        section.append("- Non-location constraints such as platform/binario/track/quay are not locations; handle them through the ServiceData catalog.\n");
         section.append("- RESOLVED with one selected candidate -> use EQUALS on the correct stopPoint.id field.\n");
         section.append("- RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field.\n");
         section.append("- UNRESOLVED -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence.\n");
@@ -106,14 +153,60 @@ public record AlertVerificationLocationContext(
 
     public record LocationResolution(
             String rawText,
+            String normalizedText,
             String semanticRole,
+            String relationToMainEvent,
+            boolean requiredCoverage,
+            String polarity,
+            String logicalGroup,
+            double understandingConfidence,
             String status,
             List<LocationCandidate> candidates,
+            List<String> selectedPointIds,
             boolean fallbackToNameLong,
-            double confidenceImpact) {
+            boolean fallbackAllowed,
+            double confidenceImpact,
+            String warningReason,
+            List<String> targetFieldHints) {
 
         public LocationResolution {
+            rawText = nullToEmpty(rawText);
+            normalizedText = nullToEmpty(normalizedText);
+            semanticRole = nullToEmpty(semanticRole);
+            relationToMainEvent = nullToEmpty(relationToMainEvent);
+            polarity = nullToEmpty(polarity);
+            logicalGroup = nullToEmpty(logicalGroup);
+            status = nullToEmpty(status);
             candidates = candidates == null ? List.of() : List.copyOf(candidates);
+            selectedPointIds = selectedPointIds == null ? List.of() : List.copyOf(selectedPointIds);
+            warningReason = nullToEmpty(warningReason);
+            targetFieldHints = targetFieldHints == null ? List.of() : List.copyOf(targetFieldHints);
+        }
+
+        public LocationResolution(
+                String rawText,
+                String semanticRole,
+                String status,
+                List<LocationCandidate> candidates,
+                boolean fallbackToNameLong,
+                double confidenceImpact) {
+            this(
+                    rawText,
+                    "",
+                    semanticRole,
+                    "",
+                    true,
+                    "INCLUDE",
+                    "",
+                    0.0,
+                    status,
+                    candidates,
+                    List.of(),
+                    fallbackToNameLong,
+                    fallbackToNameLong,
+                    confidenceImpact,
+                    "",
+                    List.of());
         }
     }
 
@@ -125,5 +218,15 @@ public record AlertVerificationLocationContext(
             double score,
             String matchType,
             boolean selected) {
+    }
+
+    public record NonLocationConstraint(
+            String type,
+            String rawText) {
+
+        public NonLocationConstraint {
+            type = nullToEmpty(type);
+            rawText = nullToEmpty(rawText);
+        }
     }
 }
