@@ -71,7 +71,11 @@ public record AlertVerificationLocationContext(
                 }
             }
             if (resolution.fallbackToNameLong()) {
-                section.append("  fallback: use nameLong CONTAINS_NORMALIZED with rawText and lower confidence\n");
+                if ("EXCLUDE".equalsIgnoreCase(resolution.polarity())) {
+                    section.append("  fallback: use nameLong/nameShort NOT_CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported\n");
+                } else {
+                    section.append("  fallback: use nameLong/nameShort CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported\n");
+                }
             }
             if (!nullToEmpty(resolution.warningReason()).isBlank()) {
                 section.append("  warning: ").append(resolution.warningReason()).append("\n");
@@ -113,10 +117,11 @@ public record AlertVerificationLocationContext(
         section.append("- RESOLVED with one selected candidate -> use EQUALS on the correct stopPoint.id field.\n");
         section.append("- RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field.\n");
         section.append("- For polarity=EXCLUDE and RESOLVED/RESOLVED_AMBIGUOUS locations, use NOT_IN on the correct stopPoint.id field with the resolved ids.\n");
-        section.append("- For polarity=EXCLUDE and UNRESOLVED locations, use a negative textual fallback only if the catalog explicitly supports a negative operator on that exact name field; otherwise return REJECTED.\n");
+        section.append("- For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it; lower confidence and add a warning.\n");
+        section.append("- Use NOT_EQUALS_NORMALIZED only when the user explicitly requires exact normalized inequality and the catalog supports it.\n");
         section.append("- Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.\n");
-        section.append("- If an excluded destination location is unresolved and no safe negative textual fallback exists, return REJECTED with a clear reason.\n");
         section.append("- UNRESOLVED INCLUDE -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence.\n");
+        section.append("- UNRESOLVED EXCLUDE -> fallback to nameLong/nameShort NOT_CONTAINS_NORMALIZED and lower confidence when catalog-supported.\n");
         section.append("- NO LOCATION -> do not add any location filter.\n");
         section.append("- If a location has one resolved candidate, use stopPoint.id with EQUALS.\n");
         section.append("- If a location has multiple selected candidates, use stopPoint.id with IN.\n");
@@ -153,8 +158,8 @@ public record AlertVerificationLocationContext(
         section.append("  User prompt: \"La corsa non deve avere come destinazione Bologna\"\n");
         section.append("  Location Bologna has polarity=EXCLUDE and status=UNRESOLVED.\n");
         section.append("  Do not generate timetabledCallEnd.stopPoint.nameLong NOT_EQUAL \"Bologna\" unless NOT_EQUAL is explicitly allowed by the catalog.\n");
-        section.append("  Expected decision: REJECTED when no safe negative textual fallback exists.\n");
-        section.append("  rejectedReason: \"Excluded destination location 'Bologna' could not be resolved to stopPoint ids and the ServiceData catalog does not support a safe negative textual fallback for destination name.\"\n");
+        section.append("  Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\".\n");
+        section.append("  Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching.\n");
     }
 
     private static String nullToEmpty(String value) {

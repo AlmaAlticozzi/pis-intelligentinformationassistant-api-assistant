@@ -47,6 +47,7 @@ import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.control.RequestContextController;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
@@ -118,6 +119,9 @@ public class AlertService {
 
     @Inject
     TransactionManager transactionManager;
+
+    @Inject
+    RequestContextController requestContextController;
 
     @Inject
     AgentGenerationPreviewMapper agentGenerationPreviewMapper;
@@ -485,6 +489,11 @@ public class AlertService {
             String alertId,
             AlertVerificationRequest request,
             AlertVerificationOutcome outcome) {
+        String resolvedTenantForHibernate = currentTenantId();
+        if (resolvedTenantForHibernate == null) {
+            resolvedTenantForHibernate = normalizedDefaultSchema();
+        }
+        String tenantForHibernate = resolvedTenantForHibernate;
         System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] before persist normal outcome"
                 + " alertId=" + alertId
                 + " decision=" + outcome.decision()
@@ -499,17 +508,32 @@ public class AlertService {
                     + " decision=" + outcome.decision());
             return alertRepository.verifyAlert(alertId, request, outcome);
         }
-        return QuarkusTransaction.requiringNew().call(() -> {
-            System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] inside persist normal outcome transaction"
-                    + " alertId=" + alertId
-                    + " decision=" + outcome.decision()
-                    + " tenantPresent=" + (currentTenantId() != null)
-                    + " transactionActive=" + transactionActive()
-                    + " requestContextActive=" + requestContextActive()
-                    + " thread=" + Thread.currentThread().getName()
-                    + " caller=AlertService.persistVerificationOutcomeInTransaction");
-            return alertRepository.verifyAlert(alertId, request, outcome);
-        });
+        boolean activatedRequestContext = false;
+        try {
+            if (!requestContextActive() && requestContextController != null) {
+                activatedRequestContext = requestContextController.activate();
+            }
+            if (tenantForHibernate != null && tenantContext != null) {
+                tenantContext.setTenantId(tenantForHibernate);
+            }
+            logHibernateTenantResolution("before-persist-normal-outcome", alertId, tenantForHibernate);
+            return QuarkusTransaction.requiringNew().call(() -> {
+                logHibernateTenantResolution("inside-persist-normal-outcome-transaction", alertId, tenantForHibernate);
+                System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] inside persist normal outcome transaction"
+                        + " alertId=" + alertId
+                        + " decision=" + outcome.decision()
+                        + " tenantPresent=" + (currentTenantId() != null)
+                        + " transactionActive=" + transactionActive()
+                        + " requestContextActive=" + requestContextActive()
+                        + " thread=" + Thread.currentThread().getName()
+                        + " caller=AlertService.persistVerificationOutcomeInTransaction");
+                return alertRepository.verifyAlert(alertId, request, outcome);
+            });
+        } finally {
+            if (activatedRequestContext && requestContextController != null) {
+                requestContextController.deactivate();
+            }
+        }
     }
 
     private AlertVerificationPromptData withLocationResolutionContext(String alertId, AlertVerificationPromptData promptData) {
@@ -1075,6 +1099,49 @@ public class AlertService {
         }
         String tenantId = tenantContext.getTenantId();
         return tenantId == null || tenantId.isBlank() ? null : tenantId;
+    }
+
+    private void logHibernateTenantResolution(String phase, String alertId, String expectedTenant) {
+        String resolverClass = "<unavailable>";
+        String resolvedTenant = null;
+        String source = "none";
+        RuntimeException resolverError = null;
+        if (tenantResolver != null && !tenantResolver.isUnsatisfied() && !tenantResolver.isAmbiguous()) {
+            try {
+                TenantResolver resolver = tenantResolver.get();
+                resolverClass = resolver.getClass().getName();
+                resolvedTenant = resolver.resolveTenantId();
+                source = "TenantResolver.resolveTenantId";
+            } catch (RuntimeException ex) {
+                resolverError = ex;
+                source = "TenantResolver.error";
+            }
+        }
+        System.out.println("[IIA][HIBERNATE_TENANT_DEBUG] phase=" + phase
+                + " alertId=" + alertId
+                + " resolverClass=" + resolverClass
+                + " method=resolveTenantId"
+                + " requestContextActive=" + requestContextActive()
+                + " transactionActive=" + transactionActive()
+                + " thread=" + Thread.currentThread().getName()
+                + " tenantContextTenant=" + safeTenant(currentTenantId())
+                + " expectedTenant=" + safeTenant(expectedTenant)
+                + " hibernateTenant=" + safeTenant(resolvedTenant)
+                + " source=" + source
+                + " defaultSchema=" + safeTenant(normalizedDefaultSchema())
+                + " x-wtf-profile=<not-accessed>"
+                + " resolverReads=FND TenantContext first, then RoutingContext tenant-id, then default schema");
+        if (resolverError != null) {
+            System.out.println("[IIA][HIBERNATE_TENANT_DEBUG] resolver error"
+                    + " alertId=" + alertId
+                    + " exceptionClass=" + resolverError.getClass().getName()
+                    + " exceptionMessage=" + resolverError.getMessage());
+        }
+        if (currentTenantId() != null && resolvedTenant == null) {
+            System.out.println("[IIA][HIBERNATE_TENANT_DEBUG] Hibernate tenant resolver returned null although TenantContext is populated"
+                    + " alertId=" + alertId
+                    + " tenantContextTenant=" + safeTenant(currentTenantId()));
+        }
     }
 
     private String normalizedDefaultSchema() {

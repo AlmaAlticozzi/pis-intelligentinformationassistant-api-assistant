@@ -91,7 +91,7 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
-    void promptRejectsUnresolvedExcludedLocationWithoutSafeNegativeFallback() {
+    void promptAllowsCatalogSupportedNegativeFallbackForUnresolvedExcludedLocation() {
         AlertVerificationLocationContext context = new AlertVerificationLocationContext(
                 true,
                 List.of(new AlertVerificationLocationContext.LocationResolution(
@@ -120,10 +120,14 @@ class AlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("polarity: EXCLUDE")
                 .contains("status: UNRESOLVED")
-                .contains("For polarity=EXCLUDE and UNRESOLVED locations, use a negative textual fallback only if the catalog explicitly supports a negative operator")
+                .contains("fallback: use nameLong/nameShort NOT_CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
+                .contains("For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it")
+                .contains("Use NOT_EQUALS_NORMALIZED only when the user wording requires exact normalized inequality")
                 .contains("Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort")
-                .contains("Expected decision: REJECTED when no safe negative textual fallback exists")
-                .contains("Excluded destination location 'Bologna' could not be resolved to stopPoint ids");
+                .contains("Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\"")
+                .contains("Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching")
+                .doesNotContain("Expected decision: REJECTED when no safe negative textual fallback exists")
+                .doesNotContain("Excluded destination location 'Bologna' could not be resolved to stopPoint ids");
     }
 
     @Test
@@ -329,7 +333,7 @@ class AlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("rawText: \"Genova Nervi\"")
                 .contains("status: UNRESOLVED")
-                .contains("fallback: use nameLong CONTAINS_NORMALIZED")
+                .contains("fallback: use nameLong/nameShort CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
                 .contains("If an INCLUDE location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence");
     }
 

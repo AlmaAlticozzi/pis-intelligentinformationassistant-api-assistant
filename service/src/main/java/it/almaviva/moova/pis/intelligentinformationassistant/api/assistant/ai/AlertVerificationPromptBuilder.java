@@ -233,7 +233,9 @@ public class AlertVerificationPromptBuilder {
                 - Operators must be allowed for that exact field or relative field.
                 - Do not infer operators not listed in the catalog.
                 - Do not use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.
-                - For excluded unresolved locations, do not invent a negative textual fallback. If the catalog does not support a safe negative textual operator for the exact field, return REJECTED.
+                - For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it. Lower confidence and add a warning.
+                - Use NOT_EQUALS_NORMALIZED only when the user wording requires exact normalized inequality and the catalog supports it.
+                - If the catalog does not support any negative normalized textual operator for the required field, return REJECTED. Do not silently ignore the excluded location.
                 - Do not use EXISTS, NOT_NULL or NOT_EMPTY unless the catalog allows that operator for that exact field.
                 - Do not use EXISTS on timestamp fields such as passingTime, departureTime, arrivalTime, eventGenerationTime or timetabledCallStart.departureTime.
                 - The existence of an array element is represented by anyElement, not by EXISTS on a timestamp field.

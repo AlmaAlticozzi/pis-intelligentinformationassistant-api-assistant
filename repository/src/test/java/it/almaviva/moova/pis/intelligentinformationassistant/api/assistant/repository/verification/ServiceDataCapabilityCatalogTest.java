@@ -103,7 +103,7 @@ class ServiceDataCapabilityCatalogTest {
     void stringBooleanEnumNumberAndEnumArrayOperatorsAreCoherent() {
         assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "IN", "NOT_IN");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
-                "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED");
+                "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED", "NOT_CONTAINS_NORMALIZED");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", "EQUALS");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.source", "EQUALS", "IN");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.roundedDelay",
@@ -150,9 +150,71 @@ class ServiceDataCapabilityCatalogTest {
     void catalogRejectsTextOperatorsOnAllStopPointIdFields() {
         assertThat(STOP_POINT_ID_FIELDS).allSatisfy(field -> {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "NOT_CONTAINS_NORMALIZED")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS_NORMALIZED")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "NOT_EQUALS_NORMALIZED")).as(field).isFalse();
         });
+    }
+
+    @Test
+    void normalizedNegativeTextOperatorsAreAllowedOnlyOnLocationNameFields() {
+        List<String> locationNameFields = List.of(
+                "payload.ongroundServiceEvent.stopPoint.nameLong",
+                "payload.ongroundServiceEvent.stopPoint.nameShort",
+                "payload.stopPointJourney.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPoint.nameShort",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameShort",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameShort",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameShort",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong");
+
+        assertThat(locationNameFields)
+                .allSatisfy(field -> assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "NOT_CONTAINS_NORMALIZED"))
+                        .as(field)
+                        .isTrue());
+
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
+                "NOT_EQUALS_NORMALIZED"))
+                .isTrue();
+
+        List<String> nonLocationTextFields = List.of(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc");
+        assertThat(nonLocationTextFields)
+                .allSatisfy(field -> assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "NOT_CONTAINS_NORMALIZED"))
+                        .as(field)
+                        .isFalse());
+
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPoint.id",
+                "NOT_CONTAINS_NORMALIZED"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc",
+                "NOT_CONTAINS_NORMALIZED"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.eventsType",
+                "NOT_CONTAINS_NORMALIZED"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
+                "NOT_CONTAINS_NORMALIZED"))
+                .isFalse();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.ongroundServiceEvent.eventGenerationTime",
+                "NOT_CONTAINS_NORMALIZED"))
+                .isFalse();
     }
 
     @Test
@@ -230,7 +292,8 @@ class ServiceDataCapabilityCatalogTest {
                 .contains("use stopPoint.id when a user location has been resolved")
                 .contains("use EQUALS for one resolved id")
                 .contains("use NOT_IN to exclude resolved candidate ids")
-                .contains("use nameLong/nameShort CONTAINS_NORMALIZED only as fallback")
+                .contains("use nameLong/nameShort CONTAINS_NORMALIZED for unresolved INCLUDE locations")
+                .contains("NOT_CONTAINS_NORMALIZED for unresolved EXCLUDE locations")
                 .contains("payload.ongroundServiceEvent.stopPoint.id")
                 .contains("payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id");
     }

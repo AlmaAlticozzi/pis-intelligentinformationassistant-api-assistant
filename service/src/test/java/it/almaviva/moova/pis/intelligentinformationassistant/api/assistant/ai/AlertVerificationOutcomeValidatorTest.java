@@ -167,6 +167,82 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsNegativeNormalizedTextualDestinationFallback() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_CONTAINS_NORMALIZED",
+                        "value", "Bologna"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsVerifiedArrivalWithPositiveAndNegativeUnresolvedLocationFallbacks() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String currentStopNameField = "payload.ongroundServiceEvent.stopPoint.nameLong";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String vehicleField = "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName";
+        String delayField = "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay";
+        String destinationField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        String platformField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc";
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVED"),
+                        Map.of("field", currentStopNameField, "operator", "CONTAINS_NORMALIZED", "value", "Pescara"),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", Map.of("all", List.of(
+                                        Map.of("field", "vehicleJourneyName", "operator", "EQUALS_NORMALIZED", "value", "1278"),
+                                        Map.of("field", "arrivalDelay.delay", "operator", "GREATER_OR_EQUAL", "value", 14),
+                                        Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"),
+                                        Map.of("field", "timetabledArrivalPlatform.dsc", "operator", "EQUAL_PLATFORM", "value", "1"))))))),
+                coverageFor(eventField, currentStopNameField, vehicleField, delayField, destinationField, platformField));
+        AlertVerificationOutcome outcome = new AlertVerificationOutcome(
+                base.decision(),
+                base.summary(),
+                base.rejectedReason(),
+                0.62,
+                base.provider(),
+                base.model(),
+                base.promptVersion(),
+                base.requiredSources(),
+                base.interpreterType(),
+                base.inputModel(),
+                base.outputModel(),
+                base.triggerType(),
+                base.evaluationMode(),
+                base.interpretedEventNames(),
+                base.interpretedTargetTypes(),
+                base.technicalSpecification(),
+                base.agentBlueprintPreview(),
+                Map.of(
+                        "requirements", List.of(
+                                coverageRequirement("event arrival", eventField),
+                                coverageRequirement("Pescara unresolved current stop fallback", currentStopNameField),
+                                coverageRequirement("vehicle journey 1278", vehicleField),
+                                coverageRequirement("arrival delay 14", delayField),
+                                coverageRequirement("excluded destination Bologna negative fallback", destinationField),
+                                coverageRequirement("arrival platform binario 1", platformField)),
+                        "allRequiredRequirementsMapped", true),
+                List.of(
+                        "Pescara was not resolved to stopPoint ids; used textual current stop fallback.",
+                        "Bologna was not resolved to stopPoint ids; used negative textual destination fallback."),
+                base.safetyChecks());
+
+        AlertVerificationOutcome validated = validator.validate(outcome);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.confidence()).isEqualTo(0.62);
+        assertThat(validated.warnings())
+                .contains("Pescara was not resolved to stopPoint ids; used textual current stop fallback.")
+                .contains("Bologna was not resolved to stopPoint ids; used negative textual destination fallback.");
+    }
+
+    @Test
     void validatorRejectsResolvedLocationUsingNameLongIfYouImplementedBlockingRule() {
         String field = "payload.ongroundServiceEvent.stopPoint.nameLong";
         AlertVerificationOutcome base = outcomeWithConditionAndCoverage(Map.of(
@@ -1417,14 +1493,18 @@ class AlertVerificationOutcomeValidatorTest {
     private Map<String, Object> coverageFor(String... fields) {
         return Map.of(
                 "requirements", java.util.Arrays.stream(fields)
-                        .map(field -> Map.of(
-                                "text", field,
-                                "required", true,
-                                "mappable", true,
-                                "mappedBy", List.of(field),
-                                "reason", ""))
+                        .map(field -> coverageRequirement(field, field))
                         .toList(),
                 "allRequiredRequirementsMapped", true);
+    }
+
+    private Map<String, Object> coverageRequirement(String text, String field) {
+        return Map.of(
+                "text", text,
+                "required", true,
+                "mappable", true,
+                "mappedBy", List.of(field),
+                "reason", "");
     }
 
     private AlertVerificationOutcome outcomeWithConditionAndCoverage(
