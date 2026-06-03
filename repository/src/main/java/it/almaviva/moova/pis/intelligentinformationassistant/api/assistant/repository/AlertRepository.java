@@ -4,6 +4,7 @@ import com.blazebit.persistence.CriteriaBuilder;
 import com.blazebit.persistence.CriteriaBuilderFactory;
 import com.blazebit.persistence.view.EntityViewManager;
 import com.blazebit.persistence.view.EntityViewSetting;
+import io.quarkus.arc.Arc;
 import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionSummary;
@@ -38,7 +39,10 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.transaction.Status;
+import jakarta.transaction.SystemException;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.TransactionManager;
 
 import java.math.BigDecimal;
 import java.text.Normalizer;
@@ -55,6 +59,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
     @Inject
     EntityManager entityManager;
+
+    @Inject
+    TransactionManager transactionManager;
 
     @Inject
     CriteriaBuilderFactory criteriaBuilderFactory;
@@ -198,6 +205,16 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         OffsetDateTime now = OffsetDateTime.now();
 
         System.out.println("[IIA][ALERT_VERIFY] Starting verification for alertId=" + alertId);
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] repository persisting normal outcome alertId=" + alertId
+                + " decision=" + outcome.decision());
+        System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] inside AlertRepository.verifyAlert"
+                + " alertId=" + alertId
+                + " decision=" + outcome.decision()
+                + " transactionActive=" + transactionActive()
+                + " entityManagerOpen=" + entityManagerOpen()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " statusToSave=" + outcome.decision().name()
+                + " verificationStatusToSave=" + outcome.decision().name());
 
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
@@ -241,6 +258,11 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
         System.out.println("[IIA][ALERT_VERIFY] Verification persisted for alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY] Verification completed for alertId=" + alertId + " decision=" + outcome.decision());
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] repository persisted finalStatus="
+                + (alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus())
+                + " verificationStatus="
+                + (alert.getSglVerificationstatus() == null ? null : alert.getSglVerificationstatus().getSglVerificationstatus())
+                + " enabled=" + alert.getFlgEnabled());
         return Optional.of(toAlertDetailForVerification(alert));
     }
 
@@ -399,6 +421,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         }
 
         Alert alert = maybeAlert.get();
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] repository update enabled after create alertId=" + alertId
+                + " requestedEnabled=" + enabled
+                + " currentStatus=" + (alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus()));
         alert.setFlgEnabled(enabled && isVerified(alert));
         alert.setDtUpdatedat(OffsetDateTime.now());
         flush();
@@ -438,6 +463,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
         OffsetDateTime now = OffsetDateTime.now();
         Alert alert = maybeAlert.get();
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] repository persisting technical error alertId=" + alertId
+                + " warning=" + warning);
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
                 "ERROR"));
@@ -491,6 +518,37 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
             return "Alert verification failed because tenant context was not available for database access.";
         }
         return "Alert verification failed because the AI provider did not respond successfully.";
+    }
+
+    private boolean transactionActive() {
+        if (transactionManager == null) {
+            return false;
+        }
+        try {
+            return transactionManager.getStatus() == Status.STATUS_ACTIVE;
+        } catch (SystemException ex) {
+            return false;
+        }
+    }
+
+    private boolean entityManagerOpen() {
+        try {
+            return entityManager != null && entityManager.isOpen();
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private String currentTenantId() {
+        try {
+            Class<?> tenantContextClass = Class.forName("it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext");
+            Object tenantContext = Arc.container().select(tenantContextClass).get();
+            Object tenantId = tenantContextClass.getMethod("getTenantId").invoke(tenantContext);
+            String value = tenantId instanceof String stringValue ? stringValue : null;
+            return value == null || value.isBlank() ? null : value;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
     }
 
     private AlertSummary toAlertSummary(AlertSummaryView view) {

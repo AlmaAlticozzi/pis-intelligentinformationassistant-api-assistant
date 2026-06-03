@@ -49,7 +49,10 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.SystemException;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.TransactionManager;
 import jakarta.ws.rs.ProcessingException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.context.ManagedExecutor;
@@ -112,6 +115,9 @@ public class AlertService {
 
     @Inject
     Instance<TenantResolver> tenantResolver;
+
+    @Inject
+    TransactionManager transactionManager;
 
     @Inject
     AgentGenerationPreviewMapper agentGenerationPreviewMapper;
@@ -447,8 +453,14 @@ public class AlertService {
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][USER] " + promptRequest.userPrompt());
 
         AlertVerificationResolution resolution = resolveVerificationOutcome(alertId, enrichedPromptData, promptRequest);
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] parser outcome alertId=" + alertId
+                + " decision=" + resolution.outcome().decision()
+                + " parseableLlm=" + resolution.parseableLlm());
         AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(
                 resolution.outcome(), enrichedPromptData.prompt());
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] validator outcome alertId=" + alertId
+                + " decision=" + outcome.decision()
+                + " rejectedReason=" + outcome.rejectedReason());
         if (resolution.parseableLlm() && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][VALIDATION] LLM outcome rejected by backend validation alertId="
                     + alertId + ", fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
@@ -459,9 +471,45 @@ public class AlertService {
                     alertVerificationMockEngine.verify(alertId, enrichedPromptData.prompt())
                             .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."),
                     enrichedPromptData.prompt());
+            System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] fallback validator outcome alertId=" + alertId
+                    + " decision=" + outcome.decision());
         }
         outcome = applyLocationConfidenceAdjustment(outcome, enrichedPromptData.locationResolutionContext());
-        return alertRepository.verifyAlert(alertId, request, outcome);
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] persisting normal outcome alertId=" + alertId
+                + " decision=" + outcome.decision()
+                + " method=alertRepository.verifyAlert");
+        return persistVerificationOutcomeInTransaction(alertId, request, outcome);
+    }
+
+    protected Optional<AlertDetail> persistVerificationOutcomeInTransaction(
+            String alertId,
+            AlertVerificationRequest request,
+            AlertVerificationOutcome outcome) {
+        System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] before persist normal outcome"
+                + " alertId=" + alertId
+                + " decision=" + outcome.decision()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " transactionActive=" + transactionActive()
+                + " requestContextActive=" + requestContextActive()
+                + " thread=" + Thread.currentThread().getName()
+                + " caller=AlertService.persistVerificationOutcomeInTransaction");
+        if (transactionManager == null) {
+            System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] TransactionManager unavailable; executing repository call directly"
+                    + " alertId=" + alertId
+                    + " decision=" + outcome.decision());
+            return alertRepository.verifyAlert(alertId, request, outcome);
+        }
+        return QuarkusTransaction.requiringNew().call(() -> {
+            System.out.println("[IIA][ALERT_VERIFY][TX_DEBUG] inside persist normal outcome transaction"
+                    + " alertId=" + alertId
+                    + " decision=" + outcome.decision()
+                    + " tenantPresent=" + (currentTenantId() != null)
+                    + " transactionActive=" + transactionActive()
+                    + " requestContextActive=" + requestContextActive()
+                    + " thread=" + Thread.currentThread().getName()
+                    + " caller=AlertService.persistVerificationOutcomeInTransaction");
+            return alertRepository.verifyAlert(alertId, request, outcome);
+        });
     }
 
     private AlertVerificationPromptData withLocationResolutionContext(String alertId, AlertVerificationPromptData promptData) {
@@ -1045,6 +1093,17 @@ public class AlertService {
         try {
             return io.quarkus.arc.Arc.container().requestContext().isActive();
         } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private boolean transactionActive() {
+        if (transactionManager == null) {
+            return false;
+        }
+        try {
+            return transactionManager.getStatus() == Status.STATUS_ACTIVE;
+        } catch (SystemException ex) {
             return false;
         }
     }

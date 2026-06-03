@@ -5,11 +5,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.co
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.TransactionManager;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 @ApplicationScoped
@@ -27,6 +31,9 @@ public class AlertAsyncVerificationService {
     @Inject
     TenantContext tenantContext;
 
+    @Inject
+    TransactionManager transactionManager;
+
     @ConfigProperty(name = "fnd.default-schema", defaultValue = "")
     String defaultSchema;
 
@@ -39,6 +46,9 @@ public class AlertAsyncVerificationService {
     public void verifyCreatedAlertAsync(String alertId, boolean enableAfterVerification, String propagatedTenantId) {
         boolean tenantInstalled = installTenantIfNeeded(alertId, propagatedTenantId);
         System.out.println("[IIA][ALERT_VERIFY][ASYNC] Started async verification alertId=" + alertId);
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] started alertId=" + alertId
+                + " enableAfterVerification=" + enableAfterVerification
+                + " tenantPresent=" + (currentTenantId() != null));
         try {
             if (currentTenantId() == null) {
                 throw new MissingTenantContextException("Alert verification failed because tenant context is missing during asynchronous verification and no default schema fallback is configured.");
@@ -54,6 +64,15 @@ public class AlertAsyncVerificationService {
                 System.out.println("[IIA][ALERT_CREATE] finalStatus=ERROR enabled=false");
             }
         } catch (RuntimeException ex) {
+            System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] technical exception alertId=" + alertId
+                    + " exceptionClass=" + ex.getClass().getName()
+                    + " exceptionMessage=" + ex.getMessage()
+                    + " rootCauseClass=" + rootCause(ex).getClass().getName()
+                    + " rootCauseMessage=" + rootCause(ex).getMessage()
+                    + " tenantPresent=" + (currentTenantId() != null)
+                    + " transactionActive=" + transactionActive()
+                    + " willCallMarkTechnicalError=true");
+            printStackTracePreview(ex);
             String shortMessage = shortTechnicalMessage(ex);
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_ERROR] alertId=" + alertId + " error=" + shortMessage);
             markCreatedAlertVerificationError(alertId, shortMessage, propagatedTenantId);
@@ -83,6 +102,9 @@ public class AlertAsyncVerificationService {
                         + " defaultSchemaFallback=" + normalizedDefaultSchema());
                 return;
             }
+            System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] persisting technical error alertId=" + alertId
+                    + " tenantPresent=" + (currentTenantId() != null)
+                    + " method=markAlertVerificationTechnicalError");
             QuarkusTransaction.requiringNew().run(() -> {
                 logBeforeRepositoryOperation(alertId, "markAlertVerificationTechnicalError");
                 alertRepository.markAlertVerificationTechnicalError(
@@ -100,17 +122,33 @@ public class AlertAsyncVerificationService {
 
     protected AlertDetail verifyAndApplyEnableInNewTransaction(String alertId, boolean enableAfterVerification) {
         System.out.println("[IIA][ALERT_VERIFY][ASYNC_CONTEXT] before LLM requestContextActive="
-                + io.quarkus.arc.Arc.container().requestContext().isActive());
+                + requestContextActive());
         AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
                 .force(Boolean.FALSE);
         logBeforeRepositoryOperation(alertId, "verifyAlert");
         AlertDetail verifiedAlert = alertService.verifyAlert(alertId, verificationRequest)
                 .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
         AlertStatus status = verifiedAlert.getStatus();
-        boolean enabled = AlertStatus.VERIFIED.equals(status) && enableAfterVerification;
+        AlertVerificationStatus verificationStatus = verifiedAlert.getVerification() == null
+                ? null
+                : verifiedAlert.getVerification().getStatus();
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] normal outcome persisted alertId=" + alertId
+                + " status=" + status
+                + " verificationStatus=" + verificationStatus
+                + " enabled=" + verifiedAlert.getEnabled());
+        boolean shouldApplyEnableAfterVerification = AlertStatus.VERIFIED.equals(status) && enableAfterVerification;
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] enableAfterVerification decision alertId=" + alertId
+                + " requested=" + enableAfterVerification
+                + " status=" + status
+                + " willApply=" + shouldApplyEnableAfterVerification);
+        if (!shouldApplyEnableAfterVerification) {
+            System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] skipping updateAlertEnabledAfterCreateVerification alertId="
+                    + alertId + " finalStatus=" + status);
+            return verifiedAlert;
+        }
         return QuarkusTransaction.requiringNew().call(() -> {
             logBeforeRepositoryOperation(alertId, "updateAlertEnabledAfterCreateVerification");
-            return alertRepository.updateAlertEnabledAfterCreateVerification(alertId, enabled)
+            return alertRepository.updateAlertEnabledAfterCreateVerification(alertId, true)
                     .orElse(verifiedAlert);
         });
     }
@@ -213,14 +251,44 @@ public class AlertAsyncVerificationService {
         }
     }
 
+    private boolean transactionActive() {
+        if (transactionManager == null) {
+            return false;
+        }
+        try {
+            return transactionManager.getStatus() == Status.STATUS_ACTIVE;
+        } catch (SystemException ex) {
+            return false;
+        }
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private void printStackTracePreview(Throwable throwable) {
+        StackTraceElement[] stackTrace = throwable.getStackTrace();
+        int limit = Math.min(10, stackTrace.length);
+        for (int index = 0; index < limit; index++) {
+            System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] stack[" + index + "]=" + stackTrace[index]);
+        }
+    }
+
     private boolean isMissingTenantFailure(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
+            if (current instanceof MissingTenantContextException) {
+                return true;
+            }
             String message = current.getMessage();
             if (message != null
                     && (message.contains("tenant identifier")
-                    || message.contains("tenant context")
-                    || message.contains("multi-tenancy"))) {
+                    || message.contains("multi-tenancy")
+                    || message.contains("tenant context is missing"))) {
                 return true;
             }
             current = current.getCause();
