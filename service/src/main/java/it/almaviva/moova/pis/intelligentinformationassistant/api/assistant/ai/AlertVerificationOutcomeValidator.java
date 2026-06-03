@@ -277,6 +277,10 @@ public class AlertVerificationOutcomeValidator {
         if (context.failureReason != null) {
             return;
         }
+        validateMainEventPhase(context);
+        if (context.failureReason != null) {
+            return;
+        }
         int technicalTemporalConditionCount = context.temporalConditions.size();
         if (technicalTemporalConditionCount > 0 || containsPotentialTemporalOperator(context.agentBlueprintPreview)) {
             validateBlueprintTemporalCondition(context);
@@ -1146,10 +1150,12 @@ public class AlertVerificationOutcomeValidator {
                     + " candidateLeaves=" + candidateLeaves);
             ConditionLeaf match = matchingLocationLeaf(location, selectedPointIds, candidateLeaves);
             if (match == null) {
-                rejectLocationCoverage(context, location,
-                        "required location '" + location.rawText() + "' with role " + location.semanticRole()
-                                + " and polarity " + normalizedPolarity(location)
-                                + " is not represented by a compatible ServiceData condition.");
+                String incompatibleReason = incompatibleLocationRepresentationReason(context, location, selectedPointIds);
+                rejectLocationCoverage(context, location, incompatibleReason == null
+                        ? "required location '" + location.rawText() + "' with role " + location.semanticRole()
+                        + " and polarity " + normalizedPolarity(location)
+                        + " is not represented by a compatible ServiceData condition."
+                        : incompatibleReason);
                 return;
             }
             if (isUnresolvedExclude(location) && match.underAnyGroup()) {
@@ -1261,7 +1267,7 @@ public class AlertVerificationOutcomeValidator {
                     "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id",
                     "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
                     "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort");
-            case "ROUTE_OR_NEXT_CALL_LOCATION", "NEXT_TRANSIT_STOP_POINT" -> List.of(
+            case "ROUTE_OR_NEXT_CALL_LOCATION" -> List.of(
                     "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
                     "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
                     "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort");
@@ -1277,16 +1283,65 @@ public class AlertVerificationOutcomeValidator {
                     "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong");
             case "REPLACEMENT_LOCATION" -> List.of(
                     "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id");
-            default -> location.targetFieldHints();
+            default -> location.targetFieldHints().stream()
+                    .flatMap(field -> expandLocationFieldFamily(field).stream())
+                    .filter(field -> field != null && !field.isBlank())
+                    .distinct()
+                    .filter(ServiceDataCapabilityCatalog::isAllowedField)
+                    .toList();
         };
-        List<String> expandedTargetHints = location.targetFieldHints().stream()
-                .flatMap(field -> expandLocationFieldFamily(field).stream())
-                .toList();
-        return java.util.stream.Stream.concat(fields.stream(), expandedTargetHints.stream())
-                .filter(field -> field != null && !field.isBlank())
-                .distinct()
+        return fields.stream()
                 .filter(ServiceDataCapabilityCatalog::isAllowedField)
                 .toList();
+    }
+
+    private String incompatibleLocationRepresentationReason(
+            ValidationContext context,
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds) {
+        String role = location.semanticRole() == null ? "" : location.semanticRole().toUpperCase(Locale.ROOT);
+        if (!Set.of("MAIN_EVENT_LOCATION", "DEPARTURE_EVENT_STOP_POINT", "ARRIVAL_EVENT_STOP_POINT", "EVENT_STOP_POINT")
+                .contains(role)) {
+            return null;
+        }
+        boolean representedOnOriginOrDestination = contextLeavesWithMatchingLocationValue(context, location, selectedPointIds).stream()
+                .map(ConditionLeaf::field)
+                .anyMatch(field -> field.contains("timetabledCallStart.stopPoint.")
+                        || field.contains("callStart.stopPoint.")
+                        || field.contains("timetabledCallEnd.stopPoint.")
+                        || field.contains("callEnd.stopPoint."));
+        if (!representedOnOriginOrDestination) {
+            return null;
+        }
+        return "MAIN_EVENT_LOCATION '" + location.rawText()
+                + "' was represented on origin/callStart fields instead of current/event stop fields.";
+    }
+
+    private List<ConditionLeaf> contextLeavesWithMatchingLocationValue(
+            ValidationContext context,
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds) {
+        return context.conditionLeaves.stream()
+                .filter(leaf -> leafMatchesLocationValue(location, selectedPointIds, leaf))
+                .toList();
+    }
+
+    private boolean leafMatchesLocationValue(
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds,
+            ConditionLeaf leaf) {
+        if (leaf.field().endsWith(".stopPoint.id") || leaf.field().endsWith(".stopPointId.id")) {
+            if (selectedPointIds.isEmpty()) {
+                return false;
+            }
+            if (leaf.value() != null && selectedPointIds.contains(stringValue(leaf.value()))) {
+                return true;
+            }
+            return leaf.values().stream().anyMatch(selectedPointIds::contains);
+        }
+        boolean nameField = leaf.field().endsWith(".stopPoint.nameLong")
+                || leaf.field().endsWith(".stopPoint.nameShort");
+        return nameField && locationValueMatches(location, leaf);
     }
 
     private List<String> expandLocationFieldFamily(String field) {
@@ -1301,6 +1356,60 @@ public class AlertVerificationOutcomeValidator {
             return List.of(field);
         }
         return List.of(field);
+    }
+
+    private void validateMainEventPhase(ValidationContext context) {
+        String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
+        String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
+        if (intent == null || phase == null || "AMBIGUOUS".equals(phase)) {
+            return;
+        }
+        String expectedEventType = expectedMainEventType(intent, phase);
+        if (expectedEventType == null) {
+            return;
+        }
+        boolean represented = context.conditionLeaves.stream()
+                .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                .anyMatch(leaf -> eventLeafContains(leaf, expectedEventType));
+        if (!represented) {
+            context.fail("Main event semantic validation failed: MAIN_EVENT_INTENT="
+                    + intent + " and MAIN_EVENT_PHASE=" + phase
+                    + " require payload.ongroundServiceEvent.eventsType to contain "
+                    + expectedEventType + ".");
+        }
+    }
+
+    private String nonLocationConstraintValue(ValidationContext context, String type) {
+        return context.locationContext.nonLocationConstraints().stream()
+                .filter(constraint -> type.equalsIgnoreCase(constraint.type()))
+                .map(AlertVerificationLocationContext.NonLocationConstraint::rawText)
+                .map(value -> value == null ? null : value.trim().toUpperCase(Locale.ROOT))
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String expectedMainEventType(String intent, String phase) {
+        return switch (intent) {
+            case "DEPARTURE" -> switch (phase) {
+                case "PROGRESSIVE" -> "DEPARTING";
+                case "COMPLETED" -> "DEPARTED";
+                default -> null;
+            };
+            case "ARRIVAL" -> switch (phase) {
+                case "PROGRESSIVE" -> "ARRIVING";
+                case "COMPLETED" -> "ARRIVED";
+                default -> null;
+            };
+            default -> null;
+        };
+    }
+
+    private boolean eventLeafContains(ConditionLeaf leaf, String expectedEventType) {
+        if (expectedEventType.equals(stringValue(leaf.value()))) {
+            return true;
+        }
+        return leaf.values().contains(expectedEventType);
     }
 
     private void rejectLocationCoverage(

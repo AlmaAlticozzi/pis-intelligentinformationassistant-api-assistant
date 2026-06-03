@@ -9,6 +9,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
@@ -98,6 +100,9 @@ public class AlertService {
 
     @Inject
     AlertLocationTargetFieldMapper alertLocationTargetFieldMapper;
+
+    @Inject
+    AlertEventWordingClassifier alertEventWordingClassifier;
 
     @Inject
     Instance<LlmGateway> llmGateway;
@@ -604,7 +609,7 @@ public class AlertService {
             if (shouldFallbackToLegacy(understanding)) {
                 return Optional.empty();
             }
-            return Optional.of(toPromptLocationContext(understanding));
+            return Optional.of(toPromptLocationContext(understanding, prompt));
         } catch (RuntimeException ex) {
             System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] error alertId="
                     + alertId + " reason=" + shortTechnicalMessage(ex));
@@ -644,7 +649,9 @@ public class AlertService {
         return context;
     }
 
-    private AlertVerificationLocationContext toPromptLocationContext(AlertLocationUnderstandingResult understanding) {
+    private AlertVerificationLocationContext toPromptLocationContext(
+            AlertLocationUnderstandingResult understanding,
+            String prompt) {
         AlertLocationResolverService resolver = alertLocationResolverService == null
                 ? new AlertLocationResolverService()
                 : alertLocationResolverService;
@@ -666,14 +673,15 @@ public class AlertService {
         AlertVerificationLocationContext context = new AlertVerificationLocationContext(
                 understanding.hasLocations(),
                 promptResolutions,
-                semanticNonLocationConstraints(understanding),
+                semanticNonLocationConstraints(understanding, prompt),
                 understanding.warnings());
         System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] semanticContext=" + context);
         return context;
     }
 
     private List<AlertVerificationLocationContext.NonLocationConstraint> semanticNonLocationConstraints(
-            AlertLocationUnderstandingResult understanding) {
+            AlertLocationUnderstandingResult understanding,
+            String prompt) {
         List<AlertVerificationLocationContext.NonLocationConstraint> constraints = new ArrayList<>(
                 understanding.nonLocationConstraints().stream()
                         .map(constraint -> new AlertVerificationLocationContext.NonLocationConstraint(
@@ -684,6 +692,19 @@ public class AlertService {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_INTENT",
                     understanding.mainEvent().eventIntent().name()));
+            AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
+                    ? new AlertEventWordingClassifier()
+                    : alertEventWordingClassifier;
+            AlertEventPhase phase = classifier.classify(prompt, understanding.mainEvent().eventIntent());
+            constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                    "MAIN_EVENT_PHASE",
+                    phase.name()));
+            String expectedEventType = classifier.expectedEventType(understanding.mainEvent().eventIntent(), phase);
+            if (expectedEventType != null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "EXPECTED_MAIN_EVENT_TYPE",
+                        expectedEventType));
+            }
         }
         return constraints;
     }

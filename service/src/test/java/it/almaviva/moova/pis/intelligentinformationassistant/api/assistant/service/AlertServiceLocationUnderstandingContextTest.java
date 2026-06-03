@@ -157,8 +157,13 @@ class AlertServiceLocationUnderstandingContextTest {
 
         assertThat(context.hasLocationMentions()).isFalse();
         assertThat(context.resolutions()).isEmpty();
-        assertThat(context.nonLocationConstraints()).hasSize(2);
+        assertThat(context.nonLocationConstraints()).hasSize(3);
         assertThat(context.nonLocationConstraints().getFirst().type()).isEqualTo("PLATFORM");
+        assertThat(context.nonLocationConstraints())
+                .anySatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("MAIN_EVENT_PHASE");
+                    assertThat(constraint.rawText()).isEqualTo("AMBIGUOUS");
+                });
     }
 
     @Test
@@ -175,7 +180,7 @@ class AlertServiceLocationUnderstandingContextTest {
 
         assertThat(context.nonLocationConstraints())
                 .extracting(AlertVerificationLocationContext.NonLocationConstraint::type)
-                .contains("PLATFORM", "MAIN_EVENT_INTENT");
+                .contains("PLATFORM", "MAIN_EVENT_INTENT", "MAIN_EVENT_PHASE");
         assertThat(context.nonLocationConstraints())
                 .anySatisfy(constraint -> {
                     assertThat(constraint.type()).isEqualTo("MAIN_EVENT_INTENT");

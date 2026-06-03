@@ -178,6 +178,8 @@ public class AlertVerificationPromptBuilder {
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL, use arrival semantics: ARRIVED/ARRIVING events, arrival platform fields and arrivalDelay fields. Do not generate DEPARTING/DEPARTED or departure platform fields.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=DEPARTURE, use departure semantics: DEPARTED/DEPARTING events, departure platform fields and departureDelay fields. Do not generate ARRIVING/ARRIVED or arrival platform fields.
+                - If Location Understanding provides nonLocationConstraints MAIN_EVENT_PHASE=PROGRESSIVE, use the progressive current event value: DEPARTURE -> DEPARTING, ARRIVAL -> ARRIVING.
+                - If Location Understanding provides nonLocationConstraints MAIN_EVENT_PHASE=COMPLETED, use the completed current event value: DEPARTURE -> DEPARTED, ARRIVAL -> ARRIVED.
                 - For precise completed arrival wording such as "arriva", prefer payload.ongroundServiceEvent.eventsType CONTAINS ARRIVED. For "in arrivo" or progressive arrival wording, prefer ARRIVING. If truly ambiguous between progress and completion, use ARRIVING/ARRIVED only, never departure events.
                 - For precise completed departure wording such as "parte", prefer payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED. For "in partenza" or progressive departure wording, prefer DEPARTING. If truly ambiguous between progress and completion, use DEPARTING/DEPARTED only, never arrival events.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
@@ -455,6 +457,24 @@ public class AlertVerificationPromptBuilder {
                     {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
                   }}
                 ]}
+                Decision: VERIFIED
+
+                Positive example - current departure stop plus future route location:
+                Prompt: "Dimmi quando una corsa parte da Garibaldi e passera da Venezia"
+                LocationContext:
+                - Garibaldi MAIN_EVENT_LOCATION
+                - Venezia ROUTE_OR_NEXT_CALL_LOCATION
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedGaribaldiStopPointIds>"]},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"anyElement":{"path":"nextCalls[]","conditions":
+                      {"field":"stopPoint.id","operator":"IN","values":["<resolvedVeneziaStopPointIds>"]}
+                    }}
+                  }}
+                ]}
+                Do not put Garibaldi on callStart.stopPoint.id or timetabledCallStart.stopPoint.id.
                 Decision: VERIFIED
 
                 Positive example - departure platforms correlated with resolved locations:

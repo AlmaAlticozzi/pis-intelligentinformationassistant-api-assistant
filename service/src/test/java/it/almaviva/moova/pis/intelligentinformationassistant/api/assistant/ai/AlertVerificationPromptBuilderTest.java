@@ -440,6 +440,40 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptBuilderStatesMainEventLocationUsesCurrentStopForTest001() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                true,
+                List.of(
+                        richResolution(
+                                "Garibaldi",
+                                "MAIN_EVENT_LOCATION",
+                                "INCLUDE",
+                                List.of("payload.stopPointJourney.stopPoint.id",
+                                        "payload.ongroundServiceEvent.stopPoint.id")),
+                        richResolution(
+                                "Venezia",
+                                "ROUTE_OR_NEXT_CALL_LOCATION",
+                                "INCLUDE",
+                                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id"))),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "COMPLETED")),
+                List.of());
+
+        LlmRequest request = builder().build(promptDataWithLocation(context));
+
+        assertThat(request.userPrompt())
+                .contains("\"partenza da X\", \"parte da X\", \"arrivo a X\" and \"arriva a X\" mean X is the current/event stop")
+                .contains("Do not use callStart/timetabledCallStart for \"parte da X\" when X is MAIN_EVENT_LOCATION")
+                .contains("Garibaldi MAIN_EVENT_LOCATION")
+                .contains("Venezia ROUTE_OR_NEXT_CALL_LOCATION")
+                .contains("payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id for Garibaldi")
+                .contains("nextCalls[].stopPoint.id for Venezia")
+                .contains("Do not put Garibaldi on callStart.stopPoint.id or timetabledCallStart.stopPoint.id")
+                .contains("MAIN_EVENT_PHASE=COMPLETED, use the completed current event value: DEPARTURE -> DEPARTED");
+    }
+
+    @Test
     void builderContainsPositiveExampleForRhoStopPointId() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 

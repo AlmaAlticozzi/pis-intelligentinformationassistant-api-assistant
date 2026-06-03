@@ -109,8 +109,14 @@ public record AlertVerificationLocationContext(
         section.append("- The location role determines which ServiceData field/path should be used.\n");
         section.append("- Do not put every location on the current stop.\n");
         section.append("- MAIN_EVENT_LOCATION uses current/event stop fields.\n");
+        section.append("- For MAIN_EVENT_LOCATION use only payload.stopPointJourney.stopPoint.id/nameLong/nameShort or payload.ongroundServiceEvent.stopPoint.id/nameLong/nameShort.\n");
+        section.append("- \"partenza da X\", \"parte da X\", \"arrivo a X\" and \"arriva a X\" mean X is the current/event stop when Location Understanding marked X as MAIN_EVENT_LOCATION.\n");
+        section.append("- Do not use callStart/timetabledCallStart for \"parte da X\" when X is MAIN_EVENT_LOCATION.\n");
+        section.append("- Do not use callEnd/timetabledCallEnd for \"arriva a X\" when X is MAIN_EVENT_LOCATION.\n");
         section.append("- ORIGIN_LOCATION uses origin/callStart fields.\n");
+        section.append("- Use callStart/timetabledCallStart only for ORIGIN_LOCATION or explicit journey-origin wording such as \"origine\", \"localita di origine\", \"ha origine\" or \"corsa con origine X\".\n");
         section.append("- DESTINATION_LOCATION uses destination/callEnd fields.\n");
+        section.append("- Use callEnd/timetabledCallEnd only for DESTINATION_LOCATION or explicit journey-destination wording such as \"destinazione\", \"destino\" or \"corsa con destinazione X\".\n");
         section.append("- ROUTE_OR_NEXT_CALL_LOCATION uses nextCalls fields.\n");
         section.append("- TRANSIT_LOCATION uses nextTransitCalls, or nextCalls with passingType TRANSIT only when supported.\n");
         section.append("- CANCELLED_CALL_LOCATION uses nextCancelledCalls fields.\n");
@@ -166,6 +172,14 @@ public record AlertVerificationLocationContext(
         section.append("  Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\".\n");
         section.append("  Do not generate any/OR between timetabledCallEnd.stopPoint.nameLong, timetabledCallEnd.stopPoint.nameShort, callEnd.stopPoint.nameLong and callEnd.stopPoint.nameShort.\n");
         section.append("  Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching.\n");
+        section.append("- Positive current departure plus future route location:\n");
+        section.append("  User prompt: \"Dimmi quando una corsa parte da Garibaldi e passera da Venezia\"\n");
+        section.append("  LocationContext: Garibaldi MAIN_EVENT_LOCATION; Venezia ROUTE_OR_NEXT_CALL_LOCATION.\n");
+        section.append("  Expected condition leaves:\n");
+        section.append("    payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED\n");
+        section.append("    payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id for Garibaldi\n");
+        section.append("    nextCalls[].stopPoint.id for Venezia inside stopPointsJourneyDetails[] anyElement.\n");
+        section.append("  Do not put Garibaldi on callStart.stopPoint.id or timetabledCallStart.stopPoint.id.\n");
     }
 
     private static String nullToEmpty(String value) {
