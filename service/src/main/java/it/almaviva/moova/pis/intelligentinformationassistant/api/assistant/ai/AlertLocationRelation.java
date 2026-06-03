@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 public enum AlertLocationRelation {
+    EVENT_LOCATION,
     EVENT_STOP_POINT,
     ORIGIN_CONSTRAINT,
     DESTINATION_CONSTRAINT,

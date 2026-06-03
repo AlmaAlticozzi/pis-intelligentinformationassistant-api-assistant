@@ -144,6 +144,129 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void normalizesProgressiveDepartureFromOriginToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Dimmi quando una corsa e in partenza da Garibaldi e passera da Venezia",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.92),
+                        List.of(
+                                location("Garibaldi", AlertLocationRole.ORIGIN_LOCATION, AlertLocationRelation.ORIGIN_CONSTRAINT, "G1"),
+                                location("Venezia", AlertLocationRole.ROUTE_OR_NEXT_CALL_LOCATION, AlertLocationRelation.FUTURE_ROUTE_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Garibaldi", "MAIN_EVENT_LOCATION", "EVENT_LOCATION");
+        assertLocation(context, "Venezia", "ROUTE_OR_NEXT_CALL_LOCATION", "FUTURE_ROUTE_CONSTRAINT");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "DEPARTURE");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
+    }
+
+    @Test
+    void normalizesCompletedDepartureFromOriginToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Dimmi quando una corsa parte da Garibaldi e passera da Venezia",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.92),
+                        List.of(
+                                location("Garibaldi", AlertLocationRole.ORIGIN_LOCATION, AlertLocationRelation.ORIGIN_CONSTRAINT, "G1"),
+                                location("Venezia", AlertLocationRole.ROUTE_OR_NEXT_CALL_LOCATION, AlertLocationRelation.FUTURE_ROUTE_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Garibaldi", "MAIN_EVENT_LOCATION", "EVENT_LOCATION");
+        assertLocation(context, "Venezia", "ROUTE_OR_NEXT_CALL_LOCATION", "FUTURE_ROUTE_CONSTRAINT");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "COMPLETED");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTED");
+    }
+
+    @Test
+    void preservesExplicitJourneyOriginWithRouteLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha origine a Garibaldi e passera da Venezia",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ROUTE_TRANSIT, 0.70),
+                        List.of(
+                                location("Garibaldi", AlertLocationRole.ORIGIN_LOCATION, AlertLocationRelation.ORIGIN_CONSTRAINT, "G1"),
+                                location("Venezia", AlertLocationRole.ROUTE_OR_NEXT_CALL_LOCATION, AlertLocationRelation.FUTURE_ROUTE_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Garibaldi", "ORIGIN_LOCATION", "ORIGIN_CONSTRAINT");
+        assertLocation(context, "Venezia", "ROUTE_OR_NEXT_CALL_LOCATION", "FUTURE_ROUTE_CONSTRAINT");
+        assertThat(context.resolutions())
+                .extracting(AlertVerificationLocationContext.LocationResolution::semanticRole)
+                .doesNotContain("MAIN_EVENT_LOCATION");
+    }
+
+    @Test
+    void normalizesProgressiveArrivalDestinationToMainEventLocationAndPreservesExplicitDestination() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in arrivo a Monza e ha destinazione Lecco",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.92),
+                        List.of(
+                                location("Monza", AlertLocationRole.DESTINATION_LOCATION, AlertLocationRelation.DESTINATION_CONSTRAINT, "G1"),
+                                location("Lecco", AlertLocationRole.DESTINATION_LOCATION, AlertLocationRelation.DESTINATION_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Monza", "MAIN_EVENT_LOCATION", "EVENT_LOCATION");
+        assertLocation(context, "Lecco", "DESTINATION_LOCATION", "DESTINATION_CONSTRAINT");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+    }
+
+    @Test
+    void normalizesCompletedArrivalDestinationToMainEventLocationAndPreservesExplicitDestination() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa arriva a Monza e ha destinazione Lecco",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.92),
+                        List.of(
+                                location("Monza", AlertLocationRole.DESTINATION_LOCATION, AlertLocationRelation.DESTINATION_CONSTRAINT, "G1"),
+                                location("Lecco", AlertLocationRole.DESTINATION_LOCATION, AlertLocationRelation.DESTINATION_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Monza", "MAIN_EVENT_LOCATION", "EVENT_LOCATION");
+        assertLocation(context, "Lecco", "DESTINATION_LOCATION", "DESTINATION_CONSTRAINT");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "COMPLETED");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVED");
+    }
+
+    @Test
+    void preservesOriginAndDestinationWithoutInventingMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha origine a Monza e destinazione Lecco",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.UNKNOWN, 0.40),
+                        List.of(
+                                location("Monza", AlertLocationRole.ORIGIN_LOCATION, AlertLocationRelation.ORIGIN_CONSTRAINT, "G1"),
+                                location("Lecco", AlertLocationRole.DESTINATION_LOCATION, AlertLocationRelation.DESTINATION_CONSTRAINT, "G2")),
+                        List.of(),
+                        List.of()));
+
+        assertLocation(context, "Monza", "ORIGIN_LOCATION", "ORIGIN_CONSTRAINT");
+        assertLocation(context, "Lecco", "DESTINATION_LOCATION", "DESTINATION_CONSTRAINT");
+        assertThat(context.resolutions())
+                .extracting(AlertVerificationLocationContext.LocationResolution::semanticRole)
+                .doesNotContain("MAIN_EVENT_LOCATION");
+    }
+
+    @Test
     void keepsPlatformAsNonLocationConstraintWithoutInventingLocation() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(new AlertLocationUnderstandingResult(
                 false,
@@ -204,9 +327,15 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     private AlertVerificationLocationContext verifyAndCaptureContext(AlertLocationUnderstandingResult understanding) {
+        return verifyAndCaptureContext("Prompt", understanding);
+    }
+
+    private AlertVerificationLocationContext verifyAndCaptureContext(
+            String prompt,
+            AlertLocationUnderstandingResult understanding) {
         AlertLocationUnderstandingService understandingService = mock(AlertLocationUnderstandingService.class);
         when(understandingService.understandLocations(any(), any())).thenReturn(understanding);
-        return verifyAndCaptureContext("Prompt", understandingService);
+        return verifyAndCaptureContext(prompt, understandingService);
     }
 
     @SuppressWarnings("unchecked")
@@ -274,5 +403,31 @@ class AlertServiceLocationUnderstandingContextTest {
                 AlertLocationPolarity.INCLUDE,
                 logicalGroup,
                 0.90);
+    }
+
+    private void assertLocation(
+            AlertVerificationLocationContext context,
+            String rawText,
+            String semanticRole,
+            String relationToMainEvent) {
+        assertThat(context.resolutions())
+                .anySatisfy(location -> {
+                    assertThat(location.rawText()).isEqualTo(rawText);
+                    assertThat(location.semanticRole()).isEqualTo(semanticRole);
+                    assertThat(location.relationToMainEvent()).isEqualTo(relationToMainEvent);
+                    assertThat(location.requiredCoverage()).isTrue();
+                    assertThat(location.polarity()).isEqualTo("INCLUDE");
+                });
+    }
+
+    private void assertConstraint(
+            AlertVerificationLocationContext context,
+            String type,
+            String rawText) {
+        assertThat(context.nonLocationConstraints())
+                .anySatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo(type);
+                    assertThat(constraint.rawText()).isEqualTo(rawText);
+                });
     }
 }

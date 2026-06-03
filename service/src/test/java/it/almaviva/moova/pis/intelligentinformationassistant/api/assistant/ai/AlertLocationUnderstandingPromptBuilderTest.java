@@ -81,4 +81,31 @@ class AlertLocationUnderstandingPromptBuilderTest {
                 .contains("requiredCoverage=true and polarity=EXCLUDE")
                 .contains("Do not set requiredCoverage=false just because polarity=EXCLUDE");
     }
+
+    @Test
+    void promptContainsGeneralCurrentEventOriginDestinationRules() {
+        LlmRequest request = builder.build("prompt", "ALRT1");
+
+        assertThat(request.userPrompt())
+                .contains("A preposition such as Italian \"da\" or English \"from\" is not enough to classify a location as journey origin")
+                .contains("normally means X is MAIN_EVENT_LOCATION, not ORIGIN_LOCATION")
+                .contains("ORIGIN_LOCATION requires explicit journey-origin wording")
+                .contains("normally means X is MAIN_EVENT_LOCATION, not DESTINATION_LOCATION")
+                .contains("DESTINATION_LOCATION requires explicit journey-destination wording")
+                .contains("ROUTE_OR_NEXT_CALL_LOCATION is for future route/call wording")
+                .contains("TRANSIT_LOCATION is only for explicit transit wording")
+                .contains("CANCELLED_CALL_LOCATION is for cancelled/suppressed stop wording");
+    }
+
+    @Test
+    void promptContainsGenericExamplesWithoutStationNames() {
+        LlmRequest request = builder.build("prompt", "ALRT1");
+
+        assertThat(request.userPrompt())
+                .contains("una corsa e in partenza da X e passera da Y")
+                .contains("X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_LOCATION")
+                .contains("Y: role ROUTE_OR_NEXT_CALL_LOCATION, relationToMainEvent FUTURE_ROUTE_CONSTRAINT")
+                .contains("una corsa ha origine a X e destinazione Z")
+                .contains("Do not invent a MAIN_EVENT_LOCATION when no current event location is present");
+    }
 }

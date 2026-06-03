@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationMainEventIntent;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRelation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationPolarity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingMainEvent;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
@@ -64,6 +67,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.ArrayList;
+import java.text.Normalizer;
+import java.util.Locale;
 
 @ApplicationScoped
 public class AlertService {
@@ -596,7 +601,9 @@ public class AlertService {
                 System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] service unavailable alertId=" + alertId);
                 return Optional.empty();
             }
-            AlertLocationUnderstandingResult understanding = understandingService.understandLocations(prompt, alertId);
+            AlertLocationUnderstandingResult understanding = normalizeLocationUnderstandingRoles(
+                    prompt,
+                    understandingService.understandLocations(prompt, alertId));
             System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] result=" + understanding);
             for (AlertLocationUnderstandingLocation location : understanding.locations()) {
                 System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] location rawText="
@@ -676,7 +683,155 @@ public class AlertService {
                 semanticNonLocationConstraints(understanding, prompt),
                 understanding.warnings());
         System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] semanticContext=" + context);
+        for (AlertVerificationLocationContext.LocationResolution resolution : context.resolutions()) {
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT][TARGET_FIELD_HINTS] rawText="
+                    + resolution.rawText()
+                    + " semanticRole=" + resolution.semanticRole()
+                    + " relationToMainEvent=" + resolution.relationToMainEvent()
+                    + " targetFieldHints=" + resolution.targetFieldHints());
+        }
         return context;
+    }
+
+    private AlertLocationUnderstandingResult normalizeLocationUnderstandingRoles(
+            String prompt,
+            AlertLocationUnderstandingResult understanding) {
+        if (understanding == null || understanding.locations().isEmpty()) {
+            return understanding;
+        }
+        List<AlertLocationUnderstandingLocation> normalizedLocations = new ArrayList<>();
+        boolean changed = false;
+        for (AlertLocationUnderstandingLocation location : understanding.locations()) {
+            AlertLocationUnderstandingLocation normalized = normalizeLocationRole(prompt, understanding.mainEvent(), location);
+            normalizedLocations.add(normalized);
+            changed = changed || normalized != location;
+        }
+        if (!changed) {
+            return understanding;
+        }
+        return new AlertLocationUnderstandingResult(
+                understanding.hasLocations(),
+                understanding.language(),
+                understanding.mainEvent(),
+                normalizedLocations,
+                understanding.nonLocationConstraints(),
+                understanding.warnings());
+    }
+
+    private AlertLocationUnderstandingLocation normalizeLocationRole(
+            String prompt,
+            AlertLocationUnderstandingMainEvent mainEvent,
+            AlertLocationUnderstandingLocation location) {
+        if (prompt == null || mainEvent == null || location == null || location.rawText().isBlank()) {
+            return location;
+        }
+        AlertLocationMainEventIntent intent = mainEvent.eventIntent();
+        if (intent == AlertLocationMainEventIntent.DEPARTURE
+                && location.role() == AlertLocationRole.ORIGIN_LOCATION
+                && hasCurrentDepartureWordingForLocation(prompt, location.rawText())
+                && !hasExplicitOriginWordingForLocation(prompt, location.rawText())) {
+            return normalizedMainEventLocation(location,
+                    "current departure wording indicates event stop, not journey origin");
+        }
+        if (intent == AlertLocationMainEventIntent.ARRIVAL
+                && location.role() == AlertLocationRole.DESTINATION_LOCATION
+                && hasCurrentArrivalWordingForLocation(prompt, location.rawText())
+                && !hasExplicitDestinationWordingForLocation(prompt, location.rawText())) {
+            return normalizedMainEventLocation(location,
+                    "current arrival wording indicates event stop, not journey destination");
+        }
+        return location;
+    }
+
+    private AlertLocationUnderstandingLocation normalizedMainEventLocation(
+            AlertLocationUnderstandingLocation location,
+            String reason) {
+        AlertLocationUnderstandingLocation normalized = new AlertLocationUnderstandingLocation(
+                location.rawText(),
+                location.normalizedText(),
+                AlertLocationRole.MAIN_EVENT_LOCATION,
+                AlertLocationRelation.EVENT_LOCATION,
+                true,
+                location.polarity(),
+                location.logicalGroup(),
+                location.confidence());
+        System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][ROLE_NORMALIZATION] rawText="
+                + location.rawText()
+                + " originalRole=" + location.role()
+                + " normalizedRole=" + normalized.role()
+                + " originalRelation=" + location.relationToMainEvent()
+                + " normalizedRelation=" + normalized.relationToMainEvent()
+                + " reason=" + reason);
+        return normalized;
+    }
+
+    private boolean hasCurrentDepartureWordingForLocation(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
+            return false;
+        }
+        return containsAnyNearLocation(normalized, location,
+                "e in partenza da", "in partenza da", "sta partendo da", "parte da", "partenza da",
+                "is departing from", "about to depart from", "departs from", "departure from");
+    }
+
+    private boolean hasCurrentArrivalWordingForLocation(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
+            return false;
+        }
+        return containsAnyNearLocation(normalized, location,
+                "e in arrivo a", "in arrivo a", "sta arrivando a", "arriva a",
+                "is arriving at", "about to arrive at", "arrives at", "arrival at");
+    }
+
+    private boolean hasExplicitOriginWordingForLocation(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
+            return false;
+        }
+        return containsAnyNearLocation(normalized, location,
+                "ha origine a", "origine a", "origine", "localita di origine",
+                "corsa con origine", "journey origin", "originating from");
+    }
+
+    private boolean hasExplicitDestinationWordingForLocation(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
+            return false;
+        }
+        return containsAnyNearLocation(normalized, location,
+                "ha destinazione", "destinazione", "destino", "corsa con destinazione", "destination");
+    }
+
+    private boolean containsAnyNearLocation(String prompt, String location, String... cues) {
+        int locationIndex = prompt.indexOf(location);
+        if (locationIndex < 0) {
+            return false;
+        }
+        int windowStart = Math.max(0, locationIndex - 80);
+        String beforeAndLocation = prompt.substring(windowStart, locationIndex + location.length());
+        for (String cue : cues) {
+            if (beforeAndLocation.contains(cue) && beforeAndLocation.indexOf(cue) < beforeAndLocation.lastIndexOf(location)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private List<AlertVerificationLocationContext.NonLocationConstraint> semanticNonLocationConstraints(

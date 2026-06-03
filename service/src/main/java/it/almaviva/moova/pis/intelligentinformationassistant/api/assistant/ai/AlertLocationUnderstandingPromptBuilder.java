@@ -42,6 +42,24 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
                 - Distinguish the main event location, journey origin, journey destination, route or next-call locations, transit locations, cancelled/suppressed call locations, replacement locations, and generic locations when the role is uncertain.
+                - A preposition such as Italian "da" or English "from" is not enough to classify a location as journey origin.
+                - MAIN_EVENT_LOCATION means the stop/location of the current operational event being monitored.
+                - In a departure main event, wording such as "e in partenza da X", "sta partendo da X", "parte da X", "partenza da X", "is departing from X", "about to depart from X" and "departs from X" normally means X is MAIN_EVENT_LOCATION, not ORIGIN_LOCATION.
+                - ORIGIN_LOCATION requires explicit journey-origin wording such as "ha origine a X", "origine X", "localita di origine X", "corsa con origine X", "journey origin X" or "originating from X".
+                - In an arrival main event, wording such as "arriva a X", "e in arrivo a X", "sta arrivando a X", "arrival at X", "is arriving at X" and "arrives at X" normally means X is MAIN_EVENT_LOCATION, not DESTINATION_LOCATION.
+                - DESTINATION_LOCATION requires explicit journey-destination wording such as "destinazione X", "destino X", "ha destinazione X", "corsa con destinazione X" or "destination X".
+                - If a prompt contains both a current event location and a route location, keep them as separate locations with distinct roles.
+                - Example pattern: "a service is departing from X and will pass through Y" -> X MAIN_EVENT_LOCATION, Y ROUTE_OR_NEXT_CALL_LOCATION.
+                - If a prompt contains current stop, journey origin and journey destination, return three separate constraints.
+                - Example pattern: "a service is arriving at X, has origin Y and destination Z" -> X MAIN_EVENT_LOCATION, Y ORIGIN_LOCATION, Z DESTINATION_LOCATION.
+                - ROUTE_OR_NEXT_CALL_LOCATION is for future route/call wording such as "passera da X", "passa da X" when it is not the current event stop, "via X", "fermera a X", "will pass through X" and "will call at X".
+                - TRANSIT_LOCATION is only for explicit transit wording such as "in transito da X", "transitera da X" or "passing through X as transit".
+                - CANCELLED_CALL_LOCATION is for cancelled/suppressed stop wording such as "soppressa a X", "cancellata a X" or "fermata cancellata a X" when X is not the current event location.
+                - Infer main event phase from wording: progressive departure ("e in partenza", "sta partendo", "in partenza", "is departing", "about to depart") -> PROGRESSIVE/DEPARTING.
+                - Infer main event phase from wording: completed departure ("parte", "e partita", "ha lasciato", "departs", "has departed") -> COMPLETED/DEPARTED.
+                - Infer main event phase from wording: progressive arrival ("e in arrivo", "sta arrivando", "in arrivo", "is arriving", "about to arrive") -> PROGRESSIVE/ARRIVING.
+                - Infer main event phase from wording: completed arrival ("arriva", "e arrivata", "arrives", "has arrived") -> COMPLETED/ARRIVED.
+                - If the event phase is truly ambiguous, keep it ambiguous; downstream verification may use coherent CONTAINS_ANY.
                 - If a location is an operational user constraint, requiredCoverage must be true.
                 - Negated or excluded locations are still mandatory user constraints: use requiredCoverage=true and polarity=EXCLUDE.
                 - Do not set requiredCoverage=false just because polarity=EXCLUDE.
@@ -62,6 +80,7 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - GENERIC_LOCATION
 
                 Allowed relationToMainEvent values:
+                - EVENT_LOCATION
                 - EVENT_STOP_POINT
                 - ORIGIN_CONSTRAINT
                 - DESTINATION_CONSTRAINT
@@ -122,6 +141,27 @@ public class AlertLocationUnderstandingPromptBuilder {
                   ],
                   "warnings": []
                 }
+
+                Generic examples:
+                - Prompt pattern: "una corsa e in partenza da X e passera da Y"
+                  mainEvent.eventIntent: DEPARTURE
+                  X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_LOCATION, requiredCoverage true, polarity INCLUDE
+                  Y: role ROUTE_OR_NEXT_CALL_LOCATION, relationToMainEvent FUTURE_ROUTE_CONSTRAINT, requiredCoverage true, polarity INCLUDE
+                - Prompt pattern: "una corsa parte da X e passera da Y"
+                  mainEvent.eventIntent: DEPARTURE
+                  X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_LOCATION
+                  Y: role ROUTE_OR_NEXT_CALL_LOCATION, relationToMainEvent FUTURE_ROUTE_CONSTRAINT
+                - Prompt pattern: "una corsa ha origine a X e passera da Y"
+                  X: role ORIGIN_LOCATION, relationToMainEvent ORIGIN_CONSTRAINT
+                  Y: role ROUTE_OR_NEXT_CALL_LOCATION, relationToMainEvent FUTURE_ROUTE_CONSTRAINT
+                - Prompt pattern: "una corsa e in arrivo a X e ha destinazione Z"
+                  mainEvent.eventIntent: ARRIVAL
+                  X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_LOCATION
+                  Z: role DESTINATION_LOCATION, relationToMainEvent DESTINATION_CONSTRAINT
+                - Prompt pattern: "una corsa ha origine a X e destinazione Z"
+                  X: role ORIGIN_LOCATION, relationToMainEvent ORIGIN_CONSTRAINT
+                  Z: role DESTINATION_LOCATION, relationToMainEvent DESTINATION_CONSTRAINT
+                  Do not invent a MAIN_EVENT_LOCATION when no current event location is present.
                 """.formatted(escapeForPrompt(prompt));
     }
 
