@@ -141,7 +141,7 @@ public class AlertAsyncVerificationService {
 
     private void printStackTracePreview(Throwable throwable) {
         StackTraceElement[] stackTrace = throwable.getStackTrace();
-        int limit = Math.min(10, stackTrace.length);
+        int limit = Math.min(30, stackTrace.length);
         for (int index = 0; index < limit; index++) {
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] stack[" + index + "]=" + stackTrace[index]);
         }
@@ -170,7 +170,9 @@ public class AlertAsyncVerificationService {
         while (current != null) {
             String message = current.getMessage();
             if (message != null
-                    && message.contains("SessionFactory configured for multi-tenancy, but no tenant identifier specified")) {
+                    && (message.contains("SessionFactory configured for multi-tenancy, but no tenant identifier specified")
+                    || message.contains("RequestScoped context was not active")
+                    || message.contains("HibernateTenantResolver"))) {
                 return true;
             }
             current = current.getCause();

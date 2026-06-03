@@ -3,7 +3,6 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
@@ -22,7 +21,7 @@ public class AlertAsyncVerificationRequestContextRunner {
     AlertService alertService;
 
     @Inject
-    AlertVerificationPersistenceGateway persistenceGateway;
+    AlertVerificationPersistenceContextBoundary persistenceContextBoundary;
 
     @Inject
     TenantContext tenantContext;
@@ -82,8 +81,8 @@ public class AlertAsyncVerificationRequestContextRunner {
             }
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] persisting technical error alertId=" + alertId
                     + " tenantPresent=" + (currentTenantId() != null)
-                    + " method=persistenceGateway.persistTechnicalError");
-            persistenceGateway.persistTechnicalError(alertId, shortMessage, currentTenantId());
+                    + " method=persistenceContextBoundary.persistTechnicalError");
+            persistenceContextBoundary.persistTechnicalError(alertId, shortMessage, currentTenantId());
         } finally {
             if (tenantInstalled) {
                 tenantContext.clear();
@@ -96,12 +95,14 @@ public class AlertAsyncVerificationRequestContextRunner {
     protected AlertDetail verifyAndApplyEnable(String alertId, boolean enableAfterVerification, String tenant) {
         System.out.println("[IIA][ALERT_VERIFY][ASYNC_CONTEXT] before LLM requestContextActive="
                 + requestContextActive());
-        AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
-                .force(Boolean.FALSE);
-        AlertVerificationPromptData promptData = persistenceGateway.loadAlertForVerification(alertId, tenant)
+        AlertVerificationPromptData promptData = persistenceContextBoundary.loadAlertForVerification(alertId, tenant)
                 .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
         AlertVerificationOutcome outcome = alertService.verifyAlertOutcome(alertId, promptData);
-        AlertDetail verifiedAlert = persistenceGateway.persistVerificationOutcome(alertId, verificationRequest, outcome, tenant)
+        AlertDetail verifiedAlert = persistenceContextBoundary.persistVerificationOutcome(
+                        alertId,
+                        outcome,
+                        enableAfterVerification,
+                        tenant)
                 .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
         AlertStatus status = verifiedAlert.getStatus();
         AlertVerificationStatus verificationStatus = verifiedAlert.getVerification() == null
@@ -119,10 +120,8 @@ public class AlertAsyncVerificationRequestContextRunner {
         if (!shouldApplyEnableAfterVerification) {
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] skipping updateAlertEnabledAfterCreateVerification alertId="
                     + alertId + " finalStatus=" + status);
-            return verifiedAlert;
         }
-        return persistenceGateway.updateAlertEnabledAfterCreateVerification(alertId, tenant)
-                .orElse(verifiedAlert);
+        return verifiedAlert;
     }
 
     protected boolean installTenantIfNeeded(String alertId, String propagatedTenantId, String phase) {

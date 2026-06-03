@@ -1,10 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -13,19 +10,15 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.SystemException;
 import jakarta.transaction.TransactionManager;
-import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.Optional;
 
 @ApplicationScoped
-public class AlertVerificationPersistenceGateway {
+public class AlertVerificationPersistenceContextBoundary {
 
     @Inject
-    AlertRepository alertRepository;
-
-    @Inject
-    AiConfiguration aiConfiguration;
+    AlertVerificationTransactionalPersistence transactionalPersistence;
 
     @Inject
     TenantContext tenantContext;
@@ -37,61 +30,63 @@ public class AlertVerificationPersistenceGateway {
     String defaultSchema;
 
     @ActivateRequestContext
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertVerificationPromptData> loadAlertForVerification(String alertId, String tenant) {
-        installTenant(alertId, tenant, "loadAlertForVerification");
-        logBoundary("loadAlertForVerification", alertId);
-        return alertRepository.getAlertVerificationPromptData(alertId);
+        TenantRestore tenantRestore = restoreTenant(alertId, tenant, "loadAlertForVerification");
+        try {
+            logBoundary("loadAlertForVerification", alertId);
+            return transactionalPersistence.doLoadAlertForVerification(alertId);
+        } finally {
+            tenantRestore.restore();
+        }
     }
 
     @ActivateRequestContext
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertDetail> persistVerificationOutcome(
             String alertId,
-            AlertVerificationRequest request,
             AlertVerificationOutcome outcome,
+            boolean enableAfterVerification,
             String tenant) {
-        installTenant(alertId, tenant, "persistVerificationOutcome");
-        logBoundary("persistVerificationOutcome", alertId);
-        return alertRepository.verifyAlert(alertId, request, outcome);
+        TenantRestore tenantRestore = restoreTenant(alertId, tenant, "persistVerificationOutcome");
+        try {
+            logBoundary("persistVerificationOutcome", alertId);
+            return transactionalPersistence.doPersistVerificationOutcome(alertId, outcome, enableAfterVerification);
+        } finally {
+            tenantRestore.restore();
+        }
     }
 
     @ActivateRequestContext
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
-    public Optional<AlertDetail> updateAlertEnabledAfterCreateVerification(String alertId, String tenant) {
-        installTenant(alertId, tenant, "updateAlertEnabledAfterCreateVerification");
-        logBoundary("updateAlertEnabledAfterCreateVerification", alertId);
-        return alertRepository.updateAlertEnabledAfterCreateVerification(alertId, true);
-    }
-
-    @ActivateRequestContext
-    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertDetail> persistTechnicalError(String alertId, String shortMessage, String tenant) {
-        installTenant(alertId, tenant, "persistTechnicalError");
-        logBoundary("persistTechnicalError", alertId);
-        return alertRepository.markAlertVerificationTechnicalError(
-                alertId,
-                shortMessage,
-                aiConfiguration.provider(),
-                aiConfiguration.alertVerify().model());
+        TenantRestore tenantRestore = restoreTenant(alertId, tenant, "persistTechnicalError");
+        try {
+            logBoundary("persistTechnicalError", alertId);
+            return transactionalPersistence.doPersistTechnicalError(alertId, shortMessage);
+        } finally {
+            tenantRestore.restore();
+        }
     }
 
-    private void installTenant(String alertId, String tenant, String method) {
+    private TenantRestore restoreTenant(String alertId, String tenant, String method) {
+        String previousTenant = currentTenantId();
         String tenantToInstall = normalize(tenant);
         if (tenantToInstall == null) {
             tenantToInstall = normalizedDefaultSchema();
         }
-        if (tenantToInstall != null && tenantContext != null) {
+        boolean changed = tenantToInstall != null
+                && tenantContext != null
+                && !tenantToInstall.equals(previousTenant);
+        if (changed) {
             tenantContext.setTenantId(tenantToInstall);
         }
         if (currentTenantId() == null) {
             throw new AlertAsyncVerificationService.MissingTenantContextException(
-                    "Alert verification DB boundary " + method + " cannot run because tenant context is missing. alertId=" + alertId);
+                    "Alert verification context boundary " + method + " cannot run because tenant context is missing. alertId=" + alertId);
         }
+        return new TenantRestore(changed, previousTenant);
     }
 
     private void logBoundary(String method, String alertId) {
-        System.out.println("[IIA][ALERT_VERIFY][DB_BOUNDARY]"
+        System.out.println("[IIA][ALERT_VERIFY][CONTEXT_BOUNDARY]"
                 + " method=" + method
                 + " alertId=" + alertId
                 + " requestContextActive=" + requestContextActive()
@@ -101,7 +96,7 @@ public class AlertVerificationPersistenceGateway {
                 + " thread=" + Thread.currentThread().getName());
     }
 
-    private String currentTenantId() {
+    String currentTenantId() {
         if (tenantContext == null) {
             return null;
         }
@@ -137,6 +132,27 @@ public class AlertVerificationPersistenceGateway {
             return transactionManager.getStatus() == Status.STATUS_ACTIVE;
         } catch (SystemException ex) {
             return false;
+        }
+    }
+
+    private class TenantRestore {
+        private final boolean changed;
+        private final String previousTenant;
+
+        private TenantRestore(boolean changed, String previousTenant) {
+            this.changed = changed;
+            this.previousTenant = previousTenant;
+        }
+
+        private void restore() {
+            if (!changed || tenantContext == null) {
+                return;
+            }
+            if (previousTenant == null) {
+                tenantContext.clear();
+            } else {
+                tenantContext.setTenantId(previousTenant);
+            }
         }
     }
 }

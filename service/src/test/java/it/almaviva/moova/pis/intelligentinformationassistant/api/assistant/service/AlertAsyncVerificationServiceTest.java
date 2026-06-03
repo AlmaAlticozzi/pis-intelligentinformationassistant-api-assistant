@@ -3,7 +3,6 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import jakarta.enterprise.context.control.ActivateRequestContext;
@@ -39,15 +38,18 @@ class AlertAsyncVerificationServiceTest {
     }
 
     @Test
-    void persistenceGatewayDbBoundaryMethodsHaveRequestContextAndTransaction() throws NoSuchMethodException {
-        assertDbBoundary("loadAlertForVerification", String.class, String.class);
-        assertDbBoundary("persistVerificationOutcome",
+    void asyncPersistenceBoundariesSeparateRequestContextAndTransaction() throws NoSuchMethodException {
+        assertContextBoundary("loadAlertForVerification", String.class, String.class);
+        assertContextBoundary("persistVerificationOutcome",
                 String.class,
-                AlertVerificationRequest.class,
                 AlertVerificationOutcome.class,
+                boolean.class,
                 String.class);
-        assertDbBoundary("updateAlertEnabledAfterCreateVerification", String.class, String.class);
-        assertDbBoundary("persistTechnicalError", String.class, String.class, String.class);
+        assertContextBoundary("persistTechnicalError", String.class, String.class, String.class);
+
+        assertTxBoundary("doLoadAlertForVerification", String.class);
+        assertTxBoundary("doPersistVerificationOutcome", String.class, AlertVerificationOutcome.class, boolean.class);
+        assertTxBoundary("doPersistTechnicalError", String.class, String.class);
     }
 
     @Test
@@ -196,8 +198,8 @@ class AlertAsyncVerificationServiceTest {
     }
 
     @Test
-    void runnerLoadsAndPersistsThroughPersistenceGateway() {
-        AlertVerificationPersistenceGateway gateway = mock(AlertVerificationPersistenceGateway.class);
+    void runnerLoadsAndPersistsThroughPersistenceContextBoundary() {
+        AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
         AlertService alertService = mock(AlertService.class);
         AlertVerificationPromptData promptData = new AlertVerificationPromptData(
                 "ALRT1",
@@ -207,12 +209,12 @@ class AlertAsyncVerificationServiceTest {
                 null);
         AlertVerificationOutcome outcome = mock(AlertVerificationOutcome.class);
         AlertDetail persisted = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFIED).enabled(false);
-        when(gateway.loadAlertForVerification("ALRT1", "tenant-a")).thenReturn(Optional.of(promptData));
+        when(contextBoundary.loadAlertForVerification("ALRT1", "tenant-a")).thenReturn(Optional.of(promptData));
         when(alertService.verifyAlertOutcome("ALRT1", promptData)).thenReturn(outcome);
-        when(gateway.persistVerificationOutcome(
+        when(contextBoundary.persistVerificationOutcome(
                 org.mockito.ArgumentMatchers.eq("ALRT1"),
-                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(outcome),
+                org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq("tenant-a")))
                 .thenReturn(Optional.of(persisted));
         AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
@@ -221,26 +223,25 @@ class AlertAsyncVerificationServiceTest {
                 return true;
             }
         };
-        runner.persistenceGateway = gateway;
+        runner.persistenceContextBoundary = contextBoundary;
         runner.alertService = alertService;
 
         AlertDetail result = runner.verifyAndApplyEnable("ALRT1", false, "tenant-a");
 
         assertThat(result).isSameAs(persisted);
-        verify(gateway).loadAlertForVerification("ALRT1", "tenant-a");
+        verify(contextBoundary).loadAlertForVerification("ALRT1", "tenant-a");
         verify(alertService).verifyAlertOutcome("ALRT1", promptData);
-        verify(gateway).persistVerificationOutcome(
+        verify(contextBoundary).persistVerificationOutcome(
                 org.mockito.ArgumentMatchers.eq("ALRT1"),
-                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(outcome),
+                org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq("tenant-a"));
-        verify(gateway, never()).updateAlertEnabledAfterCreateVerification(anyString(), anyString());
     }
 
     @Test
-    void runnerMarksTechnicalErrorThroughPersistenceGateway() {
+    void runnerMarksTechnicalErrorThroughPersistenceContextBoundary() {
         TenantContext tenantContext = mock(TenantContext.class);
-        AlertVerificationPersistenceGateway gateway = mock(AlertVerificationPersistenceGateway.class);
+        AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
         AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
             @Override
             protected boolean requestContextActive() {
@@ -248,12 +249,12 @@ class AlertAsyncVerificationServiceTest {
             }
         };
         runner.tenantContext = tenantContext;
-        runner.persistenceGateway = gateway;
+        runner.persistenceContextBoundary = contextBoundary;
         configureTenantStorage(tenantContext);
 
         runner.markCreatedAlertVerificationErrorInRequestContext("ALRT1", "provider timeout", "tenant-a");
 
-        verify(gateway).persistTechnicalError("ALRT1", "provider timeout", "tenant-a");
+        verify(contextBoundary).persistTechnicalError("ALRT1", "provider timeout", "tenant-a");
         verify(tenantContext).clear();
     }
 
@@ -349,11 +350,21 @@ class AlertAsyncVerificationServiceTest {
         }).when(tenantContext).clear();
     }
 
-    private void assertDbBoundary(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
-        Method method = AlertVerificationPersistenceGateway.class.getMethod(methodName, parameterTypes);
+    private void assertContextBoundary(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
+        Method method = AlertVerificationPersistenceContextBoundary.class.getMethod(methodName, parameterTypes);
         assertThat(method.isAnnotationPresent(ActivateRequestContext.class))
                 .as(methodName + " activates CDI request context")
                 .isTrue();
+        assertThat(method.isAnnotationPresent(Transactional.class))
+                .as(methodName + " must not be transactional on the request context boundary")
+                .isFalse();
+    }
+
+    private void assertTxBoundary(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
+        Method method = AlertVerificationTransactionalPersistence.class.getMethod(methodName, parameterTypes);
+        assertThat(method.isAnnotationPresent(ActivateRequestContext.class))
+                .as(methodName + " must not activate request context on the transaction boundary")
+                .isFalse();
         Transactional transactional = method.getAnnotation(Transactional.class);
         assertThat(transactional)
                 .as(methodName + " is transactional")
