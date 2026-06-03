@@ -69,12 +69,12 @@ class AlertVerifyLocationResolutionIntegrationTest {
         AlertVerificationOutcome outcome = verifyWithLlmOutcome(
                 "Avvertimi quando un treno passa da Genova Nervi",
                 verifiedOutcomeJson(
-                        nameLongFallbackCondition("Genova Nervi"),
-                        coverage("payload.ongroundServiceEvent.stopPoint.nameLong")));
+                        nextCallNameLongFallbackCondition("Genova Nervi"),
+                        coverage("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong")));
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.technicalSpecification().toString())
-                .contains("payload.ongroundServiceEvent.stopPoint.nameLong", "CONTAINS_NORMALIZED", "Genova Nervi");
+                .contains("nextCalls", "stopPoint.nameLong", "CONTAINS_NORMALIZED", "Genova Nervi");
         assertThat(outcome.warnings())
                 .contains("One or more alert locations were unresolved and require nameLong/nameShort fallback; confidence reduced.");
         assertThat(outcome.confidence()).isEqualTo(0.25);
@@ -107,7 +107,7 @@ class AlertVerifyLocationResolutionIntegrationTest {
     }
 
     @Test
-    void nameLongUsedDespiteResolvedLocationProducesValidatorWarning() {
+    void nameLongUsedDespiteResolvedLocationIsRejectedByLocationCoverage() {
         AlertVerificationOutcome outcome = verifyWithLlmOutcome(
                 "Avvertimi quando una corsa parte da Rho Fieramilano",
                 verifiedOutcomeJson(
@@ -115,9 +115,8 @@ class AlertVerifyLocationResolutionIntegrationTest {
                         coverage("payload.ongroundServiceEvent.stopPoint.nameLong"),
                         locationResolution(RHO_ID)));
 
-        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
-        assertThat(outcome.warnings())
-                .contains("locationResolution contains resolved mentions but technicalSpecification does not use stopPoint.id.");
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Location coverage validation failed");
     }
 
     @Test
@@ -286,6 +285,25 @@ class AlertVerifyLocationResolutionIntegrationTest {
                     {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTED"},
                     {"field": "payload.ongroundServiceEvent.stopPoint.nameLong", "operator": "CONTAINS_NORMALIZED", "value": "%s"}
                   ]
+                }
+                """.formatted(value);
+    }
+
+    private String nextCallNameLongFallbackCondition(String value) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "anyElement": {
+                    "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                    "conditions": {"all": [
+                      {"anyElement": {
+                        "path": "nextCalls[]",
+                        "conditions": {"all": [
+                          {"field": "stopPoint.nameLong", "operator": "CONTAINS_NORMALIZED", "value": "%s"}
+                        ]}
+                      }}
+                    ]}
+                  }
                 }
                 """.formatted(value);
     }

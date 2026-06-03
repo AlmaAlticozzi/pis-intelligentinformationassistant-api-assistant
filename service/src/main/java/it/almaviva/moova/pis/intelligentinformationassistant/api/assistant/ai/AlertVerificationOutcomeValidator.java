@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
@@ -98,6 +99,13 @@ public class AlertVerificationOutcomeValidator {
     }
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome, String originalPrompt) {
+        return validate(outcome, originalPrompt, AlertVerificationLocationContext.empty());
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            String originalPrompt,
+            AlertVerificationLocationContext locationContext) {
         String defaultTemporalZone = defaultTemporalZone();
         System.out.println("[IIA][ALERT_VERIFY][TEMPORAL] temporal default zone loaded=" + defaultTemporalZone);
         if (outcome == null) {
@@ -123,7 +131,7 @@ public class AlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        ValidationContext context = new ValidationContext(outcome, defaultTemporalZone, originalPrompt);
+        ValidationContext context = new ValidationContext(outcome, defaultTemporalZone, originalPrompt, locationContext);
         validateVerifiedOutcome(context);
         if (context.failureReason != null) {
             return fail(outcome, context.failureReason);
@@ -262,6 +270,10 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         validateLocationResolutionSoftRules(context);
+        if (context.failureReason != null) {
+            return;
+        }
+        validateLocationCoverage(context);
         if (context.failureReason != null) {
             return;
         }
@@ -445,6 +457,7 @@ public class AlertVerificationOutcomeValidator {
         }
 
         context.conditionFields.add(field);
+        context.conditionLeaves.add(ConditionLeaf.from(field, operator, leaf, path, null));
         if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator)) {
             validateTemporalCondition(context, leaf, field, operator, false);
             return;
@@ -521,14 +534,14 @@ public class AlertVerificationOutcomeValidator {
                     rejectArrayCondition(context, arrayPath, path + "." + group + "[" + index + "] must be an object.");
                     return;
                 }
-                validateAnyElementConditionNode(context, childMap, path + "." + group + "[" + index + "]", arrayPath);
+            validateAnyElementConditionNode(context, childMap, path + "." + group + "[" + index + "]", arrayPath);
                 if (context.failureReason != null) {
                     return;
                 }
             }
         }
         if (conditionNode.containsKey("field") || conditionNode.containsKey("operator")) {
-            validateAnyElementLeaf(context, conditionNode, arrayPath);
+            validateAnyElementLeaf(context, conditionNode, arrayPath, path);
             return;
         }
         if (!hasComposite) {
@@ -536,7 +549,7 @@ public class AlertVerificationOutcomeValidator {
         }
     }
 
-    private void validateAnyElementLeaf(ValidationContext context, Map<?, ?> leaf, String arrayPath) {
+    private void validateAnyElementLeaf(ValidationContext context, Map<?, ?> leaf, String arrayPath, String path) {
         String relativeField = stringValue(leaf.get("field"));
         String operator = stringValue(leaf.get("operator"));
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] validating relative field=" + relativeField
@@ -565,6 +578,7 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         context.conditionFields.add(absoluteField);
+        context.conditionLeaves.add(ConditionLeaf.from(absoluteField, operator, leaf, path, arrayPath));
         if (ServiceDataTemporalCapabilityCatalog.isTemporalOperator(operator)) {
             validateTemporalCondition(context, leaf, absoluteField, operator, true);
             return;
@@ -1106,6 +1120,230 @@ public class AlertVerificationOutcomeValidator {
         }
     }
 
+    private void validateLocationCoverage(ValidationContext context) {
+        AlertVerificationLocationContext locationContext = context.locationContext;
+        if (locationContext == null || locationContext.resolutions().isEmpty()) {
+            return;
+        }
+        for (AlertVerificationLocationContext.LocationResolution location : locationContext.resolutions()) {
+            if (!location.requiredCoverage()) {
+                continue;
+            }
+            List<String> selectedPointIds = selectedPointIds(location);
+            List<String> compatibleFields = compatibleFields(location);
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE] rawText=" + location.rawText()
+                    + " normalizedText=" + location.normalizedText()
+                    + " role=" + location.semanticRole()
+                    + " polarity=" + normalizedPolarity(location)
+                    + " status=" + location.status()
+                    + " selectedPointIds=" + selectedPointIds
+                    + " targetFieldHints=" + location.targetFieldHints()
+                    + " compatibleFields=" + compatibleFields);
+            List<ConditionLeaf> candidateLeaves = context.conditionLeaves.stream()
+                    .filter(leaf -> compatibleFields.contains(leaf.field()))
+                    .toList();
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][MATCH] rawText=" + location.rawText()
+                    + " candidateLeaves=" + candidateLeaves);
+            ConditionLeaf match = matchingLocationLeaf(location, selectedPointIds, candidateLeaves);
+            if (match == null) {
+                rejectLocationCoverage(context, location,
+                        "required location '" + location.rawText() + "' with role " + location.semanticRole()
+                                + " and polarity " + normalizedPolarity(location)
+                                + " is not represented by a compatible ServiceData condition.");
+                return;
+            }
+            if (isUnresolvedExclude(location) && match.underAnyGroup()) {
+                rejectLocationCoverage(context, location,
+                        "required excluded unresolved location '" + location.rawText()
+                                + "' is represented inside an any/OR branch, which is unsafe for negative textual fallback.");
+                return;
+            }
+            if (isUnresolved(location) && !hasLocationFallbackWarning(context, location)) {
+                String warning = "Location '" + location.rawText()
+                        + "' was unresolved and covered with textual fallback; confidence should be interpreted conservatively.";
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][WARN] " + warning);
+                context.warn(warning);
+            }
+            System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][MATCH] covered rawText=" + location.rawText()
+                    + " leaf=" + match);
+        }
+    }
+
+    private ConditionLeaf matchingLocationLeaf(
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds,
+            List<ConditionLeaf> candidateLeaves) {
+        boolean exclude = "EXCLUDE".equals(normalizedPolarity(location));
+        if (isResolved(location)) {
+            for (ConditionLeaf leaf : candidateLeaves) {
+                if (!leaf.field().endsWith(".stopPoint.id") && !leaf.field().endsWith(".stopPointId.id")) {
+                    continue;
+                }
+                if (exclude && "NOT_IN".equals(leaf.operator()) && leaf.values().containsAll(selectedPointIds)) {
+                    return leaf;
+                }
+                if (!exclude && selectedPointIds.size() == 1
+                        && "EQUALS".equals(leaf.operator())
+                        && selectedPointIds.getFirst().equals(stringValue(leaf.value()))) {
+                    return leaf;
+                }
+                if (!exclude && selectedPointIds.size() > 1
+                        && "IN".equals(leaf.operator())
+                        && leaf.values().containsAll(selectedPointIds)) {
+                    return leaf;
+                }
+            }
+            return null;
+        }
+        for (ConditionLeaf leaf : candidateLeaves) {
+            boolean nameField = leaf.field().endsWith(".stopPoint.nameLong")
+                    || leaf.field().endsWith(".stopPoint.nameShort");
+            if (!nameField || !locationValueMatches(location, leaf)) {
+                continue;
+            }
+            if (exclude && Set.of("NOT_CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED").contains(leaf.operator())) {
+                return leaf;
+            }
+            if (!exclude && Set.of("CONTAINS_NORMALIZED", "EQUALS_NORMALIZED").contains(leaf.operator())) {
+                return leaf;
+            }
+        }
+        return null;
+    }
+
+    private boolean locationValueMatches(AlertVerificationLocationContext.LocationResolution location, ConditionLeaf leaf) {
+        String leafValue = normalizeText(stringValue(leaf.value()));
+        if (leafValue == null) {
+            return false;
+        }
+        List<String> expectedValues = List.of(location.rawText(), location.normalizedText()).stream()
+                .map(this::normalizeText)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
+        return expectedValues.stream().anyMatch(expected -> leafValue.equals(expected)
+                || leafValue.contains(expected)
+                || expected.contains(leafValue));
+    }
+
+    private List<String> selectedPointIds(AlertVerificationLocationContext.LocationResolution location) {
+        if (!location.selectedPointIds().isEmpty()) {
+            return location.selectedPointIds();
+        }
+        return location.candidates().stream()
+                .filter(AlertVerificationLocationContext.LocationCandidate::selected)
+                .map(AlertVerificationLocationContext.LocationCandidate::id)
+                .filter(id -> id != null && !id.isBlank())
+                .toList();
+    }
+
+    private List<String> compatibleFields(AlertVerificationLocationContext.LocationResolution location) {
+        String role = location.semanticRole() == null ? "" : location.semanticRole().toUpperCase(Locale.ROOT);
+        List<String> fields = switch (role) {
+            case "MAIN_EVENT_LOCATION", "DEPARTURE_EVENT_STOP_POINT", "ARRIVAL_EVENT_STOP_POINT", "EVENT_STOP_POINT" -> List.of(
+                    "payload.stopPointJourney.stopPoint.id",
+                    "payload.stopPointJourney.stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPoint.nameShort",
+                    "payload.ongroundServiceEvent.stopPoint.id",
+                    "payload.ongroundServiceEvent.stopPoint.nameLong",
+                    "payload.ongroundServiceEvent.stopPoint.nameShort");
+            case "ORIGIN_LOCATION" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameShort",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameShort");
+            case "DESTINATION_LOCATION" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameShort",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort");
+            case "ROUTE_OR_NEXT_CALL_LOCATION", "NEXT_TRANSIT_STOP_POINT" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort");
+            case "TRANSIT_LOCATION" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameShort",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort");
+            case "CANCELLED_CALL_LOCATION" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong");
+            case "REPLACEMENT_LOCATION" -> List.of(
+                    "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id");
+            default -> location.targetFieldHints();
+        };
+        List<String> expandedTargetHints = location.targetFieldHints().stream()
+                .flatMap(field -> expandLocationFieldFamily(field).stream())
+                .toList();
+        return java.util.stream.Stream.concat(fields.stream(), expandedTargetHints.stream())
+                .filter(field -> field != null && !field.isBlank())
+                .distinct()
+                .filter(ServiceDataCapabilityCatalog::isAllowedField)
+                .toList();
+    }
+
+    private List<String> expandLocationFieldFamily(String field) {
+        if (field == null || field.isBlank()) {
+            return List.of();
+        }
+        if (field.endsWith(".stopPoint.id")) {
+            String prefix = field.substring(0, field.length() - ".id".length());
+            return List.of(field, prefix + ".nameLong", prefix + ".nameShort");
+        }
+        if (field.endsWith(".stopPoint.nameLong") || field.endsWith(".stopPoint.nameShort")) {
+            return List.of(field);
+        }
+        return List.of(field);
+    }
+
+    private void rejectLocationCoverage(
+            ValidationContext context,
+            AlertVerificationLocationContext.LocationResolution location,
+            String reason) {
+        String fullReason = "Location coverage validation failed: " + reason;
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][REJECT] rawText=" + location.rawText()
+                + " role=" + location.semanticRole()
+                + " polarity=" + normalizedPolarity(location)
+                + " status=" + location.status()
+                + " reason=" + reason);
+        context.fail(fullReason);
+    }
+
+    private boolean hasLocationFallbackWarning(ValidationContext context, AlertVerificationLocationContext.LocationResolution location) {
+        String raw = normalizeText(location.rawText());
+        return context.warnings.stream()
+                .map(this::normalizeText)
+                .anyMatch(warning -> warning != null
+                        && (warning.contains("fallback") || warning.contains("unresolved"))
+                        && (raw == null || warning.contains(raw)));
+    }
+
+    private boolean isResolved(AlertVerificationLocationContext.LocationResolution location) {
+        return "RESOLVED".equalsIgnoreCase(location.status())
+                || "RESOLVED_AMBIGUOUS".equalsIgnoreCase(location.status());
+    }
+
+    private boolean isUnresolved(AlertVerificationLocationContext.LocationResolution location) {
+        return "UNRESOLVED".equalsIgnoreCase(location.status());
+    }
+
+    private boolean isUnresolvedExclude(AlertVerificationLocationContext.LocationResolution location) {
+        return isUnresolved(location) && "EXCLUDE".equals(normalizedPolarity(location));
+    }
+
+    private String normalizedPolarity(AlertVerificationLocationContext.LocationResolution location) {
+        return location.polarity() == null || location.polarity().isBlank()
+                ? "INCLUDE"
+                : location.polarity().toUpperCase(Locale.ROOT);
+    }
+
     private void validatePlatformNumericEventBinding(ValidationContext context) {
         Object condition = context.technicalSpecification.get("condition");
         if (!containsPlatformNumericPropertyOperator(condition)) {
@@ -1557,22 +1795,30 @@ public class AlertVerificationOutcomeValidator {
         private final List<String> warnings;
         private final String defaultTemporalZone;
         private final String originalPrompt;
+        private final AlertVerificationLocationContext locationContext;
         private final Map<String, Object> technicalSpecification;
         private final Map<String, Object> agentBlueprintPreview;
         private String failureReason;
         private Double confidence;
         private List<String> normalizedTargetTypes;
         private final List<String> conditionFields;
+        private final List<ConditionLeaf> conditionLeaves;
         private final List<TemporalCondition> temporalConditions;
 
-        private ValidationContext(AlertVerificationOutcome outcome, String defaultTemporalZone, String originalPrompt) {
+        private ValidationContext(
+                AlertVerificationOutcome outcome,
+                String defaultTemporalZone,
+                String originalPrompt,
+                AlertVerificationLocationContext locationContext) {
             this.outcome = outcome;
             this.warnings = new ArrayList<>(outcome.warnings() == null ? List.of() : outcome.warnings());
             this.defaultTemporalZone = defaultTemporalZone;
             this.originalPrompt = originalPrompt;
+            this.locationContext = locationContext == null ? AlertVerificationLocationContext.empty() : locationContext;
             this.technicalSpecification = mutableMapStatic(outcome.technicalSpecification());
             this.agentBlueprintPreview = mutableMapStatic(outcome.agentBlueprintPreview());
             this.conditionFields = new ArrayList<>();
+            this.conditionLeaves = new ArrayList<>();
             this.temporalConditions = new ArrayList<>();
         }
 
@@ -1605,6 +1851,31 @@ public class AlertVerificationOutcomeValidator {
                 return result;
             }
             return value;
+        }
+    }
+
+    private record ConditionLeaf(
+            String field,
+            String operator,
+            Object value,
+            List<String> values,
+            String path,
+            String arrayPath) {
+
+        static ConditionLeaf from(String field, String operator, Map<?, ?> leaf, String path, String arrayPath) {
+            List<String> values = List.of();
+            Object rawValues = leaf.get("values");
+            if (rawValues instanceof Collection<?> collection) {
+                values = collection.stream()
+                        .map(item -> item == null ? null : String.valueOf(item).trim())
+                        .filter(item -> item != null && !item.isBlank())
+                        .toList();
+            }
+            return new ConditionLeaf(field, operator, leaf.get("value"), values, path, arrayPath);
+        }
+
+        boolean underAnyGroup() {
+            return path != null && path.contains(".any[");
         }
     }
 }

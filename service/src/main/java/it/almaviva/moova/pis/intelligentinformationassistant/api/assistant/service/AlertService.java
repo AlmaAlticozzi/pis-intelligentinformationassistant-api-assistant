@@ -464,8 +464,7 @@ public class AlertService {
         System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] parser outcome alertId=" + alertId
                 + " decision=" + resolution.outcome().decision()
                 + " parseableLlm=" + resolution.parseableLlm());
-        AlertVerificationOutcome outcome = alertVerificationOutcomeValidator.validate(
-                resolution.outcome(), enrichedPromptData.prompt());
+        AlertVerificationOutcome outcome = validateOutcomeWithLocationContext(resolution.outcome(), enrichedPromptData);
         System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] validator outcome alertId=" + alertId
                 + " decision=" + outcome.decision()
                 + " rejectedReason=" + outcome.rejectedReason());
@@ -475,10 +474,10 @@ public class AlertService {
         }
         if (resolution.parseableLlm() && fallbackOnInvalidLlm && shouldFallbackOnInvalidLlm(resolution.outcome(), outcome)) {
             System.out.println("[IIA][ALERT_VERIFY][LLM] Falling back to deterministic mock engine because backend validation rejected LLM output");
-            outcome = alertVerificationOutcomeValidator.validate(
+            outcome = validateOutcomeWithLocationContext(
                     alertVerificationMockEngine.verify(alertId, enrichedPromptData.prompt())
                             .withAdditionalWarning("LLM response was empty, invalid or rejected. Deterministic mock fallback was used because fallback-on-invalid-llm is enabled."),
-                    enrichedPromptData.prompt());
+                    enrichedPromptData);
             System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] fallback validator outcome alertId=" + alertId
                     + " decision=" + outcome.decision());
         }
@@ -487,6 +486,19 @@ public class AlertService {
                 + " decision=" + outcome.decision()
                 + " method=alertRepository.verifyAlert");
         return persistVerificationOutcomeInTransaction(alertId, request, outcome);
+    }
+
+    private AlertVerificationOutcome validateOutcomeWithLocationContext(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData enrichedPromptData) {
+        AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
+                outcome,
+                enrichedPromptData.prompt(),
+                enrichedPromptData.locationResolutionContext());
+        if (validated == null) {
+            validated = alertVerificationOutcomeValidator.validate(outcome, enrichedPromptData.prompt());
+        }
+        return validated;
     }
 
     protected Optional<AlertDetail> persistVerificationOutcomeInTransaction(

@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import org.junit.jupiter.api.Test;
 
@@ -253,6 +254,215 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(validated.warnings())
                 .contains("Pescara was not resolved to stopPoint ids; used textual current stop fallback.")
                 .contains("Bologna was not resolved to stopPoint ids; used negative textual destination fallback.");
+    }
+
+    @Test
+    void locationCoverageAcceptsMainEventUnresolvedIncludeCoveredByCurrentStopName() {
+        String field = "payload.stopPointJourney.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "CONTAINS_NORMALIZED", "value", "Pescara"))),
+                coverageFor(field)), null, locationContext(unresolved("Pescara", "MAIN_EVENT_LOCATION", "INCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageRejectsMainEventUnresolvedIncludeMissing() {
+        String field = "payload.ongroundServiceEvent.eventsType";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "CONTAINS", "value", "ARRIVED"))),
+                coverageFor(field)), null, locationContext(unresolved("Pescara", "MAIN_EVENT_LOCATION", "INCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Location coverage validation failed");
+    }
+
+    @Test
+    void locationCoverageAcceptsDestinationUnresolvedExcludeInsideJourneyDetails() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(anyElementOutcome(
+                "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"),
+                field), null, locationContext(unresolved("Bologna", "DESTINATION_LOCATION", "EXCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageRejectsDestinationUnresolvedExcludeWithPositiveOperator() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(anyElementOutcome(
+                "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "CONTAINS_NORMALIZED", "value", "Bologna"),
+                field), null, locationContext(unresolved("Bologna", "DESTINATION_LOCATION", "EXCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("DESTINATION_LOCATION").contains("EXCLUDE");
+    }
+
+    @Test
+    void locationCoverageRejectsDestinationUnresolvedExcludeUnderUnsafeAny() {
+        String field1 = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        String field2 = "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("any", List.of(
+                                Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"),
+                                Map.of("field", "callEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"))))),
+                coverageFor(field1, field2)), null, locationContext(unresolved("Bologna", "DESTINATION_LOCATION", "EXCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("any/OR");
+    }
+
+    @Test
+    void locationCoverageAcceptsResolvedMainEventEqualsId() {
+        String field = "payload.ongroundServiceEvent.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID))),
+                coverageFor(field)), null, locationContext(resolved("Rho Fieramilano", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageAcceptsResolvedAmbiguousMainEventInIds() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "IN", "values", List.of(MALPENSA_T1_ID, MALPENSA_T2_ID)))),
+                coverageFor(field)), null, locationContext(resolvedAmbiguous("Malpensa", "MAIN_EVENT_LOCATION", "INCLUDE", MALPENSA_T1_ID, MALPENSA_T2_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageRejectsResolvedLocationWrongId() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "EQUALS", "value", MALPENSA_T1_ID))),
+                coverageFor(field)), null, locationContext(resolved("Rho Fieramilano", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
+    void locationCoverageRejectsResolvedLocationUsingNameFallback() {
+        String field = "payload.stopPointJourney.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "CONTAINS_NORMALIZED", "value", "Rho"))),
+                coverageFor(field)), null, locationContext(resolved("Rho", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
+    void locationCoverageRejectsRouteLocationOnCurrentStop() {
+        String field = "payload.stopPointJourney.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "CONTAINS_NORMALIZED", "value", "Venezia"))),
+                coverageFor(field)), null, locationContext(unresolved("Venezia", "ROUTE_OR_NEXT_CALL_LOCATION", "INCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
+    void locationCoverageAcceptsRouteLocationInNextCalls() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(Map.of(
+                                "anyElement", Map.of(
+                                        "path", "nextCalls[]",
+                                        "conditions", Map.of("all", List.of(Map.of(
+                                                "field", "stopPoint.nameLong",
+                                                "operator", "CONTAINS_NORMALIZED",
+                                                "value", "Venezia"))))))))),
+                coverageFor(field)), null, locationContext(unresolved("Venezia", "ROUTE_OR_NEXT_CALL_LOCATION", "INCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageValidatesOriginAndDestinationRoles() {
+        String originField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallStart.stopPoint.nameLong";
+        String destinationField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        AlertVerificationLocationContext context = locationContext(
+                unresolved("Genova", "ORIGIN_LOCATION", "INCLUDE"),
+                unresolved("Lecco", "DESTINATION_LOCATION", "INCLUDE"));
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("all", List.of(
+                                Map.of("field", "timetabledCallStart.stopPoint.nameLong", "operator", "CONTAINS_NORMALIZED", "value", "Genova"),
+                                Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "CONTAINS_NORMALIZED", "value", "Lecco"))))),
+                coverageFor(originField, destinationField)), null, context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageRejectsOriginRoleOnCurrentStop() {
+        String field = "payload.stopPointJourney.stopPoint.nameLong";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("field", field, "operator", "CONTAINS_NORMALIZED", "value", "Genova"))),
+                coverageFor(field)), null, locationContext(unresolved("Genova", "ORIGIN_LOCATION", "INCLUDE")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
+    void locationCoverageSkipsWhenContextHasNoLocations() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc";
+        AlertVerificationOutcome validated = validator.validate(anyElementOutcome(
+                "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                Map.of("field", "timetabledArrivalPlatform.dsc", "operator", "EQUAL_PLATFORM", "value", "1"),
+                field), null, AlertVerificationLocationContext.empty());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void locationCoverageAcceptsFullLocUArrivalPlatformDestinationSpec() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String currentStopNameField = "payload.stopPointJourney.stopPoint.nameLong";
+        String vehicleField = "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName";
+        String delayField = "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay";
+        String destinationField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong";
+        String platformField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc";
+        AlertVerificationLocationContext context = locationContext(
+                unresolved("Pescara", "MAIN_EVENT_LOCATION", "INCLUDE"),
+                unresolved("Bologna", "DESTINATION_LOCATION", "EXCLUDE"));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVED"),
+                        Map.of("field", currentStopNameField, "operator", "CONTAINS_NORMALIZED", "value", "Pescara"),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of("all", List.of(
+                                        Map.of("field", "vehicleJourneyName", "operator", "EQUALS_NORMALIZED", "value", "1278"),
+                                        Map.of("field", "arrivalDelay.delay", "operator", "EQUALS", "value", 14),
+                                        Map.of("field", "timetabledArrivalPlatform.dsc", "operator", "EQUAL_PLATFORM", "value", "1"),
+                                        Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"))))))),
+                coverageFor(eventField, currentStopNameField, vehicleField, delayField, destinationField, platformField)),
+                null,
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
@@ -1518,6 +1728,103 @@ class AlertVerificationOutcomeValidatorTest {
                 "mappable", true,
                 "mappedBy", List.of(field),
                 "reason", "");
+    }
+
+    private AlertVerificationOutcome anyElementOutcome(String path, Map<String, Object> leaf, String coverageField) {
+        return outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", path,
+                        "conditions", Map.of("all", List.of(leaf)))),
+                coverageFor(coverageField));
+    }
+
+    private AlertVerificationLocationContext locationContext(AlertVerificationLocationContext.LocationResolution... locations) {
+        return new AlertVerificationLocationContext(true, List.of(locations), List.of(), List.of());
+    }
+
+    private AlertVerificationLocationContext.LocationResolution unresolved(String rawText, String role, String polarity) {
+        return new AlertVerificationLocationContext.LocationResolution(
+                rawText,
+                rawText,
+                role,
+                "TEST_RELATION",
+                true,
+                polarity,
+                "G1",
+                0.90,
+                "UNRESOLVED",
+                List.of(),
+                List.of(),
+                true,
+                true,
+                0.20,
+                "Location unresolved; textual fallback is allowed with lower confidence.",
+                List.of());
+    }
+
+    private AlertVerificationLocationContext.LocationResolution resolved(
+            String rawText,
+            String role,
+            String polarity,
+            String selectedPointId) {
+        return new AlertVerificationLocationContext.LocationResolution(
+                rawText,
+                rawText,
+                role,
+                "TEST_RELATION",
+                true,
+                polarity,
+                "G1",
+                0.95,
+                "RESOLVED",
+                List.of(new AlertVerificationLocationContext.LocationCandidate(
+                        selectedPointId,
+                        rawText,
+                        rawText,
+                        "RAIL",
+                        1.0,
+                        "EXACT_NORMALIZED",
+                        true)),
+                List.of(selectedPointId),
+                false,
+                false,
+                0.0,
+                "",
+                List.of());
+    }
+
+    private AlertVerificationLocationContext.LocationResolution resolvedAmbiguous(
+            String rawText,
+            String role,
+            String polarity,
+            String... selectedPointIds) {
+        return new AlertVerificationLocationContext.LocationResolution(
+                rawText,
+                rawText,
+                role,
+                "TEST_RELATION",
+                true,
+                polarity,
+                "G1",
+                0.85,
+                "RESOLVED_AMBIGUOUS",
+                java.util.Arrays.stream(selectedPointIds)
+                        .map(id -> new AlertVerificationLocationContext.LocationCandidate(
+                                id,
+                                rawText,
+                                rawText,
+                                "RAIL",
+                                0.9,
+                                "PARTIAL_TOKEN",
+                                true))
+                        .toList(),
+                List.of(selectedPointIds),
+                false,
+                false,
+                0.0,
+                "",
+                List.of());
     }
 
     private AlertVerificationOutcome outcomeWithConditionAndCoverage(
