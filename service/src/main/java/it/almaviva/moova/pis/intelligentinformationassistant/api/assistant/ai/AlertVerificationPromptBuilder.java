@@ -178,8 +178,19 @@ public class AlertVerificationPromptBuilder {
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL, use arrival semantics: ARRIVED/ARRIVING events, arrival platform fields and arrivalDelay fields. Do not generate DEPARTING/DEPARTED or departure platform fields.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=DEPARTURE, use departure semantics: DEPARTED/DEPARTING events, departure platform fields and departureDelay fields. Do not generate ARRIVING/ARRIVED or arrival platform fields.
+                - Authoritative main event constraints:
+                  When the backend provides MAIN_EVENT_INTENT, MAIN_EVENT_PHASE and EXPECTED_MAIN_EVENT_TYPE, you must bind the current ServiceData event to EXPECTED_MAIN_EVENT_TYPE on field payload.ongroundServiceEvent.eventsType. This binding is mandatory for VERIFIED responses.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_PHASE=PROGRESSIVE, use the progressive current event value: DEPARTURE -> DEPARTING, ARRIVAL -> ARRIVING.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_PHASE=COMPLETED, use the completed current event value: DEPARTURE -> DEPARTED, ARRIVAL -> ARRIVED.
+                - EXPECTED_MAIN_EVENT_TYPE is authoritative. If Location Understanding provides EXPECTED_MAIN_EVENT_TYPE, the technicalSpecification.condition must bind payload.ongroundServiceEvent.eventsType to that exact event type.
+                - For a single EXPECTED_MAIN_EVENT_TYPE use {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"<EXPECTED_MAIN_EVENT_TYPE>"}.
+                - Do not reinterpret a PROGRESSIVE phase as completed: PROGRESSIVE DEPARTURE -> DEPARTING and PROGRESSIVE ARRIVAL -> ARRIVING.
+                - Do not reinterpret a COMPLETED phase as progressive: COMPLETED DEPARTURE -> DEPARTED and COMPLETED ARRIVAL -> ARRIVED.
+                - Few-shot examples are illustrative and must not override EXPECTED_MAIN_EVENT_TYPE.
+                - EXPECTED_MAIN_EVENT_TYPE=DEPARTING -> use DEPARTING, never DEPARTED.
+                - EXPECTED_MAIN_EVENT_TYPE=DEPARTED -> use DEPARTED, never DEPARTING.
+                - EXPECTED_MAIN_EVENT_TYPE=ARRIVING -> use ARRIVING, never ARRIVED.
+                - EXPECTED_MAIN_EVENT_TYPE=ARRIVED -> use ARRIVED, never ARRIVING.
                 - For precise completed arrival wording such as "arriva", prefer payload.ongroundServiceEvent.eventsType CONTAINS ARRIVED. For "in arrivo" or progressive arrival wording, prefer ARRIVING. If truly ambiguous between progress and completion, use ARRIVING/ARRIVED only, never departure events.
                 - For precise completed departure wording such as "parte", prefer payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED. For "in partenza" or progressive departure wording, prefer DEPARTING. If truly ambiguous between progress and completion, use DEPARTING/DEPARTED only, never arrival events.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.
@@ -459,22 +470,44 @@ public class AlertVerificationPromptBuilder {
                 ]}
                 Decision: VERIFIED
 
-                Positive example - current departure stop plus future route location:
-                Prompt: "Dimmi quando una corsa parte da Garibaldi e passera da Venezia"
+                Positive example - progressive current departure stop plus future route location:
+                Prompt: "Dimmi quando una corsa e in partenza da X e passera da Y"
                 LocationContext:
-                - Garibaldi MAIN_EVENT_LOCATION
-                - Venezia ROUTE_OR_NEXT_CALL_LOCATION
+                - X MAIN_EVENT_LOCATION
+                - Y ROUTE_OR_NEXT_CALL_LOCATION
+                Recognized non-location constraints:
+                - MAIN_EVENT_INTENT DEPARTURE
+                - MAIN_EVENT_PHASE PROGRESSIVE
+                - EXPECTED_MAIN_EVENT_TYPE DEPARTING
                 Expected condition:
                 {"type":"SERVICE_DATA_FIELD_MATCH","all":[
-                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
-                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedGaribaldiStopPointIds>"]},
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTING"},
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedXStopPointIds>"]},
                   {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
                     {"anyElement":{"path":"nextCalls[]","conditions":
-                      {"field":"stopPoint.id","operator":"IN","values":["<resolvedVeneziaStopPointIds>"]}
+                      {"field":"stopPoint.id","operator":"IN","values":["<resolvedYStopPointIds>"]}
                     }}
                   }}
                 ]}
-                Do not put Garibaldi on callStart.stopPoint.id or timetabledCallStart.stopPoint.id.
+                Do not put X on callStart.stopPoint.id or timetabledCallStart.stopPoint.id.
+                Decision: VERIFIED
+
+                Positive example - completed current departure stop plus future route location:
+                Prompt: "Dimmi quando una corsa parte da X e passera da Y"
+                Recognized non-location constraints:
+                - MAIN_EVENT_INTENT DEPARTURE
+                - MAIN_EVENT_PHASE COMPLETED
+                - EXPECTED_MAIN_EVENT_TYPE DEPARTED
+                Expected condition:
+                {"type":"SERVICE_DATA_FIELD_MATCH","all":[
+                  {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTED"},
+                  {"field":"payload.stopPointJourney.stopPoint.id","operator":"IN","values":["<resolvedXStopPointIds>"]},
+                  {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":
+                    {"anyElement":{"path":"nextCalls[]","conditions":
+                      {"field":"stopPoint.id","operator":"IN","values":["<resolvedYStopPointIds>"]}
+                    }}
+                  }}
+                ]}
                 Decision: VERIFIED
 
                 Positive example - departure platforms correlated with resolved locations:

@@ -463,7 +463,15 @@ public class AlertService {
             return Optional.empty();
         }
 
-        AlertVerificationPromptData enrichedPromptData = withLocationResolutionContext(alertId, promptData.get());
+        AlertVerificationOutcome outcome = verifyAlertOutcome(alertId, promptData.get());
+        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] persisting normal outcome alertId=" + alertId
+                + " decision=" + outcome.decision()
+                + " method=alertRepository.verifyAlert");
+        return persistVerificationOutcomeInTransaction(alertId, request, outcome);
+    }
+
+    AlertVerificationOutcome verifyAlertOutcome(String alertId, AlertVerificationPromptData promptData) {
+        AlertVerificationPromptData enrichedPromptData = withLocationResolutionContext(alertId, promptData);
         LlmRequest promptRequest = alertVerificationPromptBuilder.build(enrichedPromptData);
         System.out.println("[IIA][ALERT_VERIFY][CONFIG] fallbackOnInvalidLlm=" + fallbackOnInvalidLlm);
         System.out.println("[IIA][ALERT_VERIFY][PROMPT] Built ALERT_VERIFY prompt for alertId=" + alertId);
@@ -492,15 +500,13 @@ public class AlertService {
                     + " decision=" + outcome.decision());
         }
         outcome = applyLocationConfidenceAdjustment(outcome, enrichedPromptData.locationResolutionContext());
-        System.out.println("[IIA][ALERT_VERIFY][OUTCOME_FLOW] persisting normal outcome alertId=" + alertId
-                + " decision=" + outcome.decision()
-                + " method=alertRepository.verifyAlert");
-        return persistVerificationOutcomeInTransaction(alertId, request, outcome);
+        return outcome;
     }
 
     private AlertVerificationOutcome validateOutcomeWithLocationContext(
             AlertVerificationOutcome outcome,
             AlertVerificationPromptData enrichedPromptData) {
+        outcome = normalizeExpectedMainEventType(outcome, enrichedPromptData);
         AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
                 outcome,
                 enrichedPromptData.prompt(),
@@ -509,6 +515,178 @@ public class AlertService {
             validated = alertVerificationOutcomeValidator.validate(outcome, enrichedPromptData.prompt());
         }
         return validated;
+    }
+
+    AlertVerificationOutcome normalizeExpectedMainEventType(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData promptData) {
+        if (outcome == null
+                || outcome.decision() != AlertVerificationDecision.VERIFIED
+                || promptData == null
+                || promptData.locationResolutionContext() == null) {
+            return outcome;
+        }
+        String expected = nonLocationConstraint(promptData.locationResolutionContext(), "EXPECTED_MAIN_EVENT_TYPE");
+        if (expected == null || !isCurrentArrivalDepartureEvent(expected)) {
+            return outcome;
+        }
+        Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
+        Map<String, Object> agentBlueprintPreview = mutableMap(outcome.agentBlueprintPreview());
+        if (technicalSpecification == null) {
+            return outcome;
+        }
+        Object technicalCondition = technicalSpecification.get("condition");
+        MainEventNormalization normalization = normalizeMainEventLeaf(technicalCondition, expected);
+        if (!normalization.changed()) {
+            return outcome;
+        }
+        normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
+        System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
+                + promptData.alertId()
+                + " expectedMainEventType=" + expected
+                + " originalOperator=" + normalization.originalOperator()
+                + " originalValue=" + normalization.originalValue()
+                + " originalValues=" + normalization.originalValues()
+                + " normalizedOperator=CONTAINS"
+                + " normalizedValue=" + expected
+                + " normalizedValues=[]"
+                + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
+        return new AlertVerificationOutcome(
+                outcome.decision(),
+                outcome.summary(),
+                outcome.rejectedReason(),
+                outcome.confidence(),
+                outcome.provider(),
+                outcome.model(),
+                outcome.promptVersion(),
+                outcome.requiredSources(),
+                outcome.interpreterType(),
+                outcome.inputModel(),
+                outcome.outputModel(),
+                outcome.triggerType(),
+                outcome.evaluationMode(),
+                outcome.interpretedEventNames(),
+                outcome.interpretedTargetTypes(),
+                technicalSpecification,
+                agentBlueprintPreview,
+                outcome.requirementCoverage(),
+                outcome.warnings(),
+                outcome.safetyChecks());
+    }
+
+    private void normalizeBlueprintMainEventLeaf(Map<String, Object> agentBlueprintPreview, String expected) {
+        if (agentBlueprintPreview == null) {
+            return;
+        }
+        Object parameters = agentBlueprintPreview.get("parameters");
+        if (parameters instanceof Map<?, ?> parametersMap) {
+            Object condition = parametersMap.get("condition");
+            normalizeMainEventLeaf(condition, expected);
+        }
+    }
+
+    private MainEventNormalization normalizeMainEventLeaf(Object node, String expected) {
+        if (node instanceof Map<?, ?> rawMap) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            String field = stringValue(map.get("field"));
+            String operator = stringValue(map.get("operator"));
+            if ("payload.ongroundServiceEvent.eventsType".equals(field) && "CONTAINS".equals(operator)) {
+                String originalValue = stringValue(map.get("value"));
+                if (originalValue != null
+                        && !expected.equals(originalValue)
+                        && sameArrivalDepartureDomain(expected, originalValue)) {
+                    map.put("operator", "CONTAINS");
+                    map.put("value", expected);
+                    map.remove("values");
+                    return new MainEventNormalization(true, operator, originalValue, List.of());
+                }
+                return MainEventNormalization.unchanged();
+            }
+            for (Object value : map.values()) {
+                MainEventNormalization normalization = normalizeMainEventLeaf(value, expected);
+                if (normalization.changed()) {
+                    return normalization;
+                }
+            }
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                MainEventNormalization normalization = normalizeMainEventLeaf(item, expected);
+                if (normalization.changed()) {
+                    return normalization;
+                }
+            }
+        }
+        return MainEventNormalization.unchanged();
+    }
+
+    private boolean sameArrivalDepartureDomain(String expected, String actual) {
+        return (isDepartureEvent(expected) && isDepartureEvent(actual))
+                || (isArrivalEvent(expected) && isArrivalEvent(actual));
+    }
+
+    private boolean isCurrentArrivalDepartureEvent(String value) {
+        return isDepartureEvent(value) || isArrivalEvent(value);
+    }
+
+    private boolean isDepartureEvent(String value) {
+        return "DEPARTING".equals(value) || "DEPARTED".equals(value);
+    }
+
+    private boolean isArrivalEvent(String value) {
+        return "ARRIVING".equals(value) || "ARRIVED".equals(value);
+    }
+
+    private String nonLocationConstraint(AlertVerificationLocationContext context, String type) {
+        return context.nonLocationConstraints().stream()
+                .filter(constraint -> type.equalsIgnoreCase(constraint.type()))
+                .map(AlertVerificationLocationContext.NonLocationConstraint::rawText)
+                .map(this::stringValue)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Map<String, Object> mutableMap(Map<String, Object> source) {
+        if (source == null) {
+            return null;
+        }
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        source.forEach((key, value) -> result.put(key, mutableValue(value)));
+        return result;
+    }
+
+    private Object mutableValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            map.forEach((key, item) -> result.put(String.valueOf(key), mutableValue(item)));
+            return result;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> result = new ArrayList<>();
+            list.forEach(item -> result.add(mutableValue(item)));
+            return result;
+        }
+        return value;
+    }
+
+    private String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private record MainEventNormalization(
+            boolean changed,
+            String originalOperator,
+            String originalValue,
+            List<String> originalValues) {
+
+        private static MainEventNormalization unchanged() {
+            return new MainEventNormalization(false, null, null, List.of());
+        }
     }
 
     protected Optional<AlertDetail> persistVerificationOutcomeInTransaction(
@@ -1257,8 +1435,20 @@ public class AlertService {
                 && tenantResolver != null
                 && !tenantResolver.isUnsatisfied()
                 && !tenantResolver.isAmbiguous()) {
-            tenantId = tenantResolver.get().resolveTenantId();
-            source = "hibernateResolver";
+            try {
+                TenantResolver resolver = tenantResolver.get();
+                if (requestContextActive() || !isCdiClientProxy(resolver)) {
+                    tenantId = resolver.resolveTenantId();
+                    source = "hibernateResolver";
+                } else {
+                    source = "hibernateResolver.skipped-inactive-request-context";
+                }
+            } catch (RuntimeException ex) {
+                System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] async tenant resolver probe skipped after error"
+                        + " alertId=" + alertId
+                        + " exceptionClass=" + ex.getClass().getName()
+                        + " exceptionMessage=" + ex.getMessage());
+            }
         }
         if (tenantId == null || tenantId.isBlank()) {
             tenantId = normalizedDefaultSchema();
@@ -1302,8 +1492,12 @@ public class AlertService {
             try {
                 TenantResolver resolver = tenantResolver.get();
                 resolverClass = resolver.getClass().getName();
-                resolvedTenant = resolver.resolveTenantId();
-                source = "TenantResolver.resolveTenantId";
+                if (requestContextActive() || !isCdiClientProxy(resolver)) {
+                    resolvedTenant = resolver.resolveTenantId();
+                    source = "TenantResolver.resolveTenantId";
+                } else {
+                    source = "TenantResolver.skipped-inactive-request-context";
+                }
             } catch (RuntimeException ex) {
                 resolverError = ex;
                 source = "TenantResolver.error";
@@ -1336,6 +1530,10 @@ public class AlertService {
                     + " requestContextActive=" + requestContextActive()
                     + " transactionActive=" + transactionActive());
         }
+    }
+
+    private boolean isCdiClientProxy(Object bean) {
+        return bean != null && bean.getClass().getName().contains("_ClientProxy");
     }
 
     private String normalizedDefaultSchema() {

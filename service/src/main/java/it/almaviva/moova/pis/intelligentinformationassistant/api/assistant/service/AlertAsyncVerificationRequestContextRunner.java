@@ -1,13 +1,12 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
-import io.quarkus.narayana.jta.QuarkusTransaction;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.inject.Inject;
@@ -23,10 +22,7 @@ public class AlertAsyncVerificationRequestContextRunner {
     AlertService alertService;
 
     @Inject
-    AlertRepository alertRepository;
-
-    @Inject
-    AiConfiguration aiConfiguration;
+    AlertVerificationPersistenceGateway persistenceGateway;
 
     @Inject
     TenantContext tenantContext;
@@ -51,11 +47,11 @@ public class AlertAsyncVerificationRequestContextRunner {
             if (currentTenantId() == null) {
                 throw new AlertAsyncVerificationService.MissingTenantContextException("Alert verification failed because tenant context is missing during asynchronous verification and no default schema fallback is configured.");
             }
-            System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT_RUNNER] before alertService.verifyAlert alertId=" + alertId
+            System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT_RUNNER] before detached verify orchestration alertId=" + alertId
                     + " requestContextActive=" + requestContextActive()
                     + " tenantPresent=" + (currentTenantId() != null)
                     + " transactionActive=" + transactionActive());
-            return verifyAndApplyEnableInNewTransaction(alertId, enableAfterVerification);
+            return verifyAndApplyEnable(alertId, enableAfterVerification, currentTenantId());
         } finally {
             if (tenantInstalled) {
                 tenantContext.clear();
@@ -86,15 +82,8 @@ public class AlertAsyncVerificationRequestContextRunner {
             }
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] persisting technical error alertId=" + alertId
                     + " tenantPresent=" + (currentTenantId() != null)
-                    + " method=markAlertVerificationTechnicalError");
-            QuarkusTransaction.requiringNew().run(() -> {
-                logBeforeRepositoryOperation(alertId, "markAlertVerificationTechnicalError");
-                alertRepository.markAlertVerificationTechnicalError(
-                        alertId,
-                        shortMessage,
-                        aiConfiguration.provider(),
-                        aiConfiguration.alertVerify().model());
-            });
+                    + " method=persistenceGateway.persistTechnicalError");
+            persistenceGateway.persistTechnicalError(alertId, shortMessage, currentTenantId());
         } finally {
             if (tenantInstalled) {
                 tenantContext.clear();
@@ -104,13 +93,15 @@ public class AlertAsyncVerificationRequestContextRunner {
         }
     }
 
-    protected AlertDetail verifyAndApplyEnableInNewTransaction(String alertId, boolean enableAfterVerification) {
+    protected AlertDetail verifyAndApplyEnable(String alertId, boolean enableAfterVerification, String tenant) {
         System.out.println("[IIA][ALERT_VERIFY][ASYNC_CONTEXT] before LLM requestContextActive="
                 + requestContextActive());
         AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
                 .force(Boolean.FALSE);
-        logBeforeRepositoryOperation(alertId, "verifyAlert");
-        AlertDetail verifiedAlert = alertService.verifyAlert(alertId, verificationRequest)
+        AlertVerificationPromptData promptData = persistenceGateway.loadAlertForVerification(alertId, tenant)
+                .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
+        AlertVerificationOutcome outcome = alertService.verifyAlertOutcome(alertId, promptData);
+        AlertDetail verifiedAlert = persistenceGateway.persistVerificationOutcome(alertId, verificationRequest, outcome, tenant)
                 .orElseThrow(() -> new IllegalStateException("Created alert not found during async verification."));
         AlertStatus status = verifiedAlert.getStatus();
         AlertVerificationStatus verificationStatus = verifiedAlert.getVerification() == null
@@ -130,11 +121,8 @@ public class AlertAsyncVerificationRequestContextRunner {
                     + alertId + " finalStatus=" + status);
             return verifiedAlert;
         }
-        return QuarkusTransaction.requiringNew().call(() -> {
-            logBeforeRepositoryOperation(alertId, "updateAlertEnabledAfterCreateVerification");
-            return alertRepository.updateAlertEnabledAfterCreateVerification(alertId, true)
-                    .orElse(verifiedAlert);
-        });
+        return persistenceGateway.updateAlertEnabledAfterCreateVerification(alertId, tenant)
+                .orElse(verifiedAlert);
     }
 
     protected boolean installTenantIfNeeded(String alertId, String propagatedTenantId, String phase) {
@@ -182,19 +170,6 @@ public class AlertAsyncVerificationRequestContextRunner {
                 + " requestContextActive=" + requestContextActive()
                 + " source=" + source);
         return true;
-    }
-
-    private void logBeforeRepositoryOperation(String alertId, String operation) {
-        System.out.println("[IIA][ALERT_VERIFY][TENANT] before repository operation=" + operation
-                + " alertId=" + alertId
-                + " tenantPresent=" + (currentTenantId() != null)
-                + " requestContextActive=" + requestContextActive());
-        System.out.println("[IIA][ALERT_VERIFY][TENANT_DEBUG] before repository operation=" + operation
-                + " alertId=" + alertId
-                + " tenantPresent=" + (currentTenantId() != null)
-                + " tenant=" + safeTenant(currentTenantId())
-                + " requestContextActive=" + requestContextActive()
-                + " defaultSchemaFallback=" + normalizedDefaultSchema());
     }
 
     String currentTenantId() {

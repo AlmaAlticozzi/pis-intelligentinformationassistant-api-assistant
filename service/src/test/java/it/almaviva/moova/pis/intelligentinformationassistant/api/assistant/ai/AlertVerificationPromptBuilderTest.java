@@ -159,6 +159,31 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptMakesExpectedMainEventTypeAuthoritative() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("Authoritative main event constraints")
+                .contains("EXPECTED_MAIN_EVENT_TYPE is authoritative")
+                .contains("payload.ongroundServiceEvent.eventsType")
+                .contains("\"operator\":\"CONTAINS\",\"value\":\"<EXPECTED_MAIN_EVENT_TYPE>\"")
+                .contains("Few-shot examples are illustrative and must not override EXPECTED_MAIN_EVENT_TYPE");
+    }
+
+    @Test
+    void promptContainsMainEventPhaseMappings() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("PROGRESSIVE DEPARTURE -> DEPARTING")
+                .contains("COMPLETED DEPARTURE -> DEPARTED")
+                .contains("PROGRESSIVE ARRIVAL -> ARRIVING")
+                .contains("COMPLETED ARRIVAL -> ARRIVED")
+                .contains("EXPECTED_MAIN_EVENT_TYPE=DEPARTING -> use DEPARTING, never DEPARTED")
+                .contains("EXPECTED_MAIN_EVENT_TYPE=ARRIVING -> use ARRIVING, never ARRIVED");
+    }
+
+    @Test
     void promptContainsPlatformFieldComparisonAndMovementSemantics() {
         LlmRequest request = builder().build(promptData());
 
