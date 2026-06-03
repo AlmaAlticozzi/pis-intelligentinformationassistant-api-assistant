@@ -234,6 +234,8 @@ public class AlertVerificationPromptBuilder {
                 - Do not infer operators not listed in the catalog.
                 - Do not use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.
                 - For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it. Lower confidence and add a warning.
+                - For DESTINATION_LOCATION with polarity=EXCLUDE and status=UNRESOLVED, prefer the single canonical fallback field timetabledCallEnd.stopPoint.nameLong with NOT_CONTAINS_NORMALIZED. Use callEnd.stopPoint.nameLong only when the user explicitly asks for actual/effective/real destination.
+                - Do not create any/OR branches across multiple negative textual fallback fields such as timetabledCallEnd/callEnd/nameLong/nameShort. A negative fallback must be one canonical field for this MVP.
                 - Use NOT_EQUALS_NORMALIZED only when the user wording requires exact normalized inequality and the catalog supports it.
                 - If the catalog does not support any negative normalized textual operator for the required field, return REJECTED. Do not silently ignore the excluded location.
                 - Do not use EXISTS, NOT_NULL or NOT_EMPTY unless the catalog allows that operator for that exact field.
@@ -298,6 +300,7 @@ public class AlertVerificationPromptBuilder {
                 - Do not use timetabledCallEnd.stopPoint.id for a current arrival stop such as "arriva a X".
                 - Use timetabledCallStart.stopPoint.id and timetabledCallEnd.stopPoint.id only for explicit journey origin or destination constraints such as "origine della corsa", "destinazione della corsa", "corsa con origine X" or "corsa con destinazione Y".
                 - Keep platform constraints inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[]: timetabledArrivalPlatform.dsc for default arrival platform matching and timetabledDeparturePlatform.dsc for default departure platform matching.
+                - When multiple requested constraints use fields under payload.stopPointJourney.stopPointsJourneyDetails[], put them in one anyElement with path payload.stopPointJourney.stopPointsJourneyDetails[] and conditions.all so vehicleJourneyName, delay, platform and origin/destination constraints stay correlated to the same journey detail.
                 - Exception for numeric/property platform operators: keep the constraint inside anyElement but default to actualArrivalPlatform.platform.dsc or actualDeparturePlatform.platform.dsc and add the top-level current payload.ongroundServiceEvent.eventsType binding.
                 - Keep current platform-change event evidence at top level on payload.ongroundServiceEvent.eventsType. Keep structural platform comparisons inside anyElement on payload.stopPointJourney.stopPointsJourneyDetails[].
                 - Do not use departureStatuses[].status or arrivalStatuses[].status as the principal signal for a current platform change or movement prompt.
@@ -334,6 +337,7 @@ public class AlertVerificationPromptBuilder {
                 - required=true for every constraint that is part of the Alert.
                 - mappable=true only when the constraint is representable with one or more catalog fields.
                 - mappedBy must contain only field paths present in the ServiceData Capability Catalog.
+                - mappedBy must list only the exact fields actually used in technicalSpecification; do not list alternative fields that were not emitted and do not list fields absent from the catalog.
                 - For a resolved current-stop location matched through payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id, mappedBy must contain exactly the field used by the condition.
                 - For a platform requirement, mappedBy must contain the exact platform description field used by the condition, for example payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc.
                 - For a platform numeric/property requirement, mappedBy must include payload.ongroundServiceEvent.eventsType and the exact actual* or explicit timetabled* platform description field used by the condition.

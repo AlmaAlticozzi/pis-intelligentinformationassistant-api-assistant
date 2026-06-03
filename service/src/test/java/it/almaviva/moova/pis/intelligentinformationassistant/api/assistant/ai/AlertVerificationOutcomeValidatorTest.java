@@ -180,6 +180,19 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsNegativeNormalizedTextualActualDestinationNameShortWhenCataloged() {
+        String field = "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort";
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "NOT_CONTAINS_NORMALIZED",
+                        "value", "Bologna"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsVerifiedArrivalWithPositiveAndNegativeUnresolvedLocationFallbacks() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String currentStopNameField = "payload.ongroundServiceEvent.stopPoint.nameLong";
@@ -197,7 +210,7 @@ class AlertVerificationOutcomeValidatorTest {
                                 "path", detailsPath,
                                 "conditions", Map.of("all", List.of(
                                         Map.of("field", "vehicleJourneyName", "operator", "EQUALS_NORMALIZED", "value", "1278"),
-                                        Map.of("field", "arrivalDelay.delay", "operator", "GREATER_OR_EQUAL", "value", 14),
+                                        Map.of("field", "arrivalDelay.delay", "operator", "EQUALS", "value", 14),
                                         Map.of("field", "timetabledCallEnd.stopPoint.nameLong", "operator", "NOT_CONTAINS_NORMALIZED", "value", "Bologna"),
                                         Map.of("field", "timetabledArrivalPlatform.dsc", "operator", "EQUAL_PLATFORM", "value", "1"))))))),
                 coverageFor(eventField, currentStopNameField, vehicleField, delayField, destinationField, platformField));

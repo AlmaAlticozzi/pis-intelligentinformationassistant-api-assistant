@@ -73,6 +73,9 @@ public record AlertVerificationLocationContext(
             if (resolution.fallbackToNameLong()) {
                 if ("EXCLUDE".equalsIgnoreCase(resolution.polarity())) {
                     section.append("  fallback: use nameLong/nameShort NOT_CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported\n");
+                    if ("DESTINATION_LOCATION".equalsIgnoreCase(resolution.semanticRole())) {
+                        section.append("  canonicalNegativeFallback: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED with rawText; do not use any/OR across alternative destination name fields\n");
+                    }
                 } else {
                     section.append("  fallback: use nameLong/nameShort CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported\n");
                 }
@@ -118,6 +121,8 @@ public record AlertVerificationLocationContext(
         section.append("- RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field.\n");
         section.append("- For polarity=EXCLUDE and RESOLVED/RESOLVED_AMBIGUOUS locations, use NOT_IN on the correct stopPoint.id field with the resolved ids.\n");
         section.append("- For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it; lower confidence and add a warning.\n");
+        section.append("- For DESTINATION_LOCATION with polarity=EXCLUDE and status=UNRESOLVED, prefer one canonical fallback: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED with rawText.\n");
+        section.append("- Do not create any/OR branches across timetabledCallEnd/callEnd/nameLong/nameShort negative fallback alternatives; one negative textual fallback field is enough for this MVP.\n");
         section.append("- Use NOT_EQUALS_NORMALIZED only when the user explicitly requires exact normalized inequality and the catalog supports it.\n");
         section.append("- Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.\n");
         section.append("- UNRESOLVED INCLUDE -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence.\n");
@@ -159,6 +164,7 @@ public record AlertVerificationLocationContext(
         section.append("  Location Bologna has polarity=EXCLUDE and status=UNRESOLVED.\n");
         section.append("  Do not generate timetabledCallEnd.stopPoint.nameLong NOT_EQUAL \"Bologna\" unless NOT_EQUAL is explicitly allowed by the catalog.\n");
         section.append("  Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\".\n");
+        section.append("  Do not generate any/OR between timetabledCallEnd.stopPoint.nameLong, timetabledCallEnd.stopPoint.nameShort, callEnd.stopPoint.nameLong and callEnd.stopPoint.nameShort.\n");
         section.append("  Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching.\n");
     }
 

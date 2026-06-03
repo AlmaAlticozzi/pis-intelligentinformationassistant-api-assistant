@@ -125,6 +125,9 @@ class AlertVerificationPromptBuilderTest {
                 .contains("Use NOT_EQUALS_NORMALIZED only when the user wording requires exact normalized inequality")
                 .contains("Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort")
                 .contains("Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\"")
+                .contains("canonicalNegativeFallback: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED with rawText")
+                .contains("Do not create any/OR branches across multiple negative textual fallback fields")
+                .contains("Do not generate any/OR between timetabledCallEnd.stopPoint.nameLong")
                 .contains("Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching")
                 .doesNotContain("Expected decision: REJECTED when no safe negative textual fallback exists")
                 .doesNotContain("Excluded destination location 'Bologna' could not be resolved to stopPoint ids");
@@ -220,12 +223,57 @@ class AlertVerificationPromptBuilderTest {
 
         assertThat(request.userPrompt())
                 .contains("mappedBy must contain exactly the field used by the condition")
+                .contains("mappedBy must list only the exact fields actually used in technicalSpecification")
                 .contains("mappedBy must contain the exact platform description field used by the condition")
                 .contains("For a platform change requirement, mappedBy must include payload.ongroundServiceEvent.eventsType")
                 .contains("For a movement requirement such as \"spostato dal binario X al binario Y\", mappedBy must include payload.ongroundServiceEvent.eventsType")
                 .contains("Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN")
                 .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"NOT_IN\"")
                 .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTED\"");
+    }
+
+    @Test
+    void promptPrefersOneCorrelatedAnyElementForJourneyDetailConstraints() {
+        LlmRequest request = builder().build(promptDataWithLocation(new AlertVerificationLocationContext(
+                true,
+                List.of(
+                        richResolution(
+                                "Pescara",
+                                "MAIN_EVENT_LOCATION",
+                                "INCLUDE",
+                                List.of("payload.stopPointJourney.stopPoint.id",
+                                        "payload.ongroundServiceEvent.stopPoint.id")),
+                        new AlertVerificationLocationContext.LocationResolution(
+                                "Bologna",
+                                "Bologna",
+                                "DESTINATION_LOCATION",
+                                "DESTINATION_CONSTRAINT",
+                                true,
+                                "EXCLUDE",
+                                "G2",
+                                0.84,
+                                "UNRESOLVED",
+                                List.of(),
+                                List.of(),
+                                true,
+                                true,
+                                0.0,
+                                "Location unresolved; textual fallback is allowed with lower confidence.",
+                                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id"))),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("PLATFORM", "binario 1"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("VEHICLE_JOURNEY", "corsa 1278"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY", "ritardo di 14 min")),
+                List.of())));
+
+        assertThat(request.userPrompt())
+                .contains("When multiple requested constraints use fields under payload.stopPointJourney.stopPointsJourneyDetails[], put them in one anyElement")
+                .contains("vehicleJourneyName, delay, platform and origin/destination constraints stay correlated to the same journey detail")
+                .contains("For DESTINATION_LOCATION with polarity=EXCLUDE and status=UNRESOLVED, prefer the single canonical fallback field timetabledCallEnd.stopPoint.nameLong")
+                .contains("Do not create any/OR branches across multiple negative textual fallback fields")
+                .contains("mappedBy must list only the exact fields actually used in technicalSpecification");
     }
 
     @Test

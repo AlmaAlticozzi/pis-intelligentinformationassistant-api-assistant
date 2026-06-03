@@ -30,8 +30,10 @@ class ServiceDataCapabilityCatalogTest {
             "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
             "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameShort",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameShort",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort",
             "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id",
@@ -88,7 +90,7 @@ class ServiceDataCapabilityCatalogTest {
 
     @Test
     void allowedFieldCountIncludesControlledExpansion() {
-        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(107);
+        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(109);
     }
 
     @Test
@@ -103,6 +105,8 @@ class ServiceDataCapabilityCatalogTest {
     void stringBooleanEnumNumberAndEnumArrayOperatorsAreCoherent() {
         assertOperators("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", "IN", "NOT_IN");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
+                "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED", "NOT_CONTAINS_NORMALIZED");
+        assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort",
                 "EQUALS_NORMALIZED", "CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED", "NOT_CONTAINS_NORMALIZED");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", "EQUALS");
         assertOperators("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.source", "EQUALS", "IN");
@@ -169,7 +173,9 @@ class ServiceDataCapabilityCatalogTest {
                 "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameLong",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.nameShort",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].callStart.stopPoint.nameShort",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameLong",
+                "payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.nameShort",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameLong",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.nameShort",
                 "payload.stopPointJourney.stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.nameLong",
