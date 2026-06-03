@@ -1138,9 +1138,11 @@ public class AlertService {
                     + " exceptionMessage=" + resolverError.getMessage());
         }
         if (currentTenantId() != null && resolvedTenant == null) {
-            System.out.println("[IIA][HIBERNATE_TENANT_DEBUG] Hibernate tenant resolver returned null although TenantContext is populated"
+            System.out.println("[IIA][HIBERNATE_TENANT_DEBUG] direct resolver probe did not return a tenant; repository persist will rely on active FND tenant context"
                     + " alertId=" + alertId
-                    + " tenantContextTenant=" + safeTenant(currentTenantId()));
+                    + " tenantContextTenant=" + safeTenant(currentTenantId())
+                    + " requestContextActive=" + requestContextActive()
+                    + " transactionActive=" + transactionActive());
         }
     }
 
