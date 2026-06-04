@@ -1512,6 +1512,17 @@ public class AlertVerificationOutcomeValidator {
 
     private void validateMainEventPhase(ValidationContext context) {
         String delayEventType = nonLocationConstraintValue(context, "DELAY_EVENT_TYPE");
+        if ("BOTH".equals(delayEventType) || "GENERIC_DELAY".equals(delayEventType)) {
+            boolean represented = context.conditionLeaves.stream()
+                    .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                    .anyMatch(leaf -> eventLeafContains(leaf, "ARRIVAL_DELAY")
+                            && eventLeafContains(leaf, "DEPARTURE_DELAY"));
+            if (!represented && hasDelayPredicate(context)) {
+                context.fail("Delay event semantic validation failed: generic delay requests require "
+                        + "payload.ongroundServiceEvent.eventsType to contain ARRIVAL_DELAY and DEPARTURE_DELAY.");
+            }
+            return;
+        }
         if (delayEventType != null && context.conditionLeaves.stream()
                 .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
                 .anyMatch(leaf -> eventLeafContains(leaf, delayEventType))) {
@@ -1535,6 +1546,13 @@ public class AlertVerificationOutcomeValidator {
                     + " require payload.ongroundServiceEvent.eventsType to contain "
                     + expectedEventType + ".");
         }
+    }
+
+    private boolean hasDelayPredicate(ValidationContext context) {
+        return context.conditionLeaves.stream()
+                .map(ConditionLeaf::field)
+                .anyMatch(field -> field != null
+                        && (field.contains("arrivalDelay.") || field.contains("departureDelay.")));
     }
 
     private String nonLocationConstraintValue(ValidationContext context, String type) {

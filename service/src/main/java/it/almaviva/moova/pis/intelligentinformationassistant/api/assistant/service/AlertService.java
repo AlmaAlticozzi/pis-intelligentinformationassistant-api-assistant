@@ -538,6 +538,9 @@ public class AlertService {
             return outcome;
         }
         Object technicalCondition = technicalSpecification.get("condition");
+        if (isGenericDelayEvent(expected)) {
+            return normalizeGenericDelayEventType(outcome, promptData, technicalSpecification, agentBlueprintPreview, technicalCondition);
+        }
         MainEventNormalization normalization = normalizeMainEventLeaf(technicalCondition, expected);
         boolean inserted = false;
         if (!normalization.changed()
@@ -570,6 +573,51 @@ public class AlertService {
                     + " normalizedValues=[]"
                     + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
         }
+        return new AlertVerificationOutcome(
+                outcome.decision(),
+                outcome.summary(),
+                outcome.rejectedReason(),
+                outcome.confidence(),
+                outcome.provider(),
+                outcome.model(),
+                outcome.promptVersion(),
+                outcome.requiredSources(),
+                outcome.interpreterType(),
+                outcome.inputModel(),
+                outcome.outputModel(),
+                outcome.triggerType(),
+                outcome.evaluationMode(),
+                outcome.interpretedEventNames(),
+                outcome.interpretedTargetTypes(),
+                technicalSpecification,
+                agentBlueprintPreview,
+                outcome.requirementCoverage(),
+                outcome.warnings(),
+                outcome.safetyChecks());
+    }
+
+    private AlertVerificationOutcome normalizeGenericDelayEventType(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData promptData,
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> agentBlueprintPreview,
+            Object technicalCondition) {
+        if (hasGenericDelayEventLeaf(technicalCondition) || !hasGenericDelayPredicate(technicalCondition)) {
+            return outcome;
+        }
+        boolean inserted = insertGenericDelayEventLeaf(technicalCondition);
+        if (!inserted) {
+            return outcome;
+        }
+        if (agentBlueprintPreview != null) {
+            Object parameters = agentBlueprintPreview.get("parameters");
+            if (parameters instanceof Map<?, ?> parametersMap) {
+                insertGenericDelayEventLeaf(parametersMap.get("condition"));
+            }
+        }
+        System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_NORMALIZATION] alertId=" + promptData.alertId()
+                + " reason=generic-delay-eventsType-inserted"
+                + " delayEventType=BOTH");
         return new AlertVerificationOutcome(
                 outcome.decision(),
                 outcome.summary(),
@@ -736,6 +784,34 @@ public class AlertService {
         return false;
     }
 
+    @SuppressWarnings("unchecked")
+    private boolean insertGenericDelayEventLeaf(Object node) {
+        if (!(node instanceof Map<?, ?> rawMap)) {
+            return false;
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        Map<String, Object> eventLeaf = new java.util.LinkedHashMap<>();
+        eventLeaf.put("field", "payload.ongroundServiceEvent.eventsType");
+        eventLeaf.put("operator", "CONTAINS_ANY");
+        eventLeaf.put("values", List.of("ARRIVAL_DELAY", "DEPARTURE_DELAY"));
+        Object all = map.get("all");
+        if (all instanceof List<?> allList) {
+            List<Object> mutableAll = new ArrayList<>();
+            mutableAll.add(eventLeaf);
+            mutableAll.addAll(allList);
+            map.put("all", mutableAll);
+            return true;
+        }
+        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
+            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
+            map.clear();
+            map.put("type", "SERVICE_DATA_FIELD_MATCH");
+            map.put("all", new ArrayList<>(List.of(eventLeaf, original)));
+            return true;
+        }
+        return false;
+    }
+
     private boolean hasCoherentPredicateForExpectedEvent(Object node, String expected) {
         if (node instanceof Map<?, ?> map) {
             String field = stringValue(map.get("field"));
@@ -755,6 +831,9 @@ public class AlertService {
     }
 
     private boolean coherentFieldForExpectedEvent(String field, String expected) {
+        if (isGenericDelayEvent(expected)) {
+            return field.contains("departureDelay.") || field.contains("arrivalDelay.");
+        }
         if (isDepartureDelayEvent(expected)) {
             return field.contains("departureDelay.");
         }
@@ -936,7 +1015,8 @@ public class AlertService {
 
     private boolean isSupportedAuthoritativeEvent(String value) {
         return isDepartureEvent(value) || isArrivalEvent(value)
-                || isDepartureDelayEvent(value) || isArrivalDelayEvent(value);
+                || isDepartureDelayEvent(value) || isArrivalDelayEvent(value)
+                || isGenericDelayEvent(value);
     }
 
     private boolean isDepartureEvent(String value) {
@@ -953,6 +1033,32 @@ public class AlertService {
 
     private boolean isArrivalDelayEvent(String value) {
         return "ARRIVAL_DELAY".equals(value);
+    }
+
+    private boolean isGenericDelayEvent(String value) {
+        return "BOTH".equals(value) || "GENERIC_DELAY".equals(value);
+    }
+
+    private boolean hasGenericDelayPredicate(Object node) {
+        return hasCoherentPredicateForExpectedEvent(node, "BOTH");
+    }
+
+    private boolean hasGenericDelayEventLeaf(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            if ("payload.ongroundServiceEvent.eventsType".equals(stringValue(map.get("field")))) {
+                List<String> values = stringList(map.get("values"));
+                return values.contains("ARRIVAL_DELAY") && values.contains("DEPARTURE_DELAY");
+            }
+            return map.values().stream().anyMatch(this::hasGenericDelayEventLeaf);
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasGenericDelayEventLeaf(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean hasRouteOrTransitCondition(Object node) {
@@ -1040,6 +1146,16 @@ public class AlertService {
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? null : text;
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .map(this::stringValue)
+                .filter(item -> item != null && !item.isBlank())
+                .toList();
     }
 
     private record MainEventNormalization(
@@ -1440,7 +1556,7 @@ public class AlertService {
                         delayEventType));
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
-                        delayEventType.startsWith("DEPARTURE") ? "DEPARTURE" : "ARRIVAL"));
+                        delayDirection(delayEventType)));
             }
             AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
                     ? new AlertEventWordingClassifier()
@@ -1480,7 +1596,17 @@ public class AlertService {
                 "delay on arrival")) {
             return "ARRIVAL_DELAY";
         }
-        return null;
+        return "BOTH";
+    }
+
+    private String delayDirection(String delayEventType) {
+        if ("DEPARTURE_DELAY".equals(delayEventType)) {
+            return "DEPARTURE";
+        }
+        if ("ARRIVAL_DELAY".equals(delayEventType)) {
+            return "ARRIVAL";
+        }
+        return "GENERIC";
     }
 
     private boolean containsAny(String value, String... tokens) {

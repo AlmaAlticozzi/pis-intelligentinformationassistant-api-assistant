@@ -361,6 +361,23 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void addsGenericDelayEventTypeForDelayWithoutArrivalOrDepartureDirection() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha più di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+
+        assertThat(context.resolutions()).isEmpty();
+        assertConstraint(context, "DELAY_EVENT_TYPE", "BOTH");
+        assertConstraint(context, "DELAY_DIRECTION", "GENERIC");
+    }
+
+    @Test
     void fallsBackToLegacyExtractorWhenUnderstandingThrows() {
         AlertLocationUnderstandingService understandingService = mock(AlertLocationUnderstandingService.class);
         when(understandingService.understandLocations(any(), any())).thenThrow(new RuntimeException("boom"));

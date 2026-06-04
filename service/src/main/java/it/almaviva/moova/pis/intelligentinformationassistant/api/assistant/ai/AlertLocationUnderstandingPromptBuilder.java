@@ -43,6 +43,7 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
                 - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean DELAY_DIRECTION=ARRIVAL and DELAY_EVENT_TYPE=ARRIVAL_DELAY; "ritardo in partenza", "ritardo alla partenza", "ritardo di partenza", "departure delay" mean DELAY_DIRECTION=DEPARTURE and DELAY_EVENT_TYPE=DEPARTURE_DELAY.
+                - Generic delay wording without arrival/departure direction, such as "ha piu di N minuti di ritardo", "e in ritardo di N minuti", "delay greater than N" or "train delay over N minutes", means DELAY_DIRECTION=GENERIC and DELAY_EVENT_TYPE=BOTH.
                 - Do not infer MAIN_EVENT_PHASE from delay direction alone. "ritardo in arrivo" describes arrivalDelay, not necessarily a current ARRIVING event.
                 - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a named place are PASSING_TYPE constraints, not DESTINATION_LOCATION.
                 - "parte dall'origine", "parte da una localita di origine" without a named place are PASSING_TYPE ORIGIN constraints, not ORIGIN_LOCATION.

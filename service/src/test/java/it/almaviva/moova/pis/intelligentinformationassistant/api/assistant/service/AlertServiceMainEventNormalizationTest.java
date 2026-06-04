@@ -138,6 +138,49 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
+    void insertsGenericDelayEventTypesWhenDelayOnlyPredicateHasNoEventsType() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_DIRECTION", "GENERIC"));
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithGenericDelayWithoutEvent(),
+                Map.of(
+                        "requirements", List.of(
+                                coverageRequirement("payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay"),
+                                coverageRequirement("payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                        "allRequiredRequirementsMapped", true));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(outcome, promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+        Map<String, Object> eventLeaf = findLeaf(normalized.technicalSpecification(), "eventsType");
+        Map<String, Object> blueprintEventLeaf = findLeaf(normalized.agentBlueprintPreview(), "eventsType");
+
+        assertThat(eventLeaf).containsEntry("operator", "CONTAINS_ANY");
+        assertThat(eventLeaf.get("values")).asList().containsExactly("ARRIVAL_DELAY", "DEPARTURE_DELAY");
+        assertThat(blueprintEventLeaf).containsEntry("operator", "CONTAINS_ANY");
+        assertThat(blueprintEventLeaf.get("values")).asList().containsExactly("ARRIVAL_DELAY", "DEPARTURE_DELAY");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void validatorRejectsGenericDelayWithoutEventsTypeWhenNotNormalized() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"));
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithGenericDelayWithoutEvent(),
+                Map.of(
+                        "requirements", List.of(
+                                coverageRequirement("payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay"),
+                                coverageRequirement("payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                        "allRequiredRequirementsMapped", true));
+
+        AlertVerificationOutcome validated = validator.validate(outcome, "Prompt", context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("generic delay");
+    }
+
+    @Test
     void normalizesSingleValueInToEqualsRecursively() {
         AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
                 outcomeWithCondition(conditionWithNestedSingleValueIn()),
@@ -256,6 +299,15 @@ class AlertServiceMainEventNormalizationTest {
                 List.of());
     }
 
+    private AlertVerificationLocationContext noLocationContextWithConstraints(
+            AlertVerificationLocationContext.NonLocationConstraint... constraints) {
+        return new AlertVerificationLocationContext(
+                false,
+                List.of(),
+                List.of(constraints),
+                List.of());
+    }
+
     private Map<String, Object> conditionWithEvent(String eventType) {
         return Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
@@ -300,6 +352,24 @@ class AlertServiceMainEventNormalizationTest {
                         Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
                                 "operator", "GREATER_OR_EQUAL",
                                 "value", 12)));
+    }
+
+    private Map<String, Object> conditionWithGenericDelayWithoutEvent() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "any", List.of(
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "field", "arrivalDelay.delay",
+                                        "operator", "GREATER_THAN",
+                                        "value", 900))),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "field", "departureDelay.delay",
+                                        "operator", "GREATER_THAN",
+                                        "value", 900)))));
     }
 
     private Map<String, Object> conditionWithNestedSingleValueIn() {
