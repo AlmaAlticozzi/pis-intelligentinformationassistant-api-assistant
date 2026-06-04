@@ -17,7 +17,7 @@ public final class AlertDelayEventTypeNormalizer {
         if (normalized == null) {
             return null;
         }
-        return switch (normalized) {
+        String canonical = switch (normalized) {
             case "ARRIVAL_DELAY", "ARRIVAL DELAY", "RITARDO IN ARRIVO", "RITARDO ALL ARRIVO", "RITARDO DI ARRIVO" ->
                     ARRIVAL_DELAY;
             case "DEPARTURE_DELAY", "DEPARTURE DELAY", "RITARDO IN PARTENZA", "RITARDO ALLA PARTENZA", "RITARDO DI PARTENZA" ->
@@ -26,6 +26,28 @@ public final class AlertDelayEventTypeNormalizer {
                     BOTH;
             default -> null;
         };
+        if (canonical != null) {
+            return canonical;
+        }
+        boolean delay = normalized.contains("RITARDO")
+                || normalized.contains("DELAY")
+                || normalized.contains("RITARD");
+        if (!delay) {
+            return null;
+        }
+        boolean arrival = normalized.contains("ARRIVO")
+                || normalized.contains("ARRIVAL")
+                || normalized.contains("ARRIVE");
+        boolean departure = normalized.contains("PARTENZA")
+                || normalized.contains("DEPARTURE")
+                || normalized.contains("DEPART");
+        if (arrival && !departure) {
+            return ARRIVAL_DELAY;
+        }
+        if (departure && !arrival) {
+            return DEPARTURE_DELAY;
+        }
+        return BOTH;
     }
 
     private static String normalizeToken(String value) {

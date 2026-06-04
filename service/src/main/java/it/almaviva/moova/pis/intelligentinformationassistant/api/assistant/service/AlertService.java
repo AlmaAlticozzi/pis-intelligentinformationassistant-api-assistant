@@ -70,6 +70,7 @@ import java.util.Optional;
 import java.util.ArrayList;
 import java.text.Normalizer;
 import java.util.Locale;
+import java.util.Objects;
 
 @ApplicationScoped
 public class AlertService {
@@ -533,6 +534,7 @@ public class AlertService {
         if (expected == null || !isSupportedAuthoritativeEvent(expected)) {
             return outcome;
         }
+        DelayThreshold delayThreshold = delayThreshold(promptData.locationResolutionContext());
         Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
         Map<String, Object> agentBlueprintPreview = mutableMap(outcome.agentBlueprintPreview());
         if (technicalSpecification == null) {
@@ -540,7 +542,20 @@ public class AlertService {
         }
         Object technicalCondition = technicalSpecification.get("condition");
         if (isGenericDelayEvent(expected)) {
-            return normalizeGenericDelayEventType(outcome, promptData, technicalSpecification, agentBlueprintPreview, technicalCondition);
+            AlertVerificationOutcome normalized = normalizeGenericDelayEventType(
+                    outcome,
+                    promptData,
+                    technicalSpecification,
+                    agentBlueprintPreview,
+                    technicalCondition);
+            return normalizeMissingDelayThresholdPredicate(
+                    normalized,
+                    promptData,
+                    technicalSpecification,
+                    agentBlueprintPreview,
+                    technicalCondition,
+                    expected,
+                    delayThreshold);
         }
         MainEventNormalization normalization = normalizeMainEventLeaf(technicalCondition, expected);
         boolean inserted = false;
@@ -553,7 +568,14 @@ public class AlertService {
             }
         }
         if (!normalization.changed()) {
-            return outcome;
+            return normalizeMissingDelayThresholdPredicate(
+                    outcome,
+                    promptData,
+                    technicalSpecification,
+                    agentBlueprintPreview,
+                    technicalCondition,
+                    expected,
+                    delayThreshold);
         }
         if (inserted) {
             insertBlueprintMainEventLeaf(agentBlueprintPreview, expected);
@@ -563,18 +585,28 @@ public class AlertService {
                     + " reason=missing-eventsType-inserted-from-expected-main-event-type");
         } else {
             normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
-            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
-                    + promptData.alertId()
-                    + " expectedMainEventType=" + expected
-                    + " originalOperator=" + normalization.originalOperator()
-                    + " originalValue=" + normalization.originalValue()
-                    + " originalValues=" + normalization.originalValues()
-                    + " normalizedOperator=CONTAINS"
-                    + " normalizedValue=" + expected
-                    + " normalizedValues=[]"
-                    + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
+            if (isOperationalMainEventType(expected)
+                    && (isDepartureDelayEvent(normalization.originalValue())
+                    || isArrivalDelayEvent(normalization.originalValue()))) {
+                System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
+                        + promptData.alertId()
+                        + " reason=event-primary-with-delay-overrides-delay-event-type"
+                        + " expectedMainEventType=" + expected
+                        + " originalEventsType=" + normalization.originalValue());
+            } else {
+                System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
+                        + promptData.alertId()
+                        + " expectedMainEventType=" + expected
+                        + " originalOperator=" + normalization.originalOperator()
+                        + " originalValue=" + normalization.originalValue()
+                        + " originalValues=" + normalization.originalValues()
+                        + " normalizedOperator=CONTAINS"
+                        + " normalizedValue=" + expected
+                        + " normalizedValues=[]"
+                        + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
+            }
         }
-        return new AlertVerificationOutcome(
+        AlertVerificationOutcome rebuilt = new AlertVerificationOutcome(
                 outcome.decision(),
                 outcome.summary(),
                 outcome.rejectedReason(),
@@ -595,6 +627,14 @@ public class AlertService {
                 outcome.requirementCoverage(),
                 outcome.warnings(),
                 outcome.safetyChecks());
+        return normalizeMissingDelayThresholdPredicate(
+                rebuilt,
+                promptData,
+                technicalSpecification,
+                agentBlueprintPreview,
+                technicalCondition,
+                expected,
+                delayThreshold);
     }
 
     private AlertVerificationOutcome normalizeGenericDelayEventType(
@@ -640,6 +680,38 @@ public class AlertService {
                 outcome.requirementCoverage(),
                 outcome.warnings(),
                 outcome.safetyChecks());
+    }
+
+    private AlertVerificationOutcome normalizeMissingDelayThresholdPredicate(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData promptData,
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> agentBlueprintPreview,
+            Object technicalCondition,
+            String expected,
+            DelayThreshold delayThreshold) {
+        if (delayThreshold == null || !supportsDelayThresholdPredicate(expected)) {
+            return outcome;
+        }
+        if (hasRequiredDelayThresholdPredicate(technicalCondition, expected)) {
+            return outcome;
+        }
+        boolean inserted = insertDelayThresholdPredicate(technicalCondition, expected, delayThreshold);
+        if (!inserted) {
+            return outcome;
+        }
+        if (agentBlueprintPreview != null) {
+            Object parameters = agentBlueprintPreview.get("parameters");
+            if (parameters instanceof Map<?, ?> parametersMap) {
+                insertDelayThresholdPredicate(parametersMap.get("condition"), expected, delayThreshold);
+            }
+        }
+        System.out.println("[IIA][ALERT_VERIFY][DELAY_THRESHOLD_NORMALIZATION] alertId=" + promptData.alertId()
+                + " reason=missing-delay-threshold-predicate-inserted"
+                + " delayEventType=" + expected
+                + " operator=" + delayThreshold.operator()
+                + " value=" + delayThreshold.value());
+        return rebuildOutcome(outcome, technicalSpecification, agentBlueprintPreview, outcome.requirementCoverage());
     }
 
     AlertVerificationOutcome normalizeSingleValueInOperators(AlertVerificationOutcome outcome, String alertId) {
@@ -809,6 +881,107 @@ public class AlertService {
             map.put("type", "SERVICE_DATA_FIELD_MATCH");
             map.put("all", new ArrayList<>(List.of(eventLeaf, original)));
             return true;
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean insertDelayThresholdPredicate(Object node, String expected, DelayThreshold threshold) {
+        if (!(node instanceof Map<?, ?> rawMap)) {
+            return false;
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        Map<String, Object> delayPredicate = delayThresholdPredicate(expected, threshold);
+        if (delayPredicate.isEmpty()) {
+            return false;
+        }
+        Object all = map.get("all");
+        if (all instanceof List<?> allList) {
+            List<Object> mutableAll = new ArrayList<>(allList);
+            mutableAll.add(delayPredicate);
+            map.put("all", mutableAll);
+            return true;
+        }
+        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
+            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
+            map.clear();
+            map.put("type", "SERVICE_DATA_FIELD_MATCH");
+            map.put("all", new ArrayList<>(List.of(original, delayPredicate)));
+            return true;
+        }
+        return false;
+    }
+
+    private Map<String, Object> delayThresholdPredicate(String expected, DelayThreshold threshold) {
+        if (isDepartureDelayEvent(expected)) {
+            return anyStopPointJourneyDetailPredicate("departureDelay.delay", threshold);
+        }
+        if (isArrivalDelayEvent(expected)) {
+            return anyStopPointJourneyDetailPredicate("arrivalDelay.delay", threshold);
+        }
+        if (isDepartureEvent(expected)) {
+            return anyStopPointJourneyDetailPredicate("departureDelay.delay", threshold);
+        }
+        if (isArrivalEvent(expected)) {
+            return anyStopPointJourneyDetailPredicate("arrivalDelay.delay", threshold);
+        }
+        if (isGenericDelayEvent(expected)) {
+            return Map.of("anyElement", Map.of(
+                    "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                    "conditions", Map.of("any", List.of(
+                            delayThresholdLeaf("arrivalDelay.delay", threshold),
+                            delayThresholdLeaf("departureDelay.delay", threshold)))));
+        }
+        return Map.of();
+    }
+
+    private Map<String, Object> anyStopPointJourneyDetailPredicate(String field, DelayThreshold threshold) {
+        return Map.of("anyElement", Map.of(
+                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                "conditions", delayThresholdLeaf(field, threshold)));
+    }
+
+    private Map<String, Object> delayThresholdLeaf(String field, DelayThreshold threshold) {
+        return Map.of(
+                "field", field,
+                "operator", threshold.operator(),
+                "value", threshold.value());
+    }
+
+    private boolean hasRequiredDelayThresholdPredicate(Object node, String expected) {
+        if (isDepartureDelayEvent(expected)) {
+            return hasDelayThresholdField(node, "departureDelay.delay");
+        }
+        if (isArrivalDelayEvent(expected)) {
+            return hasDelayThresholdField(node, "arrivalDelay.delay");
+        }
+        if (isDepartureEvent(expected)) {
+            return hasDelayThresholdField(node, "departureDelay.delay");
+        }
+        if (isArrivalEvent(expected)) {
+            return hasDelayThresholdField(node, "arrivalDelay.delay");
+        }
+        if (isGenericDelayEvent(expected)) {
+            return hasDelayThresholdField(node, "arrivalDelay.delay")
+                    && hasDelayThresholdField(node, "departureDelay.delay");
+        }
+        return true;
+    }
+
+    private boolean hasDelayThresholdField(Object node, String fieldFragment) {
+        if (node instanceof Map<?, ?> map) {
+            String field = stringValue(map.get("field"));
+            if (field != null && field.contains(fieldFragment)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(value -> hasDelayThresholdField(value, fieldFragment));
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasDelayThresholdField(item, fieldFragment)) {
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -1002,11 +1175,16 @@ public class AlertService {
     private boolean sameArrivalDepartureDomain(String expected, String actual) {
         return (isDepartureEvent(expected) && isDepartureEvent(actual))
                 || (isArrivalEvent(expected) && isArrivalEvent(actual))
+                || (isDepartureEvent(expected) && isDepartureDelayEvent(actual))
+                || (isArrivalEvent(expected) && isArrivalDelayEvent(actual))
                 || (isDepartureDelayEvent(expected) && isDepartureEvent(actual))
                 || (isArrivalDelayEvent(expected) && isArrivalEvent(actual));
     }
 
     private String authoritativeEventType(AlertVerificationLocationContext context) {
+        if (isEventPrimaryDelayContext(context)) {
+            return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
+        }
         String delayEventType = nonLocationConstraint(context, "DELAY_EVENT_TYPE");
         if (delayEventType != null) {
             String normalized = AlertDelayEventTypeNormalizer.normalize(delayEventType);
@@ -1015,10 +1193,58 @@ public class AlertService {
         return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
     }
 
+    private boolean isEventPrimaryDelayContext(AlertVerificationLocationContext context) {
+        String delayRole = nonLocationConstraint(context, "DELAY_ROLE");
+        if ("ACCESSORY_DELAY_PREDICATE".equals(delayRole)) {
+            return true;
+        }
+        String expected = nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
+        return isOperationalMainEventType(expected) && hasRequiredMainEventLocation(context);
+    }
+
+    private DelayThreshold delayThreshold(AlertVerificationLocationContext context) {
+        String raw = nonLocationConstraint(context, "DELAY_THRESHOLD");
+        if (raw == null) {
+            return null;
+        }
+        String operator = valueAfterKey(raw, "operator");
+        String value = valueAfterKey(raw, "value");
+        String unit = valueAfterKey(raw, "unit");
+        if (operator == null || value == null) {
+            return null;
+        }
+        try {
+            return new DelayThreshold(operator, Integer.parseInt(value), unit == null ? "SECONDS" : unit);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private String valueAfterKey(String raw, String key) {
+        String normalizedKey = key + "=";
+        for (String part : raw.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.regionMatches(true, 0, normalizedKey, 0, normalizedKey.length())) {
+                return trimmed.substring(normalizedKey.length()).trim().toUpperCase(Locale.ROOT);
+            }
+        }
+        return null;
+    }
+
     private boolean isSupportedAuthoritativeEvent(String value) {
         return isDepartureEvent(value) || isArrivalEvent(value)
                 || isDepartureDelayEvent(value) || isArrivalDelayEvent(value)
                 || isGenericDelayEvent(value);
+    }
+
+    private boolean isOperationalMainEventType(String value) {
+        return isDepartureEvent(value) || isArrivalEvent(value);
+    }
+
+    private boolean hasRequiredMainEventLocation(AlertVerificationLocationContext context) {
+        return context != null && context.resolutions().stream()
+                .anyMatch(location -> location.requiredCoverage()
+                        && "MAIN_EVENT_LOCATION".equalsIgnoreCase(location.semanticRole()));
     }
 
     private boolean isDepartureEvent(String value) {
@@ -1039,6 +1265,14 @@ public class AlertService {
 
     private boolean isGenericDelayEvent(String value) {
         return "BOTH".equals(value) || "GENERIC_DELAY".equals(value);
+    }
+
+    private boolean isSupportedDelayEventType(String value) {
+        return isDepartureDelayEvent(value) || isArrivalDelayEvent(value) || isGenericDelayEvent(value);
+    }
+
+    private boolean supportsDelayThresholdPredicate(String value) {
+        return isSupportedDelayEventType(value) || isOperationalMainEventType(value);
     }
 
     private boolean hasGenericDelayPredicate(Object node) {
@@ -1168,6 +1402,12 @@ public class AlertService {
 
         private static MainEventNormalization unchanged() {
             return new MainEventNormalization(false, null, null, List.of());
+        }
+    }
+
+    private record DelayThreshold(String operator, int value, String unit) {
+        private String rawText() {
+            return "operator=" + operator + ";value=" + value + ";unit=" + unit;
         }
     }
 
@@ -1322,7 +1562,19 @@ public class AlertService {
         AlertLocationResolverService resolver = alertLocationResolverService == null
                 ? new AlertLocationResolverService()
                 : alertLocationResolverService;
-        List<AlertLocationMention> mentions = understanding.locations().stream()
+        List<AlertLocationUnderstandingLocation> coverageLocations = new ArrayList<>();
+        for (AlertLocationUnderstandingLocation location : understanding.locations()) {
+            if (isAllLocationsNoOp(location.rawText(), location.normalizedText())) {
+                System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][LOCATION_SCOPE_NORMALIZATION] "
+                        + "reason=all-locations-no-op"
+                        + " rawText=" + location.rawText()
+                        + " normalizedText=" + location.normalizedText()
+                        + " action=removed-from-location-coverage");
+                continue;
+            }
+            coverageLocations.add(location);
+        }
+        List<AlertLocationMention> mentions = coverageLocations.stream()
                 .map(location -> new AlertLocationMention(
                         resolutionText(location),
                         toLegacySemanticRole(location.role()),
@@ -1332,13 +1584,13 @@ public class AlertService {
                 ? List.of()
                 : resolver.resolve(mentions);
         List<AlertVerificationLocationContext.LocationResolution> promptResolutions = new ArrayList<>();
-        for (int index = 0; index < understanding.locations().size(); index++) {
-            AlertLocationUnderstandingLocation location = understanding.locations().get(index);
+        for (int index = 0; index < coverageLocations.size(); index++) {
+            AlertLocationUnderstandingLocation location = coverageLocations.get(index);
             AlertLocationResolution resolution = resolutions.get(index);
             promptResolutions.add(toPromptLocationResolution(location, resolution));
         }
         AlertVerificationLocationContext context = new AlertVerificationLocationContext(
-                understanding.hasLocations(),
+                !promptResolutions.isEmpty(),
                 promptResolutions,
                 semanticNonLocationConstraints(understanding, prompt),
                 understanding.warnings());
@@ -1538,25 +1790,75 @@ public class AlertService {
                 .trim();
     }
 
+    private boolean isAllLocationsNoOp(String rawText, String normalizedText) {
+        return isAllLocationsNoOpText(rawText) || isAllLocationsNoOpText(normalizedText);
+    }
+
+    private boolean isAllLocationsNoOpText(String value) {
+        String normalized = normalizeText(value);
+        if (normalized == null) {
+            return false;
+        }
+        return normalized.contains("qualsiasi localita")
+                || normalized.contains("qualunque localita")
+                || normalized.contains("ogni localita")
+                || normalized.contains("tutte le localita")
+                || normalized.contains("tutte le fermate")
+                || normalized.contains("qualunque fermata")
+                || normalized.contains("qualsiasi fermata")
+                || normalized.contains("ovunque")
+                || normalized.contains("in ogni punto")
+                || normalized.contains("senza localita specifica")
+                || normalized.contains("senza specificare la localita")
+                || normalized.contains("any location")
+                || normalized.contains("all locations")
+                || normalized.contains("every location")
+                || normalized.contains("anywhere")
+                || normalized.contains("any stop")
+                || normalized.contains("all stops");
+    }
+
     private List<AlertVerificationLocationContext.NonLocationConstraint> semanticNonLocationConstraints(
             AlertLocationUnderstandingResult understanding,
             String prompt) {
         List<AlertVerificationLocationContext.NonLocationConstraint> constraints = new ArrayList<>(
                 understanding.nonLocationConstraints().stream()
                         .map(this::toPromptNonLocationConstraint)
+                        .filter(Objects::nonNull)
                         .toList());
+        boolean accessoryDelay = isOperationalEventWithAccessoryDelay(normalizeText(prompt));
+        if (accessoryDelay) {
+            constraints.removeIf(constraint -> "DELAY_EVENT_TYPE".equalsIgnoreCase(constraint.type())
+                    || "DELAY_DIRECTION".equalsIgnoreCase(constraint.type()));
+            constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                    "DELAY_ROLE",
+                    "ACCESSORY_DELAY_PREDICATE"));
+        }
         if (understanding.mainEvent() != null && understanding.mainEvent().eventIntent() != null) {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_INTENT",
                     understanding.mainEvent().eventIntent().name()));
+            DelayThreshold delayThreshold = delayThreshold(prompt);
+            if (delayThreshold != null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        delayThreshold.rawText()));
+            }
             String delayEventType = delayEventType(prompt);
             if (delayEventType != null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_ROLE",
+                        "PRIMARY_DELAY_EVENT"));
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_EVENT_TYPE",
                         delayEventType));
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
                         delayDirection(delayEventType)));
+            } else if (accessoryDelay) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_DIRECTION",
+                        delayDirection(understanding.mainEvent().eventIntent().name())));
             }
             AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
                     ? new AlertEventWordingClassifier()
@@ -1572,7 +1874,7 @@ public class AlertService {
                         expectedEventType));
             }
         }
-        return constraints;
+        return canonicalizeDelayEventTypeConstraints(constraints);
     }
 
     private AlertVerificationLocationContext.NonLocationConstraint toPromptNonLocationConstraint(
@@ -1589,14 +1891,71 @@ public class AlertService {
                             + " reason=canonical-delay-event-type");
                 }
                 rawText = normalized;
+            } else {
+                System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                        + rawText
+                        + " normalizedValue=null"
+                        + " action=discarded-noncanonical"
+                        + " reason=canonical-delay-event-type");
+                return null;
             }
         }
         return new AlertVerificationLocationContext.NonLocationConstraint(type, rawText);
     }
 
+    private List<AlertVerificationLocationContext.NonLocationConstraint> canonicalizeDelayEventTypeConstraints(
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> canonicalized = new ArrayList<>();
+        String selectedDelayEventType = null;
+        String selectedRawValue = null;
+        for (AlertVerificationLocationContext.NonLocationConstraint constraint : constraints) {
+            if (!"DELAY_EVENT_TYPE".equalsIgnoreCase(constraint.type())) {
+                canonicalized.add(constraint);
+                continue;
+            }
+            String rawValue = stringValue(constraint.rawText());
+            String normalized = AlertDelayEventTypeNormalizer.normalize(rawValue);
+            if (normalized == null) {
+                System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                        + rawValue
+                        + " normalizedValue=null"
+                        + " action=discarded-noncanonical"
+                        + " reason=canonical-delay-event-type");
+                continue;
+            }
+            String action = normalized.equals(rawValue) ? "kept-canonical" : "replaced-by-backend-derived";
+            if (selectedDelayEventType != null) {
+                action = "replaced-by-backend-derived";
+            }
+            System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                    + rawValue
+                    + " normalizedValue=" + normalized
+                    + " action=" + action
+                    + " reason=canonical-delay-event-type");
+            selectedDelayEventType = normalized;
+            selectedRawValue = rawValue;
+        }
+        if (selectedDelayEventType != null) {
+            canonicalized.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                    "DELAY_EVENT_TYPE",
+                    selectedDelayEventType));
+            if (selectedRawValue != null && !selectedDelayEventType.equals(selectedRawValue)) {
+                System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                        + selectedRawValue
+                        + " normalizedValue=" + selectedDelayEventType
+                        + " action=replaced-by-backend-derived"
+                        + " reason=canonical-delay-event-type");
+            }
+        }
+        return canonicalized;
+    }
+
     private String delayEventType(String prompt) {
         String normalized = normalizeText(prompt);
         if (normalized == null || !normalized.contains("ritardo") && !normalized.contains("delay")) {
+            return null;
+        }
+        if (isOperationalEventWithAccessoryDelay(normalized)) {
             return null;
         }
         if (containsAny(normalized,
@@ -1618,11 +1977,65 @@ public class AlertService {
         return "BOTH";
     }
 
+    private DelayThreshold delayThreshold(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null || !normalized.contains("ritardo") && !normalized.contains("delay")) {
+            return null;
+        }
+        DelayThreshold threshold = thresholdFromPattern(
+                normalized,
+                "(?:piu di|oltre|maggiore di|greater than|over)\\s+(\\d+)",
+                "GREATER_THAN");
+        if (threshold != null) {
+            return threshold;
+        }
+        threshold = thresholdFromPattern(
+                normalized,
+                "(?:almeno|non meno di|at least|greater or equal)\\s+(\\d+)",
+                "GREATER_OR_EQUAL");
+        if (threshold != null) {
+            return threshold;
+        }
+        return thresholdFromPattern(
+                normalized,
+                "(?:ritardo di|in ritardo di|delay of)\\s+(\\d+)",
+                "EQUALS");
+    }
+
+    private DelayThreshold thresholdFromPattern(String normalizedPrompt, String pattern, String operator) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(pattern).matcher(normalizedPrompt);
+        if (!matcher.find()) {
+            return null;
+        }
+        int rawValue = Integer.parseInt(matcher.group(1));
+        boolean seconds = containsAny(normalizedPrompt, "secondo", "secondi", "second", "seconds");
+        return new DelayThreshold(operator, seconds ? rawValue : rawValue * 60, seconds ? "SECONDS" : "SECONDS");
+    }
+
+    private boolean isOperationalEventWithAccessoryDelay(String normalized) {
+        boolean hasAccessoryDelay = containsAny(normalized, " con piu", " con almeno", " con oltre", " with more", " with at least")
+                && (normalized.contains("ritardo") || normalized.contains("delay"));
+        if (!hasAccessoryDelay) {
+            return false;
+        }
+        return containsAny(normalized,
+                "in partenza da",
+                "sta partendo da",
+                "parte da",
+                "in arrivo a",
+                "sta arrivando a",
+                "arriva a",
+                "is departing from",
+                "departs from",
+                "is arriving at",
+                "arrives at");
+    }
+
     private String delayDirection(String delayEventType) {
-        if ("DEPARTURE_DELAY".equals(delayEventType)) {
+        if ("DEPARTURE_DELAY".equals(delayEventType) || "DEPARTURE".equals(delayEventType)) {
             return "DEPARTURE";
         }
-        if ("ARRIVAL_DELAY".equals(delayEventType)) {
+        if ("ARRIVAL_DELAY".equals(delayEventType) || "ARRIVAL".equals(delayEventType)) {
             return "ARRIVAL";
         }
         return "GENERIC";

@@ -171,6 +171,88 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptSeparatesMetadataAndMapsGenericDelayThresholdFromBackendContext() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                false,
+                List.of(),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DELAY"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_DIRECTION", "GENERIC"),
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "DELAY_THRESHOLD",
+                                "operator=GREATER_THAN;value=900;unit=SECONDS"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "AMBIGUOUS")),
+                List.of());
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT_DELAY",
+                "P5 THR 001 - generic delay no location",
+                "Generic delay threshold must include both event type and delay predicates",
+                "Avvisami quando una corsa ha piu di 15 minuti di ritardo",
+                context));
+
+        assertThat(request.userPrompt())
+                .contains("Metadata, not additional constraints")
+                .contains("Use originalPrompt and backend-derived context as the authoritative sources of user intent")
+                .contains("Do not reject because metadata mentions technical expectations")
+                .contains("Backend-derived non-location constraints")
+                .contains("- DELAY_EVENT_TYPE=BOTH")
+                .contains("- DELAY_THRESHOLD=operator=GREATER_THAN;value=900;unit=SECONDS")
+                .contains("operator: GREATER_THAN")
+                .contains("value: 900")
+                .contains("unit: SECONDS")
+                .contains("Do not reject because originalPrompt does not mention ServiceData field names")
+                .contains("The user is not expected to write payload.ongroundServiceEvent.eventsType, arrivalDelay.delay or departureDelay.delay")
+                .contains("DELAY_EVENT_TYPE=BOTH plus DELAY_THRESHOLD means eventsType CONTAINS_ANY [\"ARRIVAL_DELAY\",\"DEPARTURE_DELAY\"]")
+                .contains("DELAY_ROLE=PRIMARY_DELAY_EVENT means DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType")
+                .contains("DELAY_ROLE=ACCESSORY_DELAY_PREDICATE means the delay is only an extra predicate")
+                .contains("OR over arrivalDelay.delay and departureDelay.delay with the threshold")
+                .contains("Positive example - generic delay threshold with no location")
+                .contains("Prompt: \"Avvisami quando una corsa ha piu di N minuti di ritardo\"")
+                .contains("\"operator\":\"CONTAINS_ANY\",\"values\":[\"ARRIVAL_DELAY\",\"DEPARTURE_DELAY\"]")
+                .contains("\"field\":\"arrivalDelay.delay\",\"operator\":\"GREATER_THAN\"")
+                .contains("\"field\":\"departureDelay.delay\",\"operator\":\"GREATER_THAN\"");
+    }
+
+    @Test
+    void promptDoesNotPrintRawDelayEventTypeText() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                false,
+                List.of(),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "DELAY_EVENT_TYPE",
+                                "ha più di 15 minuti di ritardo"),
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "DELAY_THRESHOLD",
+                                "operator=GREATER_THAN;value=900;unit=SECONDS")),
+                List.of());
+
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT_DELAY",
+                "P5 DLY 001",
+                "Metadata only - generic delay threshold mapping",
+                "Avvisami quando una corsa ha piu di 15 minuti di ritardo",
+                context));
+
+        assertThat(request.userPrompt())
+                .contains("- DELAY_EVENT_TYPE=BOTH")
+                .doesNotContain("- DELAY_EVENT_TYPE=ha più di 15 minuti di ritardo");
+    }
+
+    @Test
+    void promptExplainsAccessoryDelayUsesExpectedMainEventType() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("DELAY_EVENT_TYPE is authoritative only for delay-primary alerts")
+                .contains("DELAY_ROLE=ACCESSORY_DELAY_PREDICATE")
+                .contains("use EXPECTED_MAIN_EVENT_TYPE for payload.ongroundServiceEvent.eventsType")
+                .contains("Do not replace DEPARTING/ARRIVING/DEPARTED/ARRIVED with DEPARTURE_DELAY/ARRIVAL_DELAY")
+                .contains("e in partenza da X con ritardo");
+    }
+
+    @Test
     void promptContainsMainEventPhaseMappings() {
         LlmRequest request = builder().build(promptData());
 

@@ -1000,8 +1000,48 @@ public class AlertVerificationOutcomeValidator {
                 || normalized.contains("all locations")
                 || normalized.contains("qualsiasi localita")
                 || normalized.contains("tutte le localita")
+                || normalized.contains("qualunque localita")
+                || normalized.contains("ogni localita")
+                || normalized.contains("qualsiasi fermata")
+                || normalized.contains("qualunque fermata")
+                || normalized.contains("tutte le fermate")
+                || normalized.contains("any stop")
+                || normalized.contains("all stops")
+                || normalized.contains("ovunque")
                 || normalized.contains("nessuna localita specificata")
                 || normalized.contains("senza localita");
+    }
+
+    private boolean isAllLocationsNoOp(AlertVerificationLocationContext.LocationResolution location) {
+        return isAllLocationsNoOpText(location.rawText()) || isAllLocationsNoOpText(location.normalizedText());
+    }
+
+    private boolean isAllLocationsNoOpText(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
+        return normalized.contains("qualsiasi localita")
+                || normalized.contains("qualunque localita")
+                || normalized.contains("ogni localita")
+                || normalized.contains("tutte le localita")
+                || normalized.contains("tutte le fermate")
+                || normalized.contains("qualunque fermata")
+                || normalized.contains("qualsiasi fermata")
+                || normalized.contains("ovunque")
+                || normalized.contains("in ogni punto")
+                || normalized.contains("senza localita specifica")
+                || normalized.contains("senza specificare la localita")
+                || normalized.contains("any location")
+                || normalized.contains("all locations")
+                || normalized.contains("every location")
+                || normalized.contains("anywhere")
+                || normalized.contains("any stop")
+                || normalized.contains("all stops");
     }
 
     private void validateConditionValue(
@@ -1225,6 +1265,13 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         for (AlertVerificationLocationContext.LocationResolution location : locationContext.resolutions()) {
+            if (isAllLocationsNoOp(location)) {
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][SKIP] "
+                        + "reason=all-locations-no-op"
+                        + " rawText=" + location.rawText()
+                        + " role=" + location.semanticRole());
+                continue;
+            }
             if (!location.requiredCoverage()) {
                 continue;
             }
@@ -1511,10 +1558,19 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private void validateMainEventPhase(ValidationContext context) {
-        String rawDelayEventType = nonLocationConstraintValue(context, "DELAY_EVENT_TYPE");
-        String delayEventType = AlertDelayEventTypeNormalizer.normalize(rawDelayEventType);
-        if (rawDelayEventType != null && delayEventType == null) {
-            context.fail("Invalid delay event type in context: " + rawDelayEventType
+        String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
+        String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
+        String expectedEventType = intent == null || phase == null ? null : expectedMainEventType(intent, phase);
+        if (isEventPrimaryDelayContext(context, expectedEventType)) {
+            validateExpectedMainEventType(context, intent, phase, expectedEventType);
+            validateDelayThresholdPredicate(context, expectedEventType);
+            return;
+        }
+        DelayEventTypeSelection delayEventTypeSelection = delayEventTypeValue(context);
+        String rawDelayEventType = delayEventTypeSelection.rawValue();
+        String delayEventType = delayEventTypeSelection.normalizedValue();
+        if (delayEventTypeSelection.invalidValue() != null && delayEventType == null) {
+            context.fail("Invalid delay event type in context: " + delayEventTypeSelection.invalidValue()
                     + ". Expected ARRIVAL_DELAY, DEPARTURE_DELAY or BOTH.");
             return;
         }
@@ -1533,6 +1589,7 @@ public class AlertVerificationOutcomeValidator {
                 context.fail("Delay event semantic validation failed: generic delay requests require "
                         + "payload.ongroundServiceEvent.eventsType to contain ARRIVAL_DELAY and DEPARTURE_DELAY.");
             }
+            validateDelayThresholdPredicate(context, delayEventType);
             logDelayEventOverride(context, delayEventType);
             return;
         }
@@ -1546,18 +1603,24 @@ public class AlertVerificationOutcomeValidator {
                         + " requires payload.ongroundServiceEvent.eventsType to contain "
                         + delayEventType + ".");
             }
+            validateDelayThresholdPredicate(context, delayEventType);
             logDelayEventOverride(context, delayEventType);
             return;
         }
-        String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
-        String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
         if (intent == null || phase == null || "AMBIGUOUS".equals(phase)) {
             return;
         }
-        String expectedEventType = expectedMainEventType(intent, phase);
         if (expectedEventType == null) {
             return;
         }
+        validateExpectedMainEventType(context, intent, phase, expectedEventType);
+    }
+
+    private void validateExpectedMainEventType(
+            ValidationContext context,
+            String intent,
+            String phase,
+            String expectedEventType) {
         boolean represented = context.conditionLeaves.stream()
                 .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
                 .anyMatch(leaf -> eventLeafContains(leaf, expectedEventType));
@@ -1567,6 +1630,27 @@ public class AlertVerificationOutcomeValidator {
                     + " require payload.ongroundServiceEvent.eventsType to contain "
                     + expectedEventType + ".");
         }
+    }
+
+    private boolean isEventPrimaryDelayContext(ValidationContext context, String expectedEventType) {
+        String delayRole = nonLocationConstraintValue(context, "DELAY_ROLE");
+        if ("ACCESSORY_DELAY_PREDICATE".equals(delayRole)) {
+            return true;
+        }
+        return isOperationalMainEventType(expectedEventType) && hasRequiredMainEventLocation(context);
+    }
+
+    private boolean isOperationalMainEventType(String eventType) {
+        return "DEPARTING".equals(eventType)
+                || "DEPARTED".equals(eventType)
+                || "ARRIVING".equals(eventType)
+                || "ARRIVED".equals(eventType);
+    }
+
+    private boolean hasRequiredMainEventLocation(ValidationContext context) {
+        return context.locationContext.resolutions().stream()
+                .anyMatch(location -> location.requiredCoverage()
+                        && "MAIN_EVENT_LOCATION".equalsIgnoreCase(location.semanticRole()));
     }
 
     private void logDelayEventOverride(ValidationContext context, String delayEventType) {
@@ -1602,6 +1686,33 @@ public class AlertVerificationOutcomeValidator {
                         && (field.contains("arrivalDelay.") || field.contains("departureDelay.")));
     }
 
+    private void validateDelayThresholdPredicate(ValidationContext context, String delayEventType) {
+        if (nonLocationConstraintValue(context, "DELAY_THRESHOLD") == null) {
+            return;
+        }
+        boolean represented;
+        if ("DEPARTURE_DELAY".equals(delayEventType)) {
+            represented = hasDelayField(context, "departureDelay.delay");
+        } else if ("ARRIVAL_DELAY".equals(delayEventType)) {
+            represented = hasDelayField(context, "arrivalDelay.delay");
+        } else if ("DEPARTING".equals(delayEventType) || "DEPARTED".equals(delayEventType)) {
+            represented = hasDelayField(context, "departureDelay.delay");
+        } else if ("ARRIVING".equals(delayEventType) || "ARRIVED".equals(delayEventType)) {
+            represented = hasDelayField(context, "arrivalDelay.delay");
+        } else {
+            represented = hasDelayField(context, "arrivalDelay.delay") && hasDelayField(context, "departureDelay.delay");
+        }
+        if (!represented) {
+            context.fail("Delay threshold requested by the user is not represented by a delay.delay predicate.");
+        }
+    }
+
+    private boolean hasDelayField(ValidationContext context, String fieldFragment) {
+        return context.conditionLeaves.stream()
+                .map(ConditionLeaf::field)
+                .anyMatch(field -> field != null && field.contains(fieldFragment));
+    }
+
     private String nonLocationConstraintValue(ValidationContext context, String type) {
         return context.locationContext.nonLocationConstraints().stream()
                 .filter(constraint -> type.equalsIgnoreCase(constraint.type()))
@@ -1610,6 +1721,49 @@ public class AlertVerificationOutcomeValidator {
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
                 .orElse(null);
+    }
+
+    private DelayEventTypeSelection delayEventTypeValue(ValidationContext context) {
+        String firstInvalid = null;
+        String selectedRaw = null;
+        String selectedNormalized = null;
+        for (AlertVerificationLocationContext.NonLocationConstraint constraint
+                : context.locationContext.nonLocationConstraints()) {
+            if (!"DELAY_EVENT_TYPE".equalsIgnoreCase(constraint.type())) {
+                continue;
+            }
+            String rawValue = constraint.rawText() == null ? null : constraint.rawText().trim().toUpperCase(Locale.ROOT);
+            if (rawValue == null || rawValue.isBlank()) {
+                continue;
+            }
+            String normalized = AlertDelayEventTypeNormalizer.normalize(rawValue);
+            if (normalized == null) {
+                if (firstInvalid == null) {
+                    firstInvalid = rawValue;
+                }
+                continue;
+            }
+            if (!rawValue.equals(normalized)) {
+                System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                        + rawValue
+                        + " normalizedValue=" + normalized
+                        + " action=replaced-by-backend-derived"
+                        + " reason=canonical-delay-event-type");
+            }
+            selectedRaw = rawValue;
+            selectedNormalized = normalized;
+        }
+        if (firstInvalid != null && selectedNormalized != null) {
+            System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                    + firstInvalid
+                    + " normalizedValue=" + selectedNormalized
+                    + " action=discarded-noncanonical"
+                    + " reason=canonical-delay-event-type");
+        }
+        return new DelayEventTypeSelection(selectedRaw, selectedNormalized, firstInvalid);
+    }
+
+    private record DelayEventTypeSelection(String rawValue, String normalizedValue, String invalidValue) {
     }
 
     private String expectedMainEventType(String intent, String phase) {

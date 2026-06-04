@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -62,6 +63,7 @@ public class AlertVerificationPromptBuilder {
         return String.join("\n\n",
                 alertInputSection(alert),
                 locationResolutionSection(alert),
+                nonLocationConstraintsSection(alert),
                 serviceDataCatalogSection(),
                 semanticInterpretationSection(defaultTemporalZone),
                 dslConstructionRulesSection(defaultTemporalZone),
@@ -142,18 +144,93 @@ public class AlertVerificationPromptBuilder {
         return """
                 Alert to verify:
                 - alertId: %s
+                - originalPrompt: %s
+
+                Metadata, not additional constraints:
                 - name: %s
                 - description: %s
-                - originalPrompt: %s
+
+                Use originalPrompt and backend-derived context as the authoritative sources of user intent.
+                Metadata can help identify the alert but must not introduce extra technical requirements.
+                Do not reject because metadata mentions technical expectations or because metadata names ServiceData fields.
                 """.formatted(
                 nullToEmpty(alert.alertId()),
+                nullToEmpty(alert.prompt()),
                 nullToEmpty(alert.name()),
-                nullToEmpty(alert.description()),
-                nullToEmpty(alert.prompt()));
+                nullToEmpty(alert.description()));
     }
 
     private String locationResolutionSection(AlertVerificationPromptData alert) {
         return alert.locationResolutionContext().compactPromptSection();
+    }
+
+    private String nonLocationConstraintsSection(AlertVerificationPromptData alert) {
+        StringBuilder section = new StringBuilder("Backend-derived non-location constraints:\n");
+        if (alert.locationResolutionContext().nonLocationConstraints().isEmpty()) {
+            section.append("- none\n");
+        } else {
+            for (AlertVerificationLocationContext.NonLocationConstraint constraint
+                    : alert.locationResolutionContext().nonLocationConstraints()) {
+                String displayRawText = nullToEmpty(constraint.rawText());
+                if ("DELAY_EVENT_TYPE".equalsIgnoreCase(constraint.type())) {
+                    String normalizedDelayEventType = AlertDelayEventTypeNormalizer.normalize(displayRawText);
+                    if (normalizedDelayEventType == null) {
+                        continue;
+                    }
+                    displayRawText = normalizedDelayEventType;
+                }
+                section.append("- ").append(nullToEmpty(constraint.type()))
+                        .append("=").append(displayRawText).append("\n");
+                if ("DELAY_THRESHOLD".equalsIgnoreCase(constraint.type())) {
+                    appendDelayThresholdBreakdown(section, constraint.rawText());
+                }
+            }
+        }
+        section.append("""
+
+                Rules:
+                - These backend-derived constraints are authoritative.
+                - They are already extracted from originalPrompt.
+                - Do not reject because originalPrompt does not mention ServiceData field names.
+                - The user is not expected to write payload.ongroundServiceEvent.eventsType, arrivalDelay.delay or departureDelay.delay.
+                - Natural language such as "ha piu di 15 minuti di ritardo" is enough to derive both event type and delay predicates when DELAY_EVENT_TYPE and DELAY_THRESHOLD are provided.
+                - Map these constraints to the ServiceData Capability Catalog.
+                - DELAY_EVENT_TYPE=BOTH plus DELAY_THRESHOLD means eventsType CONTAINS_ANY ["ARRIVAL_DELAY","DEPARTURE_DELAY"] and an OR over arrivalDelay.delay and departureDelay.delay with the threshold.
+                - DELAY_EVENT_TYPE=DEPARTURE_DELAY plus DELAY_THRESHOLD means eventsType CONTAINS DEPARTURE_DELAY and departureDelay.delay with the threshold.
+                - DELAY_EVENT_TYPE=ARRIVAL_DELAY plus DELAY_THRESHOLD means eventsType CONTAINS ARRIVAL_DELAY and arrivalDelay.delay with the threshold.
+                - DELAY_ROLE=PRIMARY_DELAY_EVENT means DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType.
+                - DELAY_ROLE=ACCESSORY_DELAY_PREDICATE means the delay is only an extra predicate; use EXPECTED_MAIN_EVENT_TYPE for payload.ongroundServiceEvent.eventsType and add the coherent delay predicate.
+                """);
+        return section.toString();
+    }
+
+    private void appendDelayThresholdBreakdown(StringBuilder section, String rawText) {
+        String operator = valueAfterKey(rawText, "operator");
+        String value = valueAfterKey(rawText, "value");
+        String unit = valueAfterKey(rawText, "unit");
+        if (operator != null) {
+            section.append("  operator: ").append(operator).append("\n");
+        }
+        if (value != null) {
+            section.append("  value: ").append(value).append("\n");
+        }
+        if (unit != null) {
+            section.append("  unit: ").append(unit).append("\n");
+        }
+    }
+
+    private String valueAfterKey(String rawText, String key) {
+        if (rawText == null || rawText.isBlank()) {
+            return null;
+        }
+        String prefix = key + "=";
+        for (String part : rawText.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                return trimmed.substring(prefix.length()).trim();
+            }
+        }
+        return null;
     }
 
     private String serviceDataCatalogSection() {
@@ -178,9 +255,13 @@ public class AlertVerificationPromptBuilder {
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - Delay direction has priority over event phase: "ritardo in arrivo", "ritardo di arrivo", "arrival delay" and "delay on arrival" map to arrivalDelay.delay and optional arrivalStatuses[].status CONTAINS ARRIVAL_DELAY. They do not create a location named "in arrivo" and do not by themselves require ARRIVING.
                 - Delay direction has priority over event phase: "ritardo in partenza", "ritardo di partenza" and "departure delay" map to departureDelay.delay and optional departureStatuses[].status CONTAINS DEPARTURE_DELAY. They do not create a location named "in partenza".
-                - If Location Understanding provides DELAY_EVENT_TYPE=DEPARTURE_DELAY or DELAY_EVENT_TYPE=ARRIVAL_DELAY, that value is authoritative for payload.ongroundServiceEvent.eventsType and wins over EXPECTED_MAIN_EVENT_TYPE.
-                - If Location Understanding provides DELAY_EVENT_TYPE=BOTH or GENERIC_DELAY, bind payload.ongroundServiceEvent.eventsType with operator CONTAINS_ANY and values ["ARRIVAL_DELAY","DEPARTURE_DELAY"].
+                - DELAY_EVENT_TYPE is authoritative only for delay-primary alerts. If backend-derived constraints include DELAY_ROLE=ACCESSORY_DELAY_PREDICATE, use EXPECTED_MAIN_EVENT_TYPE for payload.ongroundServiceEvent.eventsType and treat delay as an additional predicate.
+                - If Location Understanding provides DELAY_EVENT_TYPE=DEPARTURE_DELAY or DELAY_EVENT_TYPE=ARRIVAL_DELAY for a delay-primary alert, that value is authoritative for payload.ongroundServiceEvent.eventsType.
+                - If Location Understanding provides DELAY_EVENT_TYPE=BOTH or GENERIC_DELAY for a delay-primary alert, bind payload.ongroundServiceEvent.eventsType with operator CONTAINS_ANY and values ["ARRIVAL_DELAY","DEPARTURE_DELAY"].
                 - For generic delay with no arrival/departure direction, pair the generic delay event binding with an OR over arrivalDelay.delay and departureDelay.delay inside stopPointsJourneyDetails[].
+                - If the user specifies a numeric delay threshold, VERIFIED output must include the numeric delay predicate. The eventsType binding alone is never sufficient for threshold-based delay alerts.
+                - This is a mapping obligation for the verifier, not something the user must explicitly write as technical fields. Do not reject solely because the user did not specify arrivalDelay.delay/departureDelay.delay field names.
+                - Do not replace DEPARTING/ARRIVING/DEPARTED/ARRIVED with DEPARTURE_DELAY/ARRIVAL_DELAY when the user says "is departing from X with delay", "is arriving at X with delay", "e in partenza da X con ritardo" or "e in arrivo a X con ritardo".
                 - Use DEPARTURE_DELAY/ARRIVAL_DELAY only when the grammatical focus is the delay on departure/arrival. For "service in departure/arrival with delay", keep DEPARTING/ARRIVING and add the coherent delay predicate.
                 - Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a proper stop name mean passingType EQUALS DESTINATION inside stopPointsJourneyDetails[], plus coherent arrival event if requested.
@@ -386,6 +467,24 @@ public class AlertVerificationPromptBuilder {
     private String examplesSection(String defaultTemporalZone) {
         return """
                 Few-shot examples:
+
+                Positive example - generic delay threshold with no location:
+                Prompt: "Avvisami quando una corsa ha piu di N minuti di ritardo"
+                Backend-derived constraints:
+                - DELAY_EVENT_TYPE=BOTH
+                - DELAY_THRESHOLD=operator=GREATER_THAN;value=<threshold>;unit=SECONDS
+                Expected condition:
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS_ANY","values":["ARRIVAL_DELAY","DEPARTURE_DELAY"]},
+                    {"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"any":[
+                      {"field":"arrivalDelay.delay","operator":"GREATER_THAN","value":"<threshold>"},
+                      {"field":"departureDelay.delay","operator":"GREATER_THAN","value":"<threshold>"}
+                    ]}}}
+                  ]
+                }
+                Decision: VERIFIED
 
                 Positive example - weekend on origin departure:
                 Prompt: "Avvertimi quando una corsa che parte da Genova P.P il weekend"

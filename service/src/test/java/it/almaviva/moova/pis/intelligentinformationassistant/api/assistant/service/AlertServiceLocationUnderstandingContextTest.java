@@ -375,6 +375,112 @@ class AlertServiceLocationUnderstandingContextTest {
         assertThat(context.resolutions()).isEmpty();
         assertConstraint(context, "DELAY_EVENT_TYPE", "BOTH");
         assertConstraint(context, "DELAY_DIRECTION", "GENERIC");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
+    void addsDepartureDelayThresholdForDirectedDelayRequest() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha piu di 15 minuti di ritardo in partenza",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+
+        assertThat(context.resolutions()).isEmpty();
+        assertConstraint(context, "DELAY_EVENT_TYPE", "DEPARTURE_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "DEPARTURE");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
+    void keepsOperationalDepartureWithAccessoryDelayAsMainEvent() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in partenza da X con piu di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "X",
+                                "X",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_LOCATION,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.90)),
+                        List.of(),
+                        List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE"));
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_DIRECTION", "DEPARTURE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
+    void removesLlmDelayEventTypeWhenDelayIsAccessoryToCurrentDeparture() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in partenza da X con piu di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "X",
+                                "X",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_LOCATION,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.90)),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "DEPARTURE_DELAY")),
+                        List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE"));
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
+    void keepsOperationalArrivalWithAccessoryDelayAsMainEvent() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in arrivo a X con piu di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "X",
+                                "X",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_LOCATION,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.90)),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ARRIVAL_DELAY")),
+                        List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE"));
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_DIRECTION", "ARRIVAL");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
     }
 
     @Test
@@ -393,12 +499,98 @@ class AlertServiceLocationUnderstandingContextTest {
 
         assertThat(context.nonLocationConstraints())
                 .filteredOn(constraint -> "DELAY_EVENT_TYPE".equals(constraint.type()))
+                .hasSize(1)
                 .allSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("BOTH"));
         assertThat(context.nonLocationConstraints())
                 .noneSatisfy(constraint -> {
                     assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE");
                     assertThat(constraint.rawText()).isEqualTo("RITARDO");
                 });
+    }
+
+    @Test
+    void canonicalizesNaturalLanguageGenericDelayEventTypeFromLocationUnderstanding() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha più di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ha più di 15 minuti di ritardo")),
+                        List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .filteredOn(constraint -> "DELAY_EVENT_TYPE".equals(constraint.type()))
+                .hasSize(1)
+                .allSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("BOTH"));
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE");
+                    assertThat(constraint.rawText()).isEqualTo("ha più di 15 minuti di ritardo");
+                });
+    }
+
+    @Test
+    void canonicalizesDirectedNaturalLanguageDelayEventTypesFromLocationUnderstanding() {
+        AlertVerificationLocationContext departure = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha più di 15 minuti di ritardo in partenza",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ritardo in partenza")),
+                        List.of()));
+        AlertVerificationLocationContext arrival = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha almeno 12 minuti di ritardo in arrivo",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ritardo in arrivo")),
+                        List.of()));
+
+        assertThat(departure.nonLocationConstraints())
+                .filteredOn(constraint -> "DELAY_EVENT_TYPE".equals(constraint.type()))
+                .hasSize(1)
+                .allSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("DEPARTURE_DELAY"));
+        assertThat(arrival.nonLocationConstraints())
+                .filteredOn(constraint -> "DELAY_EVENT_TYPE".equals(constraint.type()))
+                .hasSize(1)
+                .allSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("ARRIVAL_DELAY"));
+    }
+
+    @Test
+    void removesAllLocationsScopeFromLocationCoverage() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha più di 10 minuti di ritardo in qualsiasi località",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "in qualsiasi località",
+                                "qualsiasi località",
+                                AlertLocationRole.GENERIC_LOCATION,
+                                AlertLocationRelation.UNKNOWN,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.70)),
+                        List.of(),
+                        List.of()));
+
+        assertThat(context.hasLocationMentions()).isFalse();
+        assertThat(context.resolutions()).isEmpty();
+        assertConstraint(context, "DELAY_EVENT_TYPE", "BOTH");
     }
 
     @Test

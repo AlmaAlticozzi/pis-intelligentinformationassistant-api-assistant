@@ -91,8 +91,52 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
-    void delayEventTypeWinsOverExpectedMainEventType() {
+    void eventPrimaryDelayNormalizesDepartureDelayBackToDeparting() {
         AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithEventAndDepartureDelay("DEPARTURE_DELAY")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTING");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTING");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void eventPrimaryDelayNormalizesArrivalDelayBackToArriving() {
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithEventAndArrivalDelay("ARRIVAL_DELAY")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("ARRIVING");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("ARRIVING");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void delayEventTypeWinsOverExpectedMainEventType() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
                 new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
                 new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
@@ -110,7 +154,7 @@ class AlertServiceMainEventNormalizationTest {
 
     @Test
     void normalizesArrivedToArrivalDelayWhenDelayEventTypeIsAuthoritative() {
-        AlertVerificationLocationContext context = locationContextWithConstraints(
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
                 new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"));
 
@@ -135,6 +179,50 @@ class AlertServiceMainEventNormalizationTest {
 
         assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTURE_DELAY");
         assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTURE_DELAY");
+    }
+
+    @Test
+    void insertsMissingDepartureDelayThresholdPredicateWhenThresholdIsStructured() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithOnlyEvent("DEPARTURE_DELAY"),
+                coverageFor(EVENT_FIELD));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(outcome, promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+        Map<String, Object> leaf = findLeaf(normalized.technicalSpecification(), "departureDelay.delay");
+        Map<String, Object> blueprintLeaf = findLeaf(normalized.agentBlueprintPreview(), "departureDelay.delay");
+
+        assertThat(leaf).containsEntry("operator", "GREATER_THAN").containsEntry("value", 900);
+        assertThat(blueprintLeaf).containsEntry("operator", "GREATER_THAN").containsEntry("value", 900);
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void insertsMissingGenericDelayThresholdPredicatesWhenThresholdIsStructured() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithGenericDelayEventOnly(),
+                coverageFor(EVENT_FIELD));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(outcome, promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.delay"))
+                .containsEntry("operator", "GREATER_THAN")
+                .containsEntry("value", 900);
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.delay"))
+                .containsEntry("operator", "GREATER_THAN")
+                .containsEntry("value", 900);
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
@@ -316,6 +404,22 @@ class AlertServiceMainEventNormalizationTest {
                         Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID)));
     }
 
+    private Map<String, Object> conditionWithOnlyEvent(String eventType) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "field", EVENT_FIELD,
+                "operator", "CONTAINS",
+                "value", eventType);
+    }
+
+    private Map<String, Object> conditionWithGenericDelayEventOnly() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "field", EVENT_FIELD,
+                "operator", "CONTAINS_ANY",
+                "values", List.of("ARRIVAL_DELAY", "DEPARTURE_DELAY"));
+    }
+
     private Map<String, Object> conditionWithoutEvent() {
         return Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
@@ -469,6 +573,14 @@ class AlertServiceMainEventNormalizationTest {
                 "mappable", true,
                 "mappedBy", List.of(field),
                 "reason", "");
+    }
+
+    private Map<String, Object> coverageFor(String... fields) {
+        return Map.of(
+                "requirements",
+                java.util.Arrays.stream(fields).map(this::coverageRequirement).toList(),
+                "allRequiredRequirementsMapped",
+                true);
     }
 
     @SuppressWarnings("unchecked")
