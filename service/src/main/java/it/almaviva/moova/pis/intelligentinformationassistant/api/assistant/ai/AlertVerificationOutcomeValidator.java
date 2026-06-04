@@ -63,6 +63,20 @@ public class AlertVerificationOutcomeValidator {
             "PLATFORM_NUMBER_MULTIPLE_OF");
     private static final Set<String> CURRENT_PLATFORM_EVENT_TYPES = Set.of(
             "DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED");
+    private static final Set<String> FUNCTIONAL_LOCATION_KEYWORDS = Set.of(
+            "in arrivo",
+            "in partenza",
+            "arrivo",
+            "partenza",
+            "destinazione",
+            "destino",
+            "origine",
+            "transito",
+            "arrival",
+            "departure",
+            "destination",
+            "origin",
+            "transit");
     private static final String PLATFORM_NUMERIC_EVENT_BINDING_REASON =
             "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
                     + "to bind the predicate to a current ServiceData event.";
@@ -265,6 +279,10 @@ public class AlertVerificationOutcomeValidator {
         if (context.failureReason != null) {
             return;
         }
+        validateContradictoryLocationPredicates(context);
+        if (context.failureReason != null) {
+            return;
+        }
         validatePlatformNumericEventBinding(context);
         if (context.failureReason != null) {
             return;
@@ -438,6 +456,10 @@ public class AlertVerificationOutcomeValidator {
             rejectPlatformTechnicalId(context, field, operator);
             return;
         }
+        if (isForbiddenFunctionalLocationFallback(field, leaf)) {
+            context.fail("Functional keyword must not be represented as a stop-point textual location fallback.");
+            return;
+        }
 
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(field)
                 .orElse(null);
@@ -564,6 +586,10 @@ public class AlertVerificationOutcomeValidator {
             rejectPlatformTechnicalId(context, absoluteField, operator);
             return;
         }
+        if (isForbiddenFunctionalLocationFallback(absoluteField, leaf)) {
+            context.fail("Functional keyword must not be represented as a stop-point textual location fallback.");
+            return;
+        }
         ServiceDataCapabilityCatalog.FieldCapability capability = ServiceDataCapabilityCatalog.findField(absoluteField)
                 .orElse(null);
         if (capability == null) {
@@ -609,6 +635,48 @@ public class AlertVerificationOutcomeValidator {
         return ServiceDataCapabilityCatalog.fields().stream()
                 .map(ServiceDataCapabilityCatalog.FieldCapability::field)
                 .anyMatch(field -> field.startsWith(prefix));
+    }
+
+    private boolean isForbiddenFunctionalLocationFallback(String field, Map<?, ?> leaf) {
+        if (!isStopPointNameField(field)) {
+            return false;
+        }
+        String operator = stringValue(leaf.get("operator"));
+        if (!Set.of("CONTAINS_NORMALIZED", "EQUALS_NORMALIZED", "NOT_CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED")
+                .contains(operator)) {
+            return false;
+        }
+        String normalizedValue = normalizeText(stringValue(leaf.get("value")));
+        return normalizedValue != null && FUNCTIONAL_LOCATION_KEYWORDS.contains(normalizedValue);
+    }
+
+    private boolean isStopPointNameField(String field) {
+        return field != null && (field.endsWith(".stopPoint.nameLong") || field.endsWith(".stopPoint.nameShort"));
+    }
+
+    private void validateContradictoryLocationPredicates(ValidationContext context) {
+        for (ConditionLeaf positive : context.conditionLeaves) {
+            if (!"EQUALS".equals(positive.operator()) || !isStopPointIdField(positive.field())) {
+                continue;
+            }
+            String positiveValue = stringValue(positive.value());
+            if (positiveValue == null) {
+                continue;
+            }
+            boolean contradicted = context.conditionLeaves.stream()
+                    .filter(negative -> negative != positive)
+                    .filter(negative -> positive.field().equals(negative.field()))
+                    .filter(negative -> "NOT_IN".equals(negative.operator()))
+                    .anyMatch(negative -> negative.values().contains(positiveValue));
+            if (contradicted) {
+                context.fail("Contradictory location predicates on the same field.");
+                return;
+            }
+        }
+    }
+
+    private boolean isStopPointIdField(String field) {
+        return field != null && (field.endsWith(".stopPoint.id") || field.endsWith(".stopPointId.id"));
     }
 
     private String resolveAnyElementPath(String rawArrayPath, String parentArrayPath) {
@@ -1300,21 +1368,38 @@ public class AlertVerificationOutcomeValidator {
             AlertVerificationLocationContext.LocationResolution location,
             List<String> selectedPointIds) {
         String role = location.semanticRole() == null ? "" : location.semanticRole().toUpperCase(Locale.ROOT);
-        if (!Set.of("MAIN_EVENT_LOCATION", "DEPARTURE_EVENT_STOP_POINT", "ARRIVAL_EVENT_STOP_POINT", "EVENT_STOP_POINT")
+        if (Set.of("MAIN_EVENT_LOCATION", "DEPARTURE_EVENT_STOP_POINT", "ARRIVAL_EVENT_STOP_POINT", "EVENT_STOP_POINT")
                 .contains(role)) {
-            return null;
+            boolean representedOnOriginOrDestination = contextLeavesWithMatchingLocationValue(context, location, selectedPointIds).stream()
+                    .map(ConditionLeaf::field)
+                    .anyMatch(field -> field.contains("timetabledCallStart.stopPoint.")
+                            || field.contains("callStart.stopPoint.")
+                            || field.contains("timetabledCallEnd.stopPoint.")
+                            || field.contains("callEnd.stopPoint."));
+            if (!representedOnOriginOrDestination) {
+                return null;
+            }
+            return "MAIN_EVENT_LOCATION '" + location.rawText()
+                    + "' was represented on origin/callStart fields instead of current/event stop fields.";
         }
-        boolean representedOnOriginOrDestination = contextLeavesWithMatchingLocationValue(context, location, selectedPointIds).stream()
+        boolean representedOnCurrentStop = contextLeavesWithMatchingLocationValue(context, location, selectedPointIds).stream()
                 .map(ConditionLeaf::field)
-                .anyMatch(field -> field.contains("timetabledCallStart.stopPoint.")
-                        || field.contains("callStart.stopPoint.")
-                        || field.contains("timetabledCallEnd.stopPoint.")
-                        || field.contains("callEnd.stopPoint."));
-        if (!representedOnOriginOrDestination) {
+                .anyMatch(field -> field.startsWith("payload.stopPointJourney.stopPoint.")
+                        || field.startsWith("payload.ongroundServiceEvent.stopPoint."));
+        if (!representedOnCurrentStop) {
             return null;
         }
-        return "MAIN_EVENT_LOCATION '" + location.rawText()
-                + "' was represented on origin/callStart fields instead of current/event stop fields.";
+        return switch (role) {
+            case "ORIGIN_LOCATION" -> "ORIGIN_LOCATION '" + location.rawText()
+                    + "' was represented on current/event stop fields instead of origin/callStart fields.";
+            case "DESTINATION_LOCATION" -> "DESTINATION_LOCATION '" + location.rawText()
+                    + "' was represented on current/event stop fields instead of destination/callEnd fields.";
+            case "ROUTE_OR_NEXT_CALL_LOCATION" -> "ROUTE_OR_NEXT_CALL_LOCATION '" + location.rawText()
+                    + "' was represented on current/event stop fields instead of nextCalls fields.";
+            case "TRANSIT_LOCATION" -> "TRANSIT_LOCATION '" + location.rawText()
+                    + "' was represented on current/event stop fields instead of nextTransitCalls fields.";
+            default -> null;
+        };
     }
 
     private List<ConditionLeaf> contextLeavesWithMatchingLocationValue(

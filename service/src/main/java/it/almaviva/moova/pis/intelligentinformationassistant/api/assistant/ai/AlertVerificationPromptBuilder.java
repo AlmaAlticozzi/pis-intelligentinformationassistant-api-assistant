@@ -176,6 +176,12 @@ public class AlertVerificationPromptBuilder {
                 - "arriva a Garibaldi sul binario 1" means location Garibaldi plus arrival platform 1. The platform boundary must not become part of the location.
                 - Arrival wording such as "arriva", "arrivo" or "in arrivo" selects arrival event/status and arrival platform fields.
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
+                - Delay direction has priority over event phase: "ritardo in arrivo", "ritardo di arrivo", "arrival delay" and "delay on arrival" map to arrivalDelay.delay and optional arrivalStatuses[].status CONTAINS ARRIVAL_DELAY. They do not create a location named "in arrivo" and do not by themselves require ARRIVING.
+                - Delay direction has priority over event phase: "ritardo in partenza", "ritardo di partenza" and "departure delay" map to departureDelay.delay and optional departureStatuses[].status CONTAINS DEPARTURE_DELAY. They do not create a location named "in partenza".
+                - Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
+                - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a proper stop name mean passingType EQUALS DESTINATION inside stopPointsJourneyDetails[], plus coherent arrival event if requested.
+                - "parte dall'origine" without a proper stop name means passingType EQUALS ORIGIN inside stopPointsJourneyDetails[], plus coherent departure event if requested.
+                - "passa in transito" without a proper stop name means passingType EQUALS TRANSIT, not a textual location named "transito".
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL, use arrival semantics: ARRIVED/ARRIVING events, arrival platform fields and arrivalDelay fields. Do not generate DEPARTING/DEPARTED or departure platform fields.
                 - If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=DEPARTURE, use departure semantics: DEPARTED/DEPARTING events, departure platform fields and departureDelay fields. Do not generate ARRIVING/ARRIVED or arrival platform fields.
                 - Authoritative main event constraints:
@@ -246,6 +252,7 @@ public class AlertVerificationPromptBuilder {
                 - Operators must be allowed for that exact field or relative field.
                 - Do not infer operators not listed in the catalog.
                 - Do not use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort unless that exact operator is listed in the catalog for that exact field.
+                - For a RESOLVED location with exactly one selected stopPoint id, use EQUALS with value. Use IN only when there are multiple selected ids.
                 - For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it. Lower confidence and add a warning.
                 - For DESTINATION_LOCATION with polarity=EXCLUDE and status=UNRESOLVED, prefer the single canonical fallback field timetabledCallEnd.stopPoint.nameLong with NOT_CONTAINS_NORMALIZED. Use callEnd.stopPoint.nameLong only when the user explicitly asks for actual/effective/real destination.
                 - Do not create any/OR branches across multiple negative textual fallback fields such as timetabledCallEnd/callEnd/nameLong/nameShort. A negative fallback must be one canonical field for this MVP.

@@ -41,6 +41,12 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Do not invent locations. Return only locations explicitly mentioned by the user.
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
+                - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
+                - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean arrival delay; "ritardo in partenza", "ritardo di partenza", "departure delay" mean departure delay.
+                - Do not infer MAIN_EVENT_PHASE from delay direction alone. "ritardo in arrivo" describes arrivalDelay, not necessarily a current ARRIVING event.
+                - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a named place are PASSING_TYPE constraints, not DESTINATION_LOCATION.
+                - "parte dall'origine", "parte da una localita di origine" without a named place are PASSING_TYPE ORIGIN constraints, not ORIGIN_LOCATION.
+                - "passa in transito" without a named place is PASSING_TYPE TRANSIT, not TRANSIT_LOCATION.
                 - Distinguish the main event location, journey origin, journey destination, route or next-call locations, transit locations, cancelled/suppressed call locations, replacement locations, and generic locations when the role is uncertain.
                 - A preposition such as Italian "da" or English "from" is not enough to classify a location as journey origin.
                 - MAIN_EVENT_LOCATION means the stop/location of the current operational event being monitored.
@@ -110,6 +116,7 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - VEHICLE_JOURNEY
                 - LINE
                 - DELAY
+                - PASSING_TYPE
                 - TEMPORAL
                 - UNKNOWN
 

@@ -76,6 +76,66 @@ class AlertServiceMainEventNormalizationTest {
         assertThat(validated.rejectedReason()).contains("DEPARTING");
     }
 
+    @Test
+    void insertsMissingEventsTypeWhenExpectedEventHasCoherentDeparturePredicate() {
+        AlertVerificationLocationContext context = locationContext("DEPARTURE", "PROGRESSIVE", "DEPARTING");
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithDepartureDelayWithoutEvent()),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTING");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTING");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void normalizesSingleValueInToEqualsRecursively() {
+        AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
+                outcomeWithCondition(conditionWithNestedSingleValueIn()),
+                "ALRT1");
+
+        Map<String, Object> leaf = findLeaf(normalized.technicalSpecification(), "stopPoint.id");
+        Map<String, Object> blueprintLeaf = findLeaf(normalized.agentBlueprintPreview(), "stopPoint.id");
+
+        assertThat(leaf).containsEntry("operator", "EQUALS").containsEntry("value", RHO_FIERAMILANO_ID);
+        assertThat(leaf).doesNotContainKey("values");
+        assertThat(blueprintLeaf).containsEntry("operator", "EQUALS").containsEntry("value", RHO_FIERAMILANO_ID);
+        assertThat(blueprintLeaf).doesNotContainKey("values");
+    }
+
+    @Test
+    void normalizesFalseRequirementCoverageWhenNoRequiredRequirementIsUnmappable() {
+        AlertVerificationOutcome normalized = service.normalizeRequirementCoverage(
+                outcomeWithConditionAndCoverage(
+                        conditionWithEvent("DEPARTING"),
+                        Map.of(
+                                "requirements", List.of(coverageRequirement(STOP_FIELD)),
+                                "allRequiredRequirementsMapped", false)),
+                "ALRT1");
+
+        assertThat(normalized.requirementCoverage()).containsEntry("allRequiredRequirementsMapped", true);
+    }
+
+    @Test
+    void keepsFalseRequirementCoverageWhenRequiredRequirementIsUnmappable() {
+        AlertVerificationOutcome normalized = service.normalizeRequirementCoverage(
+                outcomeWithConditionAndCoverage(
+                        conditionWithEvent("DEPARTING"),
+                        Map.of(
+                                "requirements", List.of(Map.of(
+                                        "text", "passenger count",
+                                        "required", true,
+                                        "mappable", false,
+                                        "mappedBy", List.of(),
+                                        "reason", "Unsupported capability")),
+                                "allRequiredRequirementsMapped", false)),
+                "ALRT1");
+
+        assertThat(normalized.requirementCoverage()).containsEntry("allRequiredRequirementsMapped", false);
+    }
+
     private AlertVerificationPromptData promptData(AlertVerificationLocationContext context) {
         return new AlertVerificationPromptData("ALRT1", "Alert", null, "Prompt", context);
     }
@@ -128,7 +188,36 @@ class AlertServiceMainEventNormalizationTest {
                 "all", List.of(Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID)));
     }
 
+    private Map<String, Object> conditionWithDepartureDelayWithoutEvent() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay",
+                                "operator", "GREATER_THAN",
+                                "value", 15)));
+    }
+
+    private Map<String, Object> conditionWithNestedSingleValueIn() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of("anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("anyElement", Map.of(
+                                "path", "nextCalls[]",
+                                "conditions", Map.of(
+                                        "field", "stopPoint.id",
+                                        "operator", "IN",
+                                        "values", List.of(RHO_FIERAMILANO_ID))))))));
+    }
+
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
+        return outcomeWithConditionAndCoverage(condition, coverageFor(condition));
+    }
+
+    private AlertVerificationOutcome outcomeWithConditionAndCoverage(
+            Map<String, Object> condition,
+            Map<String, Object> requirementCoverage) {
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.VERIFIED,
                 "The alert can be evaluated on realtime ServiceData events.",
@@ -164,7 +253,7 @@ class AlertServiceMainEventNormalizationTest {
                         "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
                         "stateRequirements", Map.of("requiresState", false),
                         "output", Map.of("type", "CANDIDATE_SUGGESTION")),
-                coverageFor(condition),
+                requirementCoverage,
                 List.of(),
                 List.of(
                         "No executable code generated.",
@@ -207,6 +296,31 @@ class AlertServiceMainEventNormalizationTest {
 
     private boolean hasEventCondition(Map<String, Object> technicalSpecification) {
         return eventValue(technicalSpecification) != null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> findLeaf(Object node, String fieldSuffix) {
+        if (node instanceof Map<?, ?> map) {
+            Object field = map.get("field");
+            if (field instanceof String fieldText && fieldText.endsWith(fieldSuffix)) {
+                return (Map<String, Object>) map;
+            }
+            for (Object value : map.values()) {
+                Map<String, Object> leaf = findLeaf(value, fieldSuffix);
+                if (leaf != null) {
+                    return leaf;
+                }
+            }
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                Map<String, Object> leaf = findLeaf(item, fieldSuffix);
+                if (leaf != null) {
+                    return leaf;
+                }
+            }
+        }
+        return null;
     }
 
     private boolean hasEventLeaf(Map<String, Object> condition) {

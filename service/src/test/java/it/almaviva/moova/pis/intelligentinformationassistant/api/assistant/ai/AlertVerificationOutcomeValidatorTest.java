@@ -32,6 +32,55 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsFunctionalKeywordAsStopPointTextFallback() {
+        String field = "payload.stopPointJourney.stopPoint.nameLong";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS_NORMALIZED",
+                        "value", "destinazione"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Functional keyword");
+    }
+
+    @Test
+    void rejectsContradictoryLocationPredicatesOnSameField() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", field, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("field", field, "operator", "NOT_IN", "values", List.of(RHO_FIERAMILANO_ID)))),
+                coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Contradictory location predicates");
+    }
+
+    @Test
+    void rejectsDestinationLocationRepresentedOnCurrentStopField() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "NOT_IN",
+                                "values", List.of(RHO_FIERAMILANO_ID)))),
+                        coverageFor(field)),
+                "Avvisami quando non ha destinazione X",
+                locationContext(resolved("X", "DESTINATION_LOCATION", "EXCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("DESTINATION_LOCATION").contains("current/event stop");
+    }
+
+    @Test
     void acceptsEqualsOnKnownOngroundStopPointId() {
         String field = "payload.ongroundServiceEvent.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
@@ -804,6 +853,36 @@ class AlertVerificationOutcomeValidatorTest {
                 "timezone", "Europe/Rome"));
 
         AlertVerificationOutcome validated = validator.validate(temporalOutcome(condition, condition));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsReplacementStopPointDepartureWeekdayScope() {
+        String replacementStopField = "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id";
+        String replacementDepartureTimeField = "payload.stopPointJourney.stopPointsJourneyDetails[].replacement.stopPointReplacements[].departureTime";
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("anyElement", Map.of(
+                                "path", "replacement.stopPointReplacements[]",
+                                "conditions", Map.of("all", List.of(
+                                        Map.of(
+                                                "field", "stopPointId.id",
+                                                "operator", "EQUALS",
+                                                "value", RHO_FIERAMILANO_ID),
+                                        Map.of(
+                                                "field", "departureTime",
+                                                "operator", "LOCAL_DAY_OF_WEEK_NOT_IN",
+                                                "value", Map.of(
+                                                        "days", List.of("SATURDAY", "SUNDAY"),
+                                                        "timezone", "Europe/Rome"))))))));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionCoverageAndBlueprint(
+                        condition,
+                        coverageFor(replacementStopField, replacementDepartureTimeField)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
@@ -1982,6 +2061,19 @@ class AlertVerificationOutcomeValidatorTest {
                         "No executable code generated.",
                         "No Agent Definition created.",
                         "No Suggestion created."));
+    }
+
+    private AlertVerificationOutcome outcomeWithConditionCoverageAndBlueprint(
+            Map<String, Object> condition,
+            Map<String, Object> requirementCoverage) {
+        AlertVerificationOutcome base = outcomeWithConditionAndCoverage(condition, requirementCoverage);
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(base.agentBlueprintPreview());
+        blueprint.put("parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition));
+        return new AlertVerificationOutcome(
+                base.decision(), base.summary(), base.rejectedReason(), base.confidence(), base.provider(), base.model(),
+                base.promptVersion(), base.requiredSources(), base.interpreterType(), base.inputModel(), base.outputModel(),
+                base.triggerType(), base.evaluationMode(), base.interpretedEventNames(), base.interpretedTargetTypes(),
+                base.technicalSpecification(), blueprint, base.requirementCoverage(), base.warnings(), base.safetyChecks());
     }
 
     private Map<String, Object> temporalDepartureCondition(Map<String, Object> temporalValue) {

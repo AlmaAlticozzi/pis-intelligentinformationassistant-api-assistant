@@ -506,6 +506,8 @@ public class AlertService {
     private AlertVerificationOutcome validateOutcomeWithLocationContext(
             AlertVerificationOutcome outcome,
             AlertVerificationPromptData enrichedPromptData) {
+        outcome = normalizeSingleValueInOperators(outcome, enrichedPromptData.alertId());
+        outcome = normalizeRequirementCoverage(outcome, enrichedPromptData.alertId());
         outcome = normalizeExpectedMainEventType(outcome, enrichedPromptData);
         AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
                 outcome,
@@ -537,20 +539,37 @@ public class AlertService {
         }
         Object technicalCondition = technicalSpecification.get("condition");
         MainEventNormalization normalization = normalizeMainEventLeaf(technicalCondition, expected);
+        boolean inserted = false;
+        if (!normalization.changed()
+                && !hasMainEventLeaf(technicalCondition)
+                && hasCoherentPredicateForExpectedEvent(technicalCondition, expected)) {
+            inserted = insertMainEventLeaf(technicalCondition, expected);
+            if (inserted) {
+                normalization = new MainEventNormalization(true, null, null, List.of());
+            }
+        }
         if (!normalization.changed()) {
             return outcome;
         }
-        normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
-        System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
-                + promptData.alertId()
-                + " expectedMainEventType=" + expected
-                + " originalOperator=" + normalization.originalOperator()
-                + " originalValue=" + normalization.originalValue()
-                + " originalValues=" + normalization.originalValues()
-                + " normalizedOperator=CONTAINS"
-                + " normalizedValue=" + expected
-                + " normalizedValues=[]"
-                + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
+        if (inserted) {
+            insertBlueprintMainEventLeaf(agentBlueprintPreview, expected);
+            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
+                    + promptData.alertId()
+                    + " expectedMainEventType=" + expected
+                    + " reason=missing-eventsType-inserted-from-expected-main-event-type");
+        } else {
+            normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
+            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
+                    + promptData.alertId()
+                    + " expectedMainEventType=" + expected
+                    + " originalOperator=" + normalization.originalOperator()
+                    + " originalValue=" + normalization.originalValue()
+                    + " originalValues=" + normalization.originalValues()
+                    + " normalizedOperator=CONTAINS"
+                    + " normalizedValue=" + expected
+                    + " normalizedValues=[]"
+                    + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
+        }
         return new AlertVerificationOutcome(
                 outcome.decision(),
                 outcome.summary(),
@@ -574,6 +593,47 @@ public class AlertService {
                 outcome.safetyChecks());
     }
 
+    AlertVerificationOutcome normalizeSingleValueInOperators(AlertVerificationOutcome outcome, String alertId) {
+        if (outcome == null || outcome.decision() != AlertVerificationDecision.VERIFIED) {
+            return outcome;
+        }
+        Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
+        Map<String, Object> agentBlueprintPreview = mutableMap(outcome.agentBlueprintPreview());
+        if (technicalSpecification == null) {
+            return outcome;
+        }
+        boolean changed = normalizeSingleValueInNode(technicalSpecification.get("condition"), alertId);
+        if (agentBlueprintPreview != null) {
+            Object parameters = agentBlueprintPreview.get("parameters");
+            if (parameters instanceof Map<?, ?> parametersMap) {
+                changed = normalizeSingleValueInNode(parametersMap.get("condition"), alertId) || changed;
+            }
+        }
+        if (!changed) {
+            return outcome;
+        }
+        return rebuildOutcome(outcome, technicalSpecification, agentBlueprintPreview, outcome.requirementCoverage());
+    }
+
+    AlertVerificationOutcome normalizeRequirementCoverage(AlertVerificationOutcome outcome, String alertId) {
+        if (outcome == null || outcome.decision() != AlertVerificationDecision.VERIFIED) {
+            return outcome;
+        }
+        Map<String, Object> coverage = mutableMap(outcome.requirementCoverage());
+        if (coverage == null || !Boolean.FALSE.equals(coverage.get("allRequiredRequirementsMapped"))) {
+            return outcome;
+        }
+        if (containsRequiredUnmappableRequirement(coverage)) {
+            return outcome;
+        }
+        coverage.put("allRequiredRequirementsMapped", true);
+        System.out.println("[IIA][ALERT_VERIFY][COVERAGE_NORMALIZATION] alertId=" + alertId
+                + " reason=backend-condition-and-location-coverage-valid"
+                + " originalAllRequiredRequirementsMapped=false"
+                + " normalizedAllRequiredRequirementsMapped=true");
+        return rebuildOutcome(outcome, outcome.technicalSpecification(), outcome.agentBlueprintPreview(), coverage);
+    }
+
     private void normalizeBlueprintMainEventLeaf(Map<String, Object> agentBlueprintPreview, String expected) {
         if (agentBlueprintPreview == null) {
             return;
@@ -582,6 +642,16 @@ public class AlertService {
         if (parameters instanceof Map<?, ?> parametersMap) {
             Object condition = parametersMap.get("condition");
             normalizeMainEventLeaf(condition, expected);
+        }
+    }
+
+    private void insertBlueprintMainEventLeaf(Map<String, Object> agentBlueprintPreview, String expected) {
+        if (agentBlueprintPreview == null) {
+            return;
+        }
+        Object parameters = agentBlueprintPreview.get("parameters");
+        if (parameters instanceof Map<?, ?> parametersMap) {
+            insertMainEventLeaf(parametersMap.get("condition"), expected);
         }
     }
 
@@ -619,6 +689,162 @@ public class AlertService {
             }
         }
         return MainEventNormalization.unchanged();
+    }
+
+    private boolean hasMainEventLeaf(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            if ("payload.ongroundServiceEvent.eventsType".equals(stringValue(map.get("field")))) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::hasMainEventLeaf);
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasMainEventLeaf(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean insertMainEventLeaf(Object node, String expected) {
+        if (!(node instanceof Map<?, ?> rawMap)) {
+            return false;
+        }
+        Map<String, Object> map = (Map<String, Object>) rawMap;
+        Map<String, Object> eventLeaf = new java.util.LinkedHashMap<>();
+        eventLeaf.put("field", "payload.ongroundServiceEvent.eventsType");
+        eventLeaf.put("operator", "CONTAINS");
+        eventLeaf.put("value", expected);
+        Object all = map.get("all");
+        if (all instanceof List<?> allList) {
+            List<Object> mutableAll = new ArrayList<>();
+            mutableAll.add(eventLeaf);
+            mutableAll.addAll(allList);
+            map.put("all", mutableAll);
+            return true;
+        }
+        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
+            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
+            map.clear();
+            map.put("type", "SERVICE_DATA_FIELD_MATCH");
+            map.put("all", new ArrayList<>(List.of(eventLeaf, original)));
+            return true;
+        }
+        return false;
+    }
+
+    private boolean hasCoherentPredicateForExpectedEvent(Object node, String expected) {
+        if (node instanceof Map<?, ?> map) {
+            String field = stringValue(map.get("field"));
+            if (field != null && coherentFieldForExpectedEvent(field, expected)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(value -> hasCoherentPredicateForExpectedEvent(value, expected));
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasCoherentPredicateForExpectedEvent(item, expected)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean coherentFieldForExpectedEvent(String field, String expected) {
+        if (isDepartureEvent(expected)) {
+            return field.contains("departureDelay.")
+                    || field.contains("DeparturePlatform")
+                    || field.contains("departureTime")
+                    || field.contains("timetabledCallStart.")
+                    || field.contains("callStart.")
+                    || field.endsWith(".passingType");
+        }
+        if (isArrivalEvent(expected)) {
+            return field.contains("arrivalDelay.")
+                    || field.contains("ArrivalPlatform")
+                    || field.contains("arrivalTime")
+                    || field.contains("timetabledCallEnd.")
+                    || field.contains("callEnd.")
+                    || field.endsWith(".passingType");
+        }
+        return false;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean normalizeSingleValueInNode(Object node, String alertId) {
+        boolean changed = false;
+        if (node instanceof Map<?, ?> rawMap) {
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            String operator = stringValue(map.get("operator"));
+            Object rawValues = map.get("values");
+            if ("IN".equals(operator) && rawValues instanceof List<?> values && values.size() == 1) {
+                Object singleValue = values.getFirst();
+                map.put("operator", "EQUALS");
+                map.put("value", singleValue);
+                map.remove("values");
+                System.out.println("[IIA][ALERT_VERIFY][CONDITION_NORMALIZATION] alertId=" + alertId
+                        + " reason=single-value-IN-to-EQUALS"
+                        + " field=" + stringValue(map.get("field"))
+                        + " originalValues=" + values
+                        + " normalizedValue=" + singleValue);
+                changed = true;
+            }
+            for (Object value : map.values()) {
+                changed = normalizeSingleValueInNode(value, alertId) || changed;
+            }
+        } else if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                changed = normalizeSingleValueInNode(item, alertId) || changed;
+            }
+        }
+        return changed;
+    }
+
+    private boolean containsRequiredUnmappableRequirement(Map<String, Object> coverage) {
+        Object requirements = coverage.get("requirements");
+        if (!(requirements instanceof List<?> list)) {
+            return false;
+        }
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> requirement
+                    && Boolean.TRUE.equals(requirement.get("required"))
+                    && Boolean.FALSE.equals(requirement.get("mappable"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private AlertVerificationOutcome rebuildOutcome(
+            AlertVerificationOutcome outcome,
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> agentBlueprintPreview,
+            Map<String, Object> requirementCoverage) {
+        return new AlertVerificationOutcome(
+                outcome.decision(),
+                outcome.summary(),
+                outcome.rejectedReason(),
+                outcome.confidence(),
+                outcome.provider(),
+                outcome.model(),
+                outcome.promptVersion(),
+                outcome.requiredSources(),
+                outcome.interpreterType(),
+                outcome.inputModel(),
+                outcome.outputModel(),
+                outcome.triggerType(),
+                outcome.evaluationMode(),
+                outcome.interpretedEventNames(),
+                outcome.interpretedTargetTypes(),
+                technicalSpecification,
+                agentBlueprintPreview,
+                requirementCoverage,
+                outcome.warnings(),
+                outcome.safetyChecks());
     }
 
     private boolean sameArrivalDepartureDomain(String expected, String actual) {
