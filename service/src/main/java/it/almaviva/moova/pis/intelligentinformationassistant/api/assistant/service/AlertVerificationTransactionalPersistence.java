@@ -6,10 +6,12 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Status;
 import jakarta.transaction.SystemException;
 import jakarta.transaction.TransactionManager;
@@ -24,6 +26,9 @@ public class AlertVerificationTransactionalPersistence {
     AlertRepository alertRepository;
 
     @Inject
+    EntityManager entityManager;
+
+    @Inject
     AiConfiguration aiConfiguration;
 
     @Inject
@@ -35,8 +40,21 @@ public class AlertVerificationTransactionalPersistence {
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertVerificationPromptData> doLoadAlertForVerification(String alertId) {
         logBoundary("doLoadAlertForVerification", alertId);
-        Optional<AlertVerificationPromptData> promptData = alertRepository.getAlertVerificationPromptData(alertId)
-                .map(this::detachedCopy);
+        logQueryBefore("doLoadAlertForVerification", alertId);
+        Optional<AlertVerificationPromptData> promptData = entityManager.createQuery("""
+                        select a
+                        from Alert a
+                        where a.codAlert = :alertId
+                        and a.dtDeletedat is null
+                        """, Alert.class)
+                .setParameter("alertId", alertId)
+                .getResultStream()
+                .findFirst()
+                .map(this::toDetachedPromptData);
+        System.out.println("[IIA][ALERT_VERIFY][TX_QUERY_AFTER]"
+                + " method=doLoadAlertForVerification"
+                + " alertId=" + alertId
+                + " dtoCreated=" + promptData.isPresent());
         logDone("doLoadAlertForVerification", alertId);
         return promptData;
     }
@@ -73,13 +91,12 @@ public class AlertVerificationTransactionalPersistence {
         return result;
     }
 
-    private AlertVerificationPromptData detachedCopy(AlertVerificationPromptData promptData) {
+    private AlertVerificationPromptData toDetachedPromptData(Alert alert) {
         return new AlertVerificationPromptData(
-                promptData.alertId(),
-                promptData.name(),
-                promptData.description(),
-                promptData.prompt(),
-                promptData.locationResolutionContext());
+                alert.getCodAlert(),
+                alert.getDscName(),
+                alert.getDscDescription(),
+                alert.getDscPrompt());
     }
 
     private void logBoundary(String method, String alertId) {
@@ -100,6 +117,17 @@ public class AlertVerificationTransactionalPersistence {
                 + " success=true");
     }
 
+    private void logQueryBefore(String method, String alertId) {
+        System.out.println("[IIA][ALERT_VERIFY][TX_QUERY_BEFORE]"
+                + " method=" + method
+                + " alertId=" + alertId
+                + " requestContextActive=" + requestContextActive()
+                + " transactionActive=" + transactionActive()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " tenant=" + safeTenant(currentTenantId())
+                + " thread=" + Thread.currentThread().getName());
+    }
+
     private String currentTenantId() {
         if (tenantContext == null) {
             return null;
@@ -112,7 +140,7 @@ public class AlertVerificationTransactionalPersistence {
         return tenantId == null || tenantId.isBlank() ? "<none>" : tenantId;
     }
 
-    private boolean requestContextActive() {
+    protected boolean requestContextActive() {
         try {
             return io.quarkus.arc.Arc.container().requestContext().isActive();
         } catch (RuntimeException ex) {

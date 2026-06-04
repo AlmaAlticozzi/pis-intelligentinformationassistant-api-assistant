@@ -141,7 +141,7 @@ public class AlertAsyncVerificationService {
 
     private void printStackTracePreview(Throwable throwable) {
         StackTraceElement[] stackTrace = throwable.getStackTrace();
-        int limit = Math.min(30, stackTrace.length);
+        int limit = Math.min(60, stackTrace.length);
         for (int index = 0; index < limit; index++) {
             System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] stack[" + index + "]=" + stackTrace[index]);
         }

@@ -3,9 +3,13 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import jakarta.enterprise.context.control.ActivateRequestContext;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import org.hibernate.HibernateException;
 import org.junit.jupiter.api.Test;
@@ -15,9 +19,11 @@ import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -256,6 +262,43 @@ class AlertAsyncVerificationServiceTest {
 
         verify(contextBoundary).persistTechnicalError("ALRT1", "provider timeout", "tenant-a");
         verify(tenantContext).clear();
+    }
+
+    @Test
+    void transactionalLoadBuildsDetachedDtoWithoutRepositoryPromptRead() {
+        EntityManager entityManager = mock(EntityManager.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<Alert> query = mock(TypedQuery.class);
+        AlertRepository repository = mock(AlertRepository.class);
+        TenantContext tenantContext = mock(TenantContext.class);
+        Alert alert = new Alert();
+        alert.setCodAlert("ALRT1");
+        alert.setDscName("name");
+        alert.setDscDescription("description");
+        alert.setDscPrompt("prompt");
+        when(entityManager.createQuery(anyString(), eq(Alert.class))).thenReturn(query);
+        when(query.setParameter("alertId", "ALRT1")).thenReturn(query);
+        when(query.getResultStream()).thenReturn(Stream.of(alert));
+        when(tenantContext.getTenantId()).thenReturn("tenant-a");
+        AlertVerificationTransactionalPersistence persistence = new AlertVerificationTransactionalPersistence() {
+            @Override
+            protected boolean requestContextActive() {
+                return true;
+            }
+        };
+        persistence.entityManager = entityManager;
+        persistence.alertRepository = repository;
+        persistence.tenantContext = tenantContext;
+
+        Optional<AlertVerificationPromptData> result = persistence.doLoadAlertForVerification("ALRT1");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().alertId()).isEqualTo("ALRT1");
+        assertThat(result.get().name()).isEqualTo("name");
+        assertThat(result.get().description()).isEqualTo("description");
+        assertThat(result.get().prompt()).isEqualTo("prompt");
+        assertThat(result.get().locationResolutionContext().resolutions()).isEmpty();
+        verify(repository, never()).getAlertVerificationPromptData(anyString());
     }
 
     @Test
