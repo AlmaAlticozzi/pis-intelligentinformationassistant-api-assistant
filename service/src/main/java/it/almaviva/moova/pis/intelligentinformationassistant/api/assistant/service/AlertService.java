@@ -14,6 +14,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertDelayEventTypeNormalizer;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
@@ -1008,7 +1009,8 @@ public class AlertService {
     private String authoritativeEventType(AlertVerificationLocationContext context) {
         String delayEventType = nonLocationConstraint(context, "DELAY_EVENT_TYPE");
         if (delayEventType != null) {
-            return delayEventType;
+            String normalized = AlertDelayEventTypeNormalizer.normalize(delayEventType);
+            return normalized == null ? delayEventType : normalized;
         }
         return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
     }
@@ -1541,9 +1543,7 @@ public class AlertService {
             String prompt) {
         List<AlertVerificationLocationContext.NonLocationConstraint> constraints = new ArrayList<>(
                 understanding.nonLocationConstraints().stream()
-                        .map(constraint -> new AlertVerificationLocationContext.NonLocationConstraint(
-                                constraint.type().name(),
-                                constraint.rawText()))
+                        .map(this::toPromptNonLocationConstraint)
                         .toList());
         if (understanding.mainEvent() != null && understanding.mainEvent().eventIntent() != null) {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
@@ -1573,6 +1573,25 @@ public class AlertService {
             }
         }
         return constraints;
+    }
+
+    private AlertVerificationLocationContext.NonLocationConstraint toPromptNonLocationConstraint(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingNonLocationConstraint constraint) {
+        String type = constraint.type().name();
+        String rawText = constraint.rawText();
+        if ("DELAY_EVENT_TYPE".equals(type)) {
+            String normalized = AlertDelayEventTypeNormalizer.normalize(rawText);
+            if (normalized != null) {
+                if (!normalized.equalsIgnoreCase(stringValue(rawText))) {
+                    System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                            + rawText
+                            + " normalizedValue=" + normalized
+                            + " reason=canonical-delay-event-type");
+                }
+                rawText = normalized;
+            }
+        }
+        return new AlertVerificationLocationContext.NonLocationConstraint(type, rawText);
     }
 
     private String delayEventType(String prompt) {

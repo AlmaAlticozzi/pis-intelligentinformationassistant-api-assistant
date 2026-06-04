@@ -53,6 +53,135 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void delayEventTypeDepartureOverridesProgressiveDepartureMainEventPhase() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("DEPARTURE_DELAY", "departureDelay.delay", "GREATER_THAN", 900),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void delayEventTypeArrivalOverridesProgressiveArrivalMainEventPhase() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("ARRIVAL_DELAY", "arrivalDelay.delay", "GREATER_OR_EQUAL", 12),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void genericDelayEventTypeOverridesMainEventPhase() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        genericDelayConditionWithEventsType(),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rawGenericDelayEventTypeIsCanonicalizedBeforeValidation() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "RITARDO"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        genericDelayConditionWithEventsType(),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void invalidDelayEventTypeIsRejectedBeforeUsingRawTextAsExpectedEvent() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "SOMETHING_ELSE"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        genericDelayConditionWithEventsType(),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Invalid delay event type").contains("SOMETHING_ELSE");
+    }
+
+    @Test
+    void progressiveDepartureStillRejectsCompletedEventWithoutDelayEventType() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        eventOnlyCondition("DEPARTED"),
+                        coverageFor("payload.ongroundServiceEvent.eventsType")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("DEPARTING");
+    }
+
+    @Test
+    void progressiveArrivalStillRejectsCompletedEventWithoutDelayEventType() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        eventOnlyCondition("ARRIVED"),
+                        coverageFor("payload.ongroundServiceEvent.eventsType")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("ARRIVING");
+    }
+
+    @Test
     void rejectsInventedCurrentEventsType() {
         String field = "payload.ongroundServiceEvent.eventsType";
 
@@ -2058,6 +2187,55 @@ class AlertVerificationOutcomeValidatorTest {
                                                 "value", 900)))));
     }
 
+    private Map<String, Object> delayCondition(String eventType, String delayField, String operator, int value) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", eventType),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", delayField,
+                                                "operator", operator,
+                                                "value", value)))));
+    }
+
+    private Map<String, Object> genericDelayConditionWithEventsType() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("ARRIVAL_DELAY", "DEPARTURE_DELAY")),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "any", List.of(
+                                                        Map.of(
+                                                                "field", "arrivalDelay.delay",
+                                                                "operator", "GREATER_THAN",
+                                                                "value", 900),
+                                                        Map.of(
+                                                                "field", "departureDelay.delay",
+                                                                "operator", "GREATER_THAN",
+                                                                "value", 900)))))));
+    }
+
+    private Map<String, Object> eventOnlyCondition(String eventType) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "payload.ongroundServiceEvent.eventsType",
+                        "operator", "CONTAINS",
+                        "value", eventType)));
+    }
+
     private Map<String, Object> coverageWithRequirement(
             String text,
             boolean required,
@@ -2111,6 +2289,11 @@ class AlertVerificationOutcomeValidatorTest {
             List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
             AlertVerificationLocationContext.LocationResolution... locations) {
         return new AlertVerificationLocationContext(true, List.of(locations), constraints, List.of());
+    }
+
+    private AlertVerificationLocationContext noLocationContextWithConstraints(
+            AlertVerificationLocationContext.NonLocationConstraint... constraints) {
+        return new AlertVerificationLocationContext(false, List.of(), List.of(constraints), List.of());
     }
 
     private AlertVerificationLocationContext.LocationResolution unresolved(String rawText, String role, String polarity) {

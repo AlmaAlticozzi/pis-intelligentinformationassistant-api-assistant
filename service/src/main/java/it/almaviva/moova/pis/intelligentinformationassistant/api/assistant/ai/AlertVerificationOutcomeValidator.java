@@ -1511,7 +1511,19 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private void validateMainEventPhase(ValidationContext context) {
-        String delayEventType = nonLocationConstraintValue(context, "DELAY_EVENT_TYPE");
+        String rawDelayEventType = nonLocationConstraintValue(context, "DELAY_EVENT_TYPE");
+        String delayEventType = AlertDelayEventTypeNormalizer.normalize(rawDelayEventType);
+        if (rawDelayEventType != null && delayEventType == null) {
+            context.fail("Invalid delay event type in context: " + rawDelayEventType
+                    + ". Expected ARRIVAL_DELAY, DEPARTURE_DELAY or BOTH.");
+            return;
+        }
+        if (rawDelayEventType != null && !rawDelayEventType.equals(delayEventType)) {
+            System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                    + rawDelayEventType
+                    + " normalizedValue=" + delayEventType
+                    + " reason=canonical-delay-event-type");
+        }
         if ("BOTH".equals(delayEventType) || "GENERIC_DELAY".equals(delayEventType)) {
             boolean represented = context.conditionLeaves.stream()
                     .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
@@ -1521,11 +1533,20 @@ public class AlertVerificationOutcomeValidator {
                 context.fail("Delay event semantic validation failed: generic delay requests require "
                         + "payload.ongroundServiceEvent.eventsType to contain ARRIVAL_DELAY and DEPARTURE_DELAY.");
             }
+            logDelayEventOverride(context, delayEventType);
             return;
         }
-        if (delayEventType != null && context.conditionLeaves.stream()
-                .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
-                .anyMatch(leaf -> eventLeafContains(leaf, delayEventType))) {
+        if (delayEventType != null) {
+            boolean represented = context.conditionLeaves.stream()
+                    .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                    .anyMatch(leaf -> eventLeafContains(leaf, delayEventType));
+            if (!represented && hasDelayPredicate(context)) {
+                context.fail("Delay event semantic validation failed: DELAY_EVENT_TYPE="
+                        + delayEventType
+                        + " requires payload.ongroundServiceEvent.eventsType to contain "
+                        + delayEventType + ".");
+            }
+            logDelayEventOverride(context, delayEventType);
             return;
         }
         String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
@@ -1546,6 +1567,32 @@ public class AlertVerificationOutcomeValidator {
                     + " require payload.ongroundServiceEvent.eventsType to contain "
                     + expectedEventType + ".");
         }
+    }
+
+    private void logDelayEventOverride(ValidationContext context, String delayEventType) {
+        String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
+        String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
+        String skippedExpectedMainEventType = intent == null || phase == null ? null : expectedMainEventType(intent, phase);
+        System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_SEMANTIC] "
+                + "reason=delay-event-type-overrides-main-event-phase"
+                + " delayEventType=" + delayEventType
+                + " skippedExpectedMainEventType=" + skippedExpectedMainEventType
+                + " actualEventsType=" + actualEventsTypeValues(context));
+    }
+
+    private List<String> actualEventsTypeValues(ValidationContext context) {
+        return context.conditionLeaves.stream()
+                .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                .flatMap(leaf -> {
+                    List<String> values = new ArrayList<>();
+                    String value = stringValue(leaf.value());
+                    if (value != null) {
+                        values.add(value);
+                    }
+                    values.addAll(leaf.values());
+                    return values.stream();
+                })
+                .toList();
     }
 
     private boolean hasDelayPredicate(ValidationContext context) {

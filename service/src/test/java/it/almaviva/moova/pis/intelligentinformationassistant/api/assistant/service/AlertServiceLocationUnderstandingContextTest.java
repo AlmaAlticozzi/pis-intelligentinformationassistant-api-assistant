@@ -378,6 +378,30 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void normalizesRawDelayEventTypeFromLocationUnderstanding() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha più di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ritardo")),
+                        List.of()));
+
+        assertThat(context.nonLocationConstraints())
+                .filteredOn(constraint -> "DELAY_EVENT_TYPE".equals(constraint.type()))
+                .allSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("BOTH"));
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE");
+                    assertThat(constraint.rawText()).isEqualTo("RITARDO");
+                });
+    }
+
+    @Test
     void fallsBackToLegacyExtractorWhenUnderstandingThrows() {
         AlertLocationUnderstandingService understandingService = mock(AlertLocationUnderstandingService.class);
         when(understandingService.understandLocations(any(), any())).thenThrow(new RuntimeException("boom"));
