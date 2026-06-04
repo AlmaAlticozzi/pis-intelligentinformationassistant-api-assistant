@@ -528,8 +528,8 @@ public class AlertService {
                 || promptData.locationResolutionContext() == null) {
             return outcome;
         }
-        String expected = nonLocationConstraint(promptData.locationResolutionContext(), "EXPECTED_MAIN_EVENT_TYPE");
-        if (expected == null || !isCurrentArrivalDepartureEvent(expected)) {
+        String expected = authoritativeEventType(promptData.locationResolutionContext());
+        if (expected == null || !isSupportedAuthoritativeEvent(expected)) {
             return outcome;
         }
         Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
@@ -602,11 +602,11 @@ public class AlertService {
         if (technicalSpecification == null) {
             return outcome;
         }
-        boolean changed = normalizeSingleValueInNode(technicalSpecification.get("condition"), alertId);
+        boolean changed = normalizeConditionNode(technicalSpecification.get("condition"), alertId, null, true);
         if (agentBlueprintPreview != null) {
             Object parameters = agentBlueprintPreview.get("parameters");
             if (parameters instanceof Map<?, ?> parametersMap) {
-                changed = normalizeSingleValueInNode(parametersMap.get("condition"), alertId) || changed;
+                changed = normalizeConditionNode(parametersMap.get("condition"), alertId, null, true) || changed;
             }
         }
         if (!changed) {
@@ -623,7 +623,7 @@ public class AlertService {
         if (coverage == null || !Boolean.FALSE.equals(coverage.get("allRequiredRequirementsMapped"))) {
             return outcome;
         }
-        if (containsRequiredUnmappableRequirement(coverage)) {
+        if (containsRequiredUnmappableRequirement(coverage, outcome.technicalSpecification())) {
             return outcome;
         }
         coverage.put("allRequiredRequirementsMapped", true);
@@ -755,6 +755,12 @@ public class AlertService {
     }
 
     private boolean coherentFieldForExpectedEvent(String field, String expected) {
+        if (isDepartureDelayEvent(expected)) {
+            return field.contains("departureDelay.");
+        }
+        if (isArrivalDelayEvent(expected)) {
+            return field.contains("arrivalDelay.");
+        }
         if (isDepartureEvent(expected)) {
             return field.contains("departureDelay.")
                     || field.contains("DeparturePlatform")
@@ -775,10 +781,15 @@ public class AlertService {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean normalizeSingleValueInNode(Object node, String alertId) {
+    private boolean normalizeConditionNode(Object node, String alertId, String currentArrayPath, boolean rootCondition) {
         boolean changed = false;
         if (node instanceof Map<?, ?> rawMap) {
             Map<String, Object> map = (Map<String, Object>) rawMap;
+            if (!rootCondition && map.remove("type") != null) {
+                System.out.println("[IIA][ALERT_VERIFY][CONDITION_NORMALIZATION] alertId=" + alertId
+                        + " reason=remove-nested-condition-type");
+                changed = true;
+            }
             String operator = stringValue(map.get("operator"));
             Object rawValues = map.get("values");
             if ("IN".equals(operator) && rawValues instanceof List<?> values && values.size() == 1) {
@@ -793,30 +804,91 @@ public class AlertService {
                         + " normalizedValue=" + singleValue);
                 changed = true;
             }
+            String nextArrayPath = currentArrayPath;
+            Object anyElement = map.get("anyElement");
+            if (anyElement instanceof Map<?, ?> anyElementMap) {
+                nextArrayPath = resolveConditionPath(currentArrayPath, stringValue(anyElementMap.get("path")));
+            }
             for (Object value : map.values()) {
-                changed = normalizeSingleValueInNode(value, alertId) || changed;
+                changed = normalizeConditionNode(value, alertId, nextArrayPath, false) || changed;
             }
         } else if (node instanceof Iterable<?> iterable) {
+            if (node instanceof List<?> rawList) {
+                List<Object> list = (List<Object>) rawList;
+                for (int i = list.size() - 1; i >= 0; i--) {
+                    Object item = list.get(i);
+                    if (isRedundantTransitPassingType(item, currentArrayPath)) {
+                        list.remove(i);
+                        System.out.println("[IIA][ALERT_VERIFY][CONDITION_NORMALIZATION] alertId=" + alertId
+                                + " reason=remove-redundant-passingType-inside-nextTransitCalls"
+                                + " path=" + currentArrayPath);
+                        changed = true;
+                    }
+                }
+            }
             for (Object item : iterable) {
-                changed = normalizeSingleValueInNode(item, alertId) || changed;
+                changed = normalizeConditionNode(item, alertId, currentArrayPath, false) || changed;
             }
         }
         return changed;
     }
 
-    private boolean containsRequiredUnmappableRequirement(Map<String, Object> coverage) {
+    private String resolveConditionPath(String parentArrayPath, String rawPath) {
+        if (rawPath == null) {
+            return parentArrayPath;
+        }
+        if (rawPath.startsWith("payload.")) {
+            return rawPath;
+        }
+        if (parentArrayPath == null || parentArrayPath.isBlank()) {
+            return rawPath;
+        }
+        return parentArrayPath + "." + rawPath;
+    }
+
+    private boolean isRedundantTransitPassingType(Object item, String currentArrayPath) {
+        if (!(item instanceof Map<?, ?> map)
+                || currentArrayPath == null
+                || !currentArrayPath.endsWith("nextTransitCalls[]")) {
+            return false;
+        }
+        return "passingType".equals(stringValue(map.get("field")))
+                && "EQUALS".equals(stringValue(map.get("operator")))
+                && "TRANSIT".equals(stringValue(map.get("value")));
+    }
+
+    private boolean containsRequiredUnmappableRequirement(
+            Map<String, Object> coverage,
+            Map<String, Object> technicalSpecification) {
         Object requirements = coverage.get("requirements");
         if (!(requirements instanceof List<?> list)) {
             return false;
         }
+        boolean hasRouteOrTransitCondition = hasRouteOrTransitCondition(
+                technicalSpecification == null ? null : technicalSpecification.get("condition"));
         for (Object item : list) {
             if (item instanceof Map<?, ?> requirement
                     && Boolean.TRUE.equals(requirement.get("required"))
                     && Boolean.FALSE.equals(requirement.get("mappable"))) {
+                if (hasRouteOrTransitCondition && isSpuriousRouteTransitRequirement(requirement)) {
+                    continue;
+                }
                 return true;
             }
         }
         return false;
+    }
+
+    private boolean isSpuriousRouteTransitRequirement(Map<?, ?> requirement) {
+        String text = normalizeText(stringValue(requirement.get("text")));
+        String reason = normalizeText(stringValue(requirement.get("reason")));
+        return containsRouteTransitMarker(text) || containsRouteTransitMarker(reason);
+    }
+
+    private boolean containsRouteTransitMarker(String value) {
+        return value != null && (value.contains("main_event_intent")
+                || value.contains("route_transit")
+                || value.contains("route transit"));
     }
 
     private AlertVerificationOutcome rebuildOutcome(
@@ -849,11 +921,22 @@ public class AlertService {
 
     private boolean sameArrivalDepartureDomain(String expected, String actual) {
         return (isDepartureEvent(expected) && isDepartureEvent(actual))
-                || (isArrivalEvent(expected) && isArrivalEvent(actual));
+                || (isArrivalEvent(expected) && isArrivalEvent(actual))
+                || (isDepartureDelayEvent(expected) && isDepartureEvent(actual))
+                || (isArrivalDelayEvent(expected) && isArrivalEvent(actual));
     }
 
-    private boolean isCurrentArrivalDepartureEvent(String value) {
-        return isDepartureEvent(value) || isArrivalEvent(value);
+    private String authoritativeEventType(AlertVerificationLocationContext context) {
+        String delayEventType = nonLocationConstraint(context, "DELAY_EVENT_TYPE");
+        if (delayEventType != null) {
+            return delayEventType;
+        }
+        return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
+    }
+
+    private boolean isSupportedAuthoritativeEvent(String value) {
+        return isDepartureEvent(value) || isArrivalEvent(value)
+                || isDepartureDelayEvent(value) || isArrivalDelayEvent(value);
     }
 
     private boolean isDepartureEvent(String value) {
@@ -862,6 +945,61 @@ public class AlertService {
 
     private boolean isArrivalEvent(String value) {
         return "ARRIVING".equals(value) || "ARRIVED".equals(value);
+    }
+
+    private boolean isDepartureDelayEvent(String value) {
+        return "DEPARTURE_DELAY".equals(value);
+    }
+
+    private boolean isArrivalDelayEvent(String value) {
+        return "ARRIVAL_DELAY".equals(value);
+    }
+
+    private boolean hasRouteOrTransitCondition(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            String field = stringValue(map.get("field"));
+            if (field != null && (field.contains("nextCalls[].stopPoint.")
+                    || field.contains("nextTransitCalls[].stopPoint."))) {
+                return true;
+            }
+            Object path = null;
+            Object anyElement = map.get("anyElement");
+            if (anyElement instanceof Map<?, ?> anyMap) {
+                path = anyMap.get("path");
+            }
+            if (path != null && stringValue(path) != null
+                    && (stringValue(path).contains("nextCalls[]") || stringValue(path).contains("nextTransitCalls[]"))
+                    && map.values().stream().anyMatch(this::hasStopPointCondition)) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::hasRouteOrTransitCondition);
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasRouteOrTransitCondition(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasStopPointCondition(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            String field = stringValue(map.get("field"));
+            if (field != null && field.contains("stopPoint.")) {
+                return true;
+            }
+            return map.values().stream().anyMatch(this::hasStopPointCondition);
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasStopPointCondition(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String nonLocationConstraint(AlertVerificationLocationContext context, String type) {
@@ -1251,6 +1389,15 @@ public class AlertService {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_INTENT",
                     understanding.mainEvent().eventIntent().name()));
+            String delayEventType = delayEventType(prompt);
+            if (delayEventType != null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_EVENT_TYPE",
+                        delayEventType));
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_DIRECTION",
+                        delayEventType.startsWith("DEPARTURE") ? "DEPARTURE" : "ARRIVAL"));
+            }
             AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
                     ? new AlertEventWordingClassifier()
                     : alertEventWordingClassifier;
@@ -1266,6 +1413,39 @@ public class AlertService {
             }
         }
         return constraints;
+    }
+
+    private String delayEventType(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null || !normalized.contains("ritardo") && !normalized.contains("delay")) {
+            return null;
+        }
+        if (containsAny(normalized,
+                "ritardo in partenza",
+                "ritardo alla partenza",
+                "ritardo di partenza",
+                "departure delay",
+                "delay on departure")) {
+            return "DEPARTURE_DELAY";
+        }
+        if (containsAny(normalized,
+                "ritardo in arrivo",
+                "ritardo all arrivo",
+                "ritardo di arrivo",
+                "arrival delay",
+                "delay on arrival")) {
+            return "ARRIVAL_DELAY";
+        }
+        return null;
+    }
+
+    private boolean containsAny(String value, String... tokens) {
+        for (String token : tokens) {
+            if (value.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String resolutionText(AlertLocationUnderstandingLocation location) {

@@ -178,6 +178,8 @@ public class AlertVerificationPromptBuilder {
                 - Departure wording such as "parte", "partenza" or "in partenza" selects departure event/status and departure platform fields.
                 - Delay direction has priority over event phase: "ritardo in arrivo", "ritardo di arrivo", "arrival delay" and "delay on arrival" map to arrivalDelay.delay and optional arrivalStatuses[].status CONTAINS ARRIVAL_DELAY. They do not create a location named "in arrivo" and do not by themselves require ARRIVING.
                 - Delay direction has priority over event phase: "ritardo in partenza", "ritardo di partenza" and "departure delay" map to departureDelay.delay and optional departureStatuses[].status CONTAINS DEPARTURE_DELAY. They do not create a location named "in partenza".
+                - If Location Understanding provides DELAY_EVENT_TYPE=DEPARTURE_DELAY or DELAY_EVENT_TYPE=ARRIVAL_DELAY, that value is authoritative for payload.ongroundServiceEvent.eventsType and wins over EXPECTED_MAIN_EVENT_TYPE.
+                - Use DEPARTURE_DELAY/ARRIVAL_DELAY only when the grammatical focus is the delay on departure/arrival. For "service in departure/arrival with delay", keep DEPARTING/ARRIVING and add the coherent delay predicate.
                 - Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a proper stop name mean passingType EQUALS DESTINATION inside stopPointsJourneyDetails[], plus coherent arrival event if requested.
                 - "parte dall'origine" without a proper stop name means passingType EQUALS ORIGIN inside stopPointsJourneyDetails[], plus coherent departure event if requested.
@@ -248,6 +250,7 @@ public class AlertVerificationPromptBuilder {
                 DSL construction rules:
                 - Use technicalSpecification.condition.type = SERVICE_DATA_FIELD_MATCH for catalog-driven matches.
                 - Conditions can contain "all" for AND, "any" for OR, anyElement for arrays, or leaf checks with field/operator/value or field/operator/values.
+                - The "type" property belongs only on the root technicalSpecification.condition. Never put "type" inside condition.all[], condition.any[] or anyElement.conditions.
                 - Use only fields/operators from ServiceDataCapabilityCatalog.compactPromptCatalog().
                 - Operators must be allowed for that exact field or relative field.
                 - Do not infer operators not listed in the catalog.
@@ -326,6 +329,10 @@ public class AlertVerificationPromptBuilder {
                 - Do not use departureStatuses[].status or arrivalStatuses[].status as the principal signal for a current platform change or movement prompt.
                 - A top-level current stop location and a platform constraint inside stopPointsJourneyDetails[] do not need to be inside the same anyElement.
                 - For a future stop described within the received journey payload, use anyElement on nextCalls[] or nextTransitCalls[] as appropriate.
+                - Route-only prompts such as "will pass through X", "will pass through X and then Y", "via X" or "passera da X" are fully mappable on nextCalls[]/nextTransitCalls[] and do not require payload.ongroundServiceEvent.eventsType.
+                - If the LocationContext has no MAIN_EVENT_LOCATION, do not invent payload.stopPointJourney.stopPoint.* or payload.ongroundServiceEvent.stopPoint.* conditions for route/transit locations.
+                - TRANSIT_LOCATION preferred mapping is nextTransitCalls[].stopPoint.*. Do not add passingType inside nextTransitCalls[]; that array already means transit.
+                - Alternative TRANSIT_LOCATION mapping is nextCalls[].stopPoint.* plus nextCalls[].passingType EQUALS TRANSIT when the catalog allows it.
                 - When correlating fields of payload.stopPointJourney.stopPointsJourneyDetails[] with child arrays, use nested anyElement.
                 - Outer path must be payload.stopPointJourney.stopPointsJourneyDetails[].
                 - Inner path must be relative, for example nextTransitCalls[], nextCalls[] or replacement.stopPointReplacements[].

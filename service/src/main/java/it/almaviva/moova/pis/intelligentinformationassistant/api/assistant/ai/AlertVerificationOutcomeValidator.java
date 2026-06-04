@@ -1217,13 +1217,17 @@ public class AlertVerificationOutcomeValidator {
             System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][MATCH] rawText=" + location.rawText()
                     + " candidateLeaves=" + candidateLeaves);
             ConditionLeaf match = matchingLocationLeaf(location, selectedPointIds, candidateLeaves);
+            String incompatibleReason = incompatibleLocationRepresentationReason(context, location, selectedPointIds);
             if (match == null) {
-                String incompatibleReason = incompatibleLocationRepresentationReason(context, location, selectedPointIds);
                 rejectLocationCoverage(context, location, incompatibleReason == null
                         ? "required location '" + location.rawText() + "' with role " + location.semanticRole()
                         + " and polarity " + normalizedPolarity(location)
                         + " is not represented by a compatible ServiceData condition."
                         : incompatibleReason);
+                return;
+            }
+            if (incompatibleReason != null && isRouteOrTransitRole(location.semanticRole())) {
+                rejectLocationCoverage(context, location, incompatibleReason);
                 return;
             }
             if (isUnresolvedExclude(location) && match.underAnyGroup()) {
@@ -1389,6 +1393,9 @@ public class AlertVerificationOutcomeValidator {
         if (!representedOnCurrentStop) {
             return null;
         }
+        if (hasMainEventLocationWithSameValue(context, location, selectedPointIds)) {
+            return null;
+        }
         return switch (role) {
             case "ORIGIN_LOCATION" -> "ORIGIN_LOCATION '" + location.rawText()
                     + "' was represented on current/event stop fields instead of origin/callStart fields.";
@@ -1400,6 +1407,39 @@ public class AlertVerificationOutcomeValidator {
                     + "' was represented on current/event stop fields instead of nextTransitCalls fields.";
             default -> null;
         };
+    }
+
+    private boolean isRouteOrTransitRole(String role) {
+        if (role == null) {
+            return false;
+        }
+        String normalizedRole = role.toUpperCase(Locale.ROOT);
+        return "ROUTE_OR_NEXT_CALL_LOCATION".equals(normalizedRole) || "TRANSIT_LOCATION".equals(normalizedRole);
+    }
+
+    private boolean hasMainEventLocationWithSameValue(
+            ValidationContext context,
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds) {
+        return context.locationContext != null && context.locationContext.resolutions().stream()
+                .filter(candidate -> candidate != location)
+                .filter(candidate -> Set.of("MAIN_EVENT_LOCATION", "DEPARTURE_EVENT_STOP_POINT", "ARRIVAL_EVENT_STOP_POINT", "EVENT_STOP_POINT")
+                        .contains((candidate.semanticRole() == null ? "" : candidate.semanticRole().toUpperCase(Locale.ROOT))))
+                .anyMatch(candidate -> sharesLocationValue(candidate, location, selectedPointIds));
+    }
+
+    private boolean sharesLocationValue(
+            AlertVerificationLocationContext.LocationResolution candidate,
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds) {
+        List<String> candidateIds = selectedPointIds(candidate);
+        if (!selectedPointIds.isEmpty() && !candidateIds.isEmpty()
+                && candidateIds.stream().anyMatch(selectedPointIds::contains)) {
+            return true;
+        }
+        String candidateText = normalizeText(candidate.rawText());
+        String locationText = normalizeText(location.rawText());
+        return candidateText != null && candidateText.equals(locationText);
     }
 
     private List<ConditionLeaf> contextLeavesWithMatchingLocationValue(

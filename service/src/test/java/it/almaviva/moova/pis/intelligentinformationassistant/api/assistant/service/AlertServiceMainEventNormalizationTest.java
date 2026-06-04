@@ -91,6 +91,35 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
+    void delayEventTypeWinsOverExpectedMainEventType() {
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithEventAndDepartureDelay("DEPARTING")),
+                promptData(context));
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTURE_DELAY");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTURE_DELAY");
+    }
+
+    @Test
+    void insertsDelayEventTypeWhenDelayPredicateHasNoEventsType() {
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithDepartureDelayWithoutEvent()),
+                promptData(context));
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTURE_DELAY");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTURE_DELAY");
+    }
+
+    @Test
     void normalizesSingleValueInToEqualsRecursively() {
         AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
                 outcomeWithCondition(conditionWithNestedSingleValueIn()),
@@ -103,6 +132,18 @@ class AlertServiceMainEventNormalizationTest {
         assertThat(leaf).doesNotContainKey("values");
         assertThat(blueprintLeaf).containsEntry("operator", "EQUALS").containsEntry("value", RHO_FIERAMILANO_ID);
         assertThat(blueprintLeaf).doesNotContainKey("values");
+    }
+
+    @Test
+    void removesRedundantPassingTypeInsideNextTransitCallsAndNestedConditionType() {
+        AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
+                outcomeWithCondition(conditionWithNestedTransitPassingTypeAndNestedType()),
+                "ALRT1");
+
+        assertThat(findLeaf(normalized.technicalSpecification(), "passingType")).isNull();
+        assertThat(hasNestedConditionType(conditionFromTechnicalSpecification(normalized.technicalSpecification()))).isFalse();
+        assertThat(findLeaf(normalized.agentBlueprintPreview(), "passingType")).isNull();
+        assertThat(hasNestedConditionType(conditionFromBlueprint(normalized.agentBlueprintPreview()))).isFalse();
     }
 
     @Test
@@ -136,11 +177,37 @@ class AlertServiceMainEventNormalizationTest {
         assertThat(normalized.requirementCoverage()).containsEntry("allRequiredRequirementsMapped", false);
     }
 
+    @Test
+    void normalizesSpuriousRouteTransitRequirementWhenRouteConditionIsMapped() {
+        AlertVerificationOutcome normalized = service.normalizeRequirementCoverage(
+                outcomeWithConditionAndCoverage(
+                        conditionWithNestedSingleValueIn(),
+                        Map.of(
+                                "requirements", List.of(Map.of(
+                                        "text", "MAIN_EVENT_INTENT ROUTE_TRANSIT",
+                                        "required", true,
+                                        "mappable", false,
+                                        "mappedBy", List.of(),
+                                        "reason", "ROUTE_TRANSIT is not a ServiceData event type")),
+                                "allRequiredRequirementsMapped", false)),
+                "ALRT1");
+
+        assertThat(normalized.requirementCoverage()).containsEntry("allRequiredRequirementsMapped", true);
+    }
+
     private AlertVerificationPromptData promptData(AlertVerificationLocationContext context) {
         return new AlertVerificationPromptData("ALRT1", "Alert", null, "Prompt", context);
     }
 
     private AlertVerificationLocationContext locationContext(String intent, String phase, String expectedEventType) {
+        return locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", intent),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", phase),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", expectedEventType));
+    }
+
+    private AlertVerificationLocationContext locationContextWithConstraints(
+            AlertVerificationLocationContext.NonLocationConstraint... constraints) {
         return new AlertVerificationLocationContext(
                 true,
                 List.of(new AlertVerificationLocationContext.LocationResolution(
@@ -167,10 +234,7 @@ class AlertServiceMainEventNormalizationTest {
                         0.0,
                         "",
                         List.of(STOP_FIELD))),
-                List.of(
-                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", intent),
-                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", phase),
-                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", expectedEventType)),
+                List.of(constraints),
                 List.of());
     }
 
@@ -198,6 +262,16 @@ class AlertServiceMainEventNormalizationTest {
                                 "value", 15)));
     }
 
+    private Map<String, Object> conditionWithEventAndDepartureDelay(String eventType) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", EVENT_FIELD, "operator", "CONTAINS", "value", eventType),
+                        Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay",
+                                "operator", "GREATER_THAN",
+                                "value", 15)));
+    }
+
     private Map<String, Object> conditionWithNestedSingleValueIn() {
         return Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
@@ -209,6 +283,26 @@ class AlertServiceMainEventNormalizationTest {
                                         "field", "stopPoint.id",
                                         "operator", "IN",
                                         "values", List.of(RHO_FIERAMILANO_ID))))))));
+    }
+
+    private Map<String, Object> conditionWithNestedTransitPassingTypeAndNestedType() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of("anyElement", Map.of(
+                                        "path", "nextTransitCalls[]",
+                                        "conditions", Map.of("all", List.of(
+                                                Map.of(
+                                                        "field", "stopPoint.id",
+                                                        "operator", "EQUALS",
+                                                        "value", RHO_FIERAMILANO_ID),
+                                                Map.of(
+                                                        "field", "passingType",
+                                                        "operator", "EQUALS",
+                                                        "value", "TRANSIT")))))))));
     }
 
     private AlertVerificationOutcome outcomeWithCondition(Map<String, Object> condition) {
@@ -296,6 +390,41 @@ class AlertServiceMainEventNormalizationTest {
 
     private boolean hasEventCondition(Map<String, Object> technicalSpecification) {
         return eventValue(technicalSpecification) != null;
+    }
+
+    private Object conditionFromTechnicalSpecification(Map<String, Object> technicalSpecification) {
+        return technicalSpecification.get("condition");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object conditionFromBlueprint(Map<String, Object> blueprint) {
+        Map<String, Object> parameters = (Map<String, Object>) blueprint.get("parameters");
+        return parameters.get("condition");
+    }
+
+    private boolean hasNestedConditionType(Object node) {
+        return hasNestedConditionType(node, true);
+    }
+
+    private boolean hasNestedConditionType(Object node, boolean root) {
+        if (node instanceof Map<?, ?> map) {
+            if (!root && map.containsKey("type")) {
+                return true;
+            }
+            for (Object value : map.values()) {
+                if (hasNestedConditionType(value, false)) {
+                    return true;
+                }
+            }
+        }
+        if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                if (hasNestedConditionType(item, false)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")

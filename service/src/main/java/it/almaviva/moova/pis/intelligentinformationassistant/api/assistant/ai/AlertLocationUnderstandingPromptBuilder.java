@@ -42,7 +42,7 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
                 - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
-                - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean arrival delay; "ritardo in partenza", "ritardo di partenza", "departure delay" mean departure delay.
+                - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean DELAY_DIRECTION=ARRIVAL and DELAY_EVENT_TYPE=ARRIVAL_DELAY; "ritardo in partenza", "ritardo alla partenza", "ritardo di partenza", "departure delay" mean DELAY_DIRECTION=DEPARTURE and DELAY_EVENT_TYPE=DEPARTURE_DELAY.
                 - Do not infer MAIN_EVENT_PHASE from delay direction alone. "ritardo in arrivo" describes arrivalDelay, not necessarily a current ARRIVING event.
                 - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a named place are PASSING_TYPE constraints, not DESTINATION_LOCATION.
                 - "parte dall'origine", "parte da una localita di origine" without a named place are PASSING_TYPE ORIGIN constraints, not ORIGIN_LOCATION.
@@ -56,9 +56,11 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - DESTINATION_LOCATION requires explicit journey-destination wording such as "destinazione X", "destino X", "ha destinazione X", "corsa con destinazione X" or "destination X".
                 - If a prompt contains both a current event location and a route location, keep them as separate locations with distinct roles.
                 - Example pattern: "a service is departing from X and will pass through Y" -> X MAIN_EVENT_LOCATION, Y ROUTE_OR_NEXT_CALL_LOCATION.
+                - In delay prompts with route/transit wording, locations after "passera/via/will pass through" remain ROUTE_OR_NEXT_CALL_LOCATION and locations after explicit transit wording remain TRANSIT_LOCATION. Do not invent MAIN_EVENT_LOCATION from delay direction.
                 - If a prompt contains current stop, journey origin and journey destination, return three separate constraints.
                 - Example pattern: "a service is arriving at X, has origin Y and destination Z" -> X MAIN_EVENT_LOCATION, Y ORIGIN_LOCATION, Z DESTINATION_LOCATION.
                 - ROUTE_OR_NEXT_CALL_LOCATION is for future route/call wording such as "passera da X", "passa da X" when it is not the current event stop, "via X", "fermera a X", "will pass through X" and "will call at X".
+                - Route-only prompts such as "will pass through X", "will pass through X and then Y", "via X" or "passera da X" use ROUTE_OR_NEXT_CALL_LOCATION or TRANSIT_LOCATION locations and should not create an unmappable required main event.
                 - TRANSIT_LOCATION is only for explicit transit wording such as "in transito da X", "transitera da X" or "passing through X as transit".
                 - CANCELLED_CALL_LOCATION is for cancelled/suppressed stop wording such as "soppressa a X", "cancellata a X" or "fermata cancellata a X" when X is not the current event location.
                 - Infer main event phase from wording: progressive departure ("e in partenza", "sta partendo", "in partenza", "is departing", "about to depart") -> PROGRESSIVE/DEPARTING.
@@ -117,6 +119,8 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - LINE
                 - DELAY
                 - PASSING_TYPE
+                - DELAY_DIRECTION
+                - DELAY_EVENT_TYPE
                 - TEMPORAL
                 - UNKNOWN
 

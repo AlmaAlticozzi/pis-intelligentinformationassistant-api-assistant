@@ -81,6 +81,60 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsRouteLocationAlsoRepresentedOnCurrentStopWhenNoMainEventLocationExists() {
+        String currentField = "payload.stopPointJourney.stopPoint.id";
+        String routeField = "payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id";
+        Map<String, Object> routeAnyElement = Map.of(
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("anyElement", Map.of(
+                                "path", "nextCalls[]",
+                                "conditions", Map.of(
+                                        "field", "stopPoint.id",
+                                        "operator", "EQUALS",
+                                        "value", RHO_FIERAMILANO_ID)))));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(
+                                Map.of("field", currentField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                                routeAnyElement)),
+                        coverageFor(currentField, routeField)),
+                "Avvisami quando passera da X",
+                locationContext(resolved("X", "ROUTE_OR_NEXT_CALL_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("ROUTE_OR_NEXT_CALL_LOCATION").contains("current/event stop");
+    }
+
+    @Test
+    void acceptsSamePointOnCurrentStopAndExcludedDestinationWhenRolesAreDistinct() {
+        String currentField = "payload.stopPointJourney.stopPoint.id";
+        String destinationField = "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(
+                                Map.of("field", "payload.ongroundServiceEvent.eventsType", "operator", "CONTAINS", "value", "ARRIVED"),
+                                Map.of("field", currentField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                                Map.of("anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", "timetabledCallEnd.stopPoint.id",
+                                                "operator", "NOT_IN",
+                                                "values", List.of(RHO_FIERAMILANO_ID)))))),
+                        coverageFor("payload.ongroundServiceEvent.eventsType", currentField, destinationField)),
+                "Avvisami quando arriva a X ma non ha destinazione X",
+                locationContext(
+                        resolved("X", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID),
+                        resolved("X", "DESTINATION_LOCATION", "EXCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsEqualsOnKnownOngroundStopPointId() {
         String field = "payload.ongroundServiceEvent.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
