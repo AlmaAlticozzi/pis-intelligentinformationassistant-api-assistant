@@ -120,6 +120,55 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void normalizesDestinationExclusionWordingWithoutDeduplicatingSameLocationText() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa arriva a X ma non ha destinazione X",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.90),
+                        List.of(
+                                new AlertLocationUnderstandingLocation(
+                                        "X",
+                                        "X",
+                                        AlertLocationRole.MAIN_EVENT_LOCATION,
+                                        AlertLocationRelation.EVENT_STOP_POINT,
+                                        true,
+                                        AlertLocationPolarity.INCLUDE,
+                                        "G1",
+                                        0.90),
+                                new AlertLocationUnderstandingLocation(
+                                        "X",
+                                        "X",
+                                        AlertLocationRole.MAIN_EVENT_LOCATION,
+                                        AlertLocationRelation.EVENT_STOP_POINT,
+                                        true,
+                                        AlertLocationPolarity.EXCLUDE,
+                                        "G2",
+                                        0.80)),
+                        List.of(),
+                        List.of()));
+
+        assertThat(context.resolutions()).hasSize(2);
+        assertThat(context.resolutions())
+                .anySatisfy(location -> {
+                    assertThat(location.rawText()).isEqualTo("X");
+                    assertThat(location.semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+                    assertThat(location.relationToMainEvent()).isEqualTo("EVENT_STOP_POINT");
+                    assertThat(location.polarity()).isEqualTo("INCLUDE");
+                    assertThat(location.targetFieldHints()).contains("payload.stopPointJourney.stopPoint.id");
+                })
+                .anySatisfy(location -> {
+                    assertThat(location.rawText()).isEqualTo("X");
+                    assertThat(location.semanticRole()).isEqualTo("DESTINATION_LOCATION");
+                    assertThat(location.relationToMainEvent()).isEqualTo("DESTINATION_CONSTRAINT");
+                    assertThat(location.polarity()).isEqualTo("EXCLUDE");
+                    assertThat(location.targetFieldHints())
+                            .contains("payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id");
+                });
+    }
+
+    @Test
     void mapsTransitWithoutTurningItIntoMainEventLocation() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(understanding(
                 location("DUOMO", AlertLocationRole.TRANSIT_LOCATION, AlertLocationRelation.TRANSIT_CONSTRAINT, "G1"),

@@ -1282,6 +1282,11 @@ public class AlertService {
             return normalizedMainEventLocation(location,
                     "current arrival wording indicates event stop, not journey destination");
         }
+        if (location.polarity() == AlertLocationPolarity.EXCLUDE
+                && location.role() != AlertLocationRole.DESTINATION_LOCATION
+                && hasExplicitDestinationExclusionWordingForLocation(prompt, location.rawText())) {
+            return normalizedDestinationExclusion(location);
+        }
         return location;
     }
 
@@ -1304,6 +1309,28 @@ public class AlertService {
                 + " originalRelation=" + location.relationToMainEvent()
                 + " normalizedRelation=" + normalized.relationToMainEvent()
                 + " reason=" + reason);
+        return normalized;
+    }
+
+    private AlertLocationUnderstandingLocation normalizedDestinationExclusion(
+            AlertLocationUnderstandingLocation location) {
+        AlertLocationUnderstandingLocation normalized = new AlertLocationUnderstandingLocation(
+                location.rawText(),
+                location.normalizedText(),
+                AlertLocationRole.DESTINATION_LOCATION,
+                AlertLocationRelation.DESTINATION_CONSTRAINT,
+                true,
+                AlertLocationPolarity.EXCLUDE,
+                location.logicalGroup(),
+                location.confidence());
+        System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][ROLE_NORMALIZATION] reason=destination-exclusion-wording"
+                + " rawText=" + location.rawText()
+                + " originalRole=" + location.role()
+                + " normalizedRole=" + normalized.role()
+                + " originalPolarity=" + location.polarity()
+                + " normalizedPolarity=" + normalized.polarity()
+                + " originalRelation=" + location.relationToMainEvent()
+                + " normalizedRelation=" + normalized.relationToMainEvent());
         return normalized;
     }
 
@@ -1350,17 +1377,34 @@ public class AlertService {
                 "ha destinazione", "destinazione", "destino", "corsa con destinazione", "destination");
     }
 
-    private boolean containsAnyNearLocation(String prompt, String location, String... cues) {
-        int locationIndex = prompt.indexOf(location);
-        if (locationIndex < 0) {
+    private boolean hasExplicitDestinationExclusionWordingForLocation(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
             return false;
         }
-        int windowStart = Math.max(0, locationIndex - 80);
-        String beforeAndLocation = prompt.substring(windowStart, locationIndex + location.length());
-        for (String cue : cues) {
-            if (beforeAndLocation.contains(cue) && beforeAndLocation.indexOf(cue) < beforeAndLocation.lastIndexOf(location)) {
-                return true;
+        return containsAnyNearLocation(normalized, location,
+                "non ha destinazione",
+                "non deve avere destinazione",
+                "non destinazione",
+                "destinazione diversa da",
+                "destino diverso da",
+                "destination is not",
+                "not destination",
+                "must not have destination");
+    }
+
+    private boolean containsAnyNearLocation(String prompt, String location, String... cues) {
+        int locationIndex = prompt.indexOf(location);
+        while (locationIndex >= 0) {
+            int windowStart = Math.max(0, locationIndex - 80);
+            String beforeAndLocation = prompt.substring(windowStart, locationIndex + location.length());
+            for (String cue : cues) {
+                if (beforeAndLocation.contains(cue) && beforeAndLocation.indexOf(cue) < beforeAndLocation.lastIndexOf(location)) {
+                    return true;
+                }
             }
+            locationIndex = prompt.indexOf(location, locationIndex + location.length());
         }
         return false;
     }

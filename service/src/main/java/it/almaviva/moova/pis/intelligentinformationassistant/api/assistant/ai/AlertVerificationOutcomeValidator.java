@@ -957,6 +957,14 @@ public class AlertVerificationOutcomeValidator {
                 return;
             }
             if (mappedBy.isEmpty()) {
+                if (isNoLocationRequirement(text)) {
+                    System.out.println("[IIA][ALERT_VERIFY][COVERAGE_NORMALIZATION] reason=ignore-no-location-requirement"
+                            + " text=" + text
+                            + " originalRequired=" + required
+                            + " originalMappable=" + mappable
+                            + " originalMappedBy=[]");
+                    continue;
+                }
                 System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected unmapped requirement=" + text);
                 context.fail("Verified alert requirementCoverage has a mappable required requirement without mappedBy fields.");
                 return;
@@ -975,6 +983,25 @@ public class AlertVerificationOutcomeValidator {
                 return;
             }
         }
+    }
+
+    private boolean isNoLocationRequirement(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
+        return normalized.contains("no location constraint")
+                || normalized.contains("user did not mention location")
+                || normalized.contains("any location")
+                || normalized.contains("all locations")
+                || normalized.contains("qualsiasi localita")
+                || normalized.contains("tutte le localita")
+                || normalized.contains("nessuna localita specificata")
+                || normalized.contains("senza localita");
     }
 
     private void validateConditionValue(

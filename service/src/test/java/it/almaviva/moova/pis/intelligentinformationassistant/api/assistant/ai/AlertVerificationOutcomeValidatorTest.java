@@ -68,6 +68,38 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void ignoresNoLocationRequirementWithEmptyMappedByWhenConditionIsValid() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                departureDelayNoLocationCondition(),
+                coverageWithRequirement("no location constraint (user did not mention location)", true, true, List.of())));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void keepsRejectingRealRequiredRequirementWithEmptyMappedBy() {
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                departureDelayNoLocationCondition(),
+                coverageWithRequirement("passenger count at least 10", true, true, List.of())));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("mappedBy");
+    }
+
+    @Test
+    void ignoresAnyLocationRequirementWithEmptyMappedByWhenConditionIsValid() {
+        AlertVerificationOutcome anyLocation = validator.validate(outcomeWithConditionAndCoverage(
+                departureDelayNoLocationCondition(),
+                coverageWithRequirement("any location", true, true, List.of())));
+        AlertVerificationOutcome allLocationsItalian = validator.validate(outcomeWithConditionAndCoverage(
+                departureDelayNoLocationCondition(),
+                coverageWithRequirement("tutte le località", true, true, List.of())));
+
+        assertThat(anyLocation.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(allLocationsItalian.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void rejectsFunctionalKeywordAsStopPointTextFallback() {
         String field = "payload.stopPointJourney.stopPoint.nameLong";
 
@@ -2007,6 +2039,38 @@ class AlertVerificationOutcomeValidatorTest {
                                 "mappedBy", List.of("payload.stopPointJourney.stopPointsJourneyDetails[].passingType"),
                                 "reason", "")),
                         "allRequiredRequirementsMapped", true));
+    }
+
+    private Map<String, Object> departureDelayNoLocationCondition() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_DELAY"),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of(
+                                                "field", "departureDelay.delay",
+                                                "operator", "GREATER_THAN",
+                                                "value", 900)))));
+    }
+
+    private Map<String, Object> coverageWithRequirement(
+            String text,
+            boolean required,
+            boolean mappable,
+            List<String> mappedBy) {
+        return Map.of(
+                "requirements", List.of(Map.of(
+                        "text", text,
+                        "required", required,
+                        "mappable", mappable,
+                        "mappedBy", mappedBy,
+                        "reason", "")),
+                "allRequiredRequirementsMapped", true);
     }
 
     private Map<String, Object> coverageFor(String field) {
