@@ -335,11 +335,14 @@ class ServiceDataCapabilityCatalogTest {
                 "DEPARTED",
                 "ARRIVING",
                 "ARRIVED",
+                "DEPARTURE_DELAY",
+                "ARRIVAL_DELAY",
                 "DEPARTURE_PLATFORM_CHANGED",
                 "ARRIVAL_PLATFORM_CHANGED"))
                 .allSatisfy(value -> assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(field, value))
                         .as(value)
                         .isTrue());
+        assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(field, "INVENTED_EVENT")).isFalse();
     }
 
     @Test

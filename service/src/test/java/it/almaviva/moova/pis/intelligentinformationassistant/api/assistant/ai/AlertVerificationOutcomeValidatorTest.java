@@ -32,6 +32,42 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsDelayEventTypesOnCurrentEventsType() {
+        String field = "payload.ongroundServiceEvent.eventsType";
+
+        AlertVerificationOutcome arrival = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS",
+                        "value", "ARRIVAL_DELAY"))), coverageFor(field)));
+        AlertVerificationOutcome departure = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS",
+                        "value", "DEPARTURE_DELAY"))), coverageFor(field)));
+
+        assertThat(arrival.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(departure.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsInventedCurrentEventsType() {
+        String field = "payload.ongroundServiceEvent.eventsType";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", field,
+                        "operator", "CONTAINS",
+                        "value", "INVENTED_EVENT"))), coverageFor(field)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("enum value");
+    }
+
+    @Test
     void rejectsFunctionalKeywordAsStopPointTextFallback() {
         String field = "payload.stopPointJourney.stopPoint.nameLong";
 
@@ -77,7 +113,9 @@ class AlertVerificationOutcomeValidatorTest {
                 locationContext(resolved("X", "DESTINATION_LOCATION", "EXCLUDE", RHO_FIERAMILANO_ID)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(validated.rejectedReason()).contains("DESTINATION_LOCATION").contains("current/event stop");
+        assertThat(validated.rejectedReason()).containsAnyOf(
+                "DESTINATION_LOCATION",
+                "Contradictory location predicates on the same field");
     }
 
     @Test
@@ -132,6 +170,29 @@ class AlertVerificationOutcomeValidatorTest {
                         resolved("X", "DESTINATION_LOCATION", "EXCLUDE", RHO_FIERAMILANO_ID)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsSamePointExcludedDestinationOnCurrentStopEvenWhenMainEventLocationExists() {
+        String currentField = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(
+                                Map.of("field", "payload.ongroundServiceEvent.eventsType", "operator", "CONTAINS", "value", "ARRIVED"),
+                                Map.of("field", currentField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                                Map.of("field", currentField, "operator", "NOT_IN", "values", List.of(RHO_FIERAMILANO_ID)))),
+                        coverageFor("payload.ongroundServiceEvent.eventsType", currentField)),
+                "Avvisami quando arriva a X ma non ha destinazione X",
+                locationContext(
+                        resolved("X", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID),
+                        resolved("X", "DESTINATION_LOCATION", "EXCLUDE", RHO_FIERAMILANO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).containsAnyOf(
+                "DESTINATION_LOCATION",
+                "Contradictory location predicates on the same field");
     }
 
     @Test

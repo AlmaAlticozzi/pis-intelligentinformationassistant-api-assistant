@@ -101,9 +101,27 @@ class AlertServiceMainEventNormalizationTest {
         AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
                 outcomeWithCondition(conditionWithEventAndDepartureDelay("DEPARTING")),
                 promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
 
         assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTURE_DELAY");
         assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("DEPARTURE_DELAY");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void normalizesArrivedToArrivalDelayWhenDelayEventTypeIsAuthoritative() {
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithCondition(conditionWithEventAndArrivalDelay("ARRIVED")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("ARRIVAL_DELAY");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("ARRIVAL_DELAY");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
@@ -267,9 +285,21 @@ class AlertServiceMainEventNormalizationTest {
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(
                         Map.of("field", EVENT_FIELD, "operator", "CONTAINS", "value", eventType),
+                        Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
                         Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay",
                                 "operator", "GREATER_THAN",
                                 "value", 15)));
+    }
+
+    private Map<String, Object> conditionWithEventAndArrivalDelay(String eventType) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", EVENT_FIELD, "operator", "CONTAINS", "value", eventType),
+                        Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
+                                "operator", "GREATER_OR_EQUAL",
+                                "value", 12)));
     }
 
     private Map<String, Object> conditionWithNestedSingleValueIn() {

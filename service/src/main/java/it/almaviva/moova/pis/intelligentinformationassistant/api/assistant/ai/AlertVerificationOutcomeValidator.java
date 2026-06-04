@@ -1393,7 +1393,7 @@ public class AlertVerificationOutcomeValidator {
         if (!representedOnCurrentStop) {
             return null;
         }
-        if (hasMainEventLocationWithSameValue(context, location, selectedPointIds)) {
+        if (isRouteOrTransitRole(role) && hasMainEventLocationWithSameValue(context, location, selectedPointIds)) {
             return null;
         }
         return switch (role) {
@@ -1484,6 +1484,12 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private void validateMainEventPhase(ValidationContext context) {
+        String delayEventType = nonLocationConstraintValue(context, "DELAY_EVENT_TYPE");
+        if (delayEventType != null && context.conditionLeaves.stream()
+                .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                .anyMatch(leaf -> eventLeafContains(leaf, delayEventType))) {
+            return;
+        }
         String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
         String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
         if (intent == null || phase == null || "AMBIGUOUS".equals(phase)) {

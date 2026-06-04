@@ -30,6 +30,7 @@ public final class ServiceDataCapabilityCatalog {
             field("payload.ongroundServiceEvent.eventsType", FieldType.ENUM_ARRAY,
                     ops("CONTAINS", "CONTAINS_ANY"), List.of(
                             "DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED",
+                            "DEPARTURE_DELAY", "ARRIVAL_DELAY",
                             "DEPARTURE_PLATFORM_CHANGED", "ARRIVAL_PLATFORM_CHANGED"),
                     "Current event operational type.", "parte", "partenza", "arriva", "arrivo"),
             field("payload.ongroundServiceEvent.stopPoint.nameLong", FieldType.STRING,
