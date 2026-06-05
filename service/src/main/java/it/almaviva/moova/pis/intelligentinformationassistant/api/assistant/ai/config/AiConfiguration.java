@@ -15,6 +15,8 @@ public interface AiConfiguration {
 
     AlertVerify alertVerify();
 
+    AlertScheduledVerify alertScheduledVerify();
+
     AgentBlueprintGenerate agentBlueprintGenerate();
 
     interface TextImprove {
@@ -53,6 +55,24 @@ public interface AiConfiguration {
 
         @WithDefault("false")
         boolean simulateProviderTimeout();
+    }
+
+    interface AlertScheduledVerify {
+
+        @WithDefault("true")
+        boolean enabled();
+
+        @WithDefault("gpt-4.1-mini")
+        String model();
+
+        @WithDefault("0.1")
+        Double temperature();
+
+        @WithDefault("3500")
+        Integer maxOutputTokens();
+
+        @WithDefault("60")
+        Integer timeoutSeconds();
     }
 
     interface AgentBlueprintGenerate {

@@ -28,15 +28,36 @@ public class ScheduledAlertVerificationPromptBuilder {
     int defaultLookaheadMinutes = 480;
 
     public LlmRequest build(ScheduledAlertVerificationPromptData data) {
-        AiConfiguration.AlertVerify configuration = aiConfiguration == null ? null : aiConfiguration.alertVerify();
+        ScheduledVerifyConfiguration configuration = scheduledVerifyConfiguration();
         return new LlmRequest(
                 AiUseCase.ALERT_SCHEDULED_VERIFY,
                 systemPrompt(),
                 userPrompt(data),
-                configuration == null ? "gpt-4.1-mini" : configuration.model(),
-                configuration == null ? 0.1 : configuration.temperature(),
-                configuration == null ? 5000 : configuration.maxOutputTokens(),
+                configuration.model(),
+                configuration.temperature(),
+                configuration.maxOutputTokens(),
                 data == null ? null : data.alertId());
+    }
+
+    private ScheduledVerifyConfiguration scheduledVerifyConfiguration() {
+        if (aiConfiguration == null) {
+            return new ScheduledVerifyConfiguration("gpt-4.1-mini", 0.1, 3500);
+        }
+        AiConfiguration.AlertScheduledVerify scheduledVerify = aiConfiguration.alertScheduledVerify();
+        if (scheduledVerify != null) {
+            return new ScheduledVerifyConfiguration(
+                    defaultString(scheduledVerify.model(), "gpt-4.1-mini"),
+                    scheduledVerify.temperature() == null ? 0.1 : scheduledVerify.temperature(),
+                    scheduledVerify.maxOutputTokens() == null ? 3500 : scheduledVerify.maxOutputTokens());
+        }
+        AiConfiguration.AlertVerify alertVerify = aiConfiguration.alertVerify();
+        if (alertVerify != null) {
+            return new ScheduledVerifyConfiguration(
+                    defaultString(alertVerify.model(), "gpt-4.1-mini"),
+                    alertVerify.temperature() == null ? 0.1 : alertVerify.temperature(),
+                    alertVerify.maxOutputTokens() == null ? 5000 : alertVerify.maxOutputTokens());
+        }
+        return new ScheduledVerifyConfiguration("gpt-4.1-mini", 0.1, 3500);
     }
 
     private String systemPrompt() {
@@ -494,5 +515,15 @@ public class ScheduledAlertVerificationPromptBuilder {
 
     private String value(String value) {
         return value == null ? "" : value;
+    }
+
+    private String defaultString(String value, String defaultValue) {
+        return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private record ScheduledVerifyConfiguration(
+            String model,
+            Double temperature,
+            Integer maxOutputTokens) {
     }
 }
