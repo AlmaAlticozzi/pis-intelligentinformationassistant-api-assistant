@@ -32,18 +32,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
 import jakarta.enterprise.inject.Instance;
-import org.eclipse.microprofile.context.ManagedExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -161,26 +158,21 @@ class AlertServiceTest {
     @Test
     void createWithVerifyImmediatelyTrueReturnsVerifyingAndSchedulesAsyncVerification() {
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertCreateRequest request = createRequest(true, true);
         AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
         doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
-        when(managedExecutor.runAsync(any(Runnable.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         AlertDetail result = service.createAlert(request);
 
         assertThat(result.getStatus()).isEqualTo(AlertStatus.VERIFYING);
         assertThat(result.getEnabled()).isFalse();
-        verify(managedExecutor).runAsync(any(Runnable.class));
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", true, null);
     }
 
     @Test
     void createWithVerifyImmediatelyTruePropagatesResolvedTenantToAsyncVerification() {
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         service.tenantContext = mock(TenantContext.class);
         service.tenantResolver = mock(Instance.class);
@@ -192,71 +184,55 @@ class AlertServiceTest {
         AlertCreateRequest request = createRequest(true, true);
         AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
         doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(0).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         service.createAlert(request);
 
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true, "tenant-a");
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", true, "tenant-a");
     }
 
     @Test
     void createWithVerifyImmediatelyTrueFallsBackToDefaultSchemaForAsyncVerification() {
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         service.defaultSchema = "pis_intelligentinformationassistant";
         AlertCreateRequest request = createRequest(true, true);
         AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
         doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(0).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         service.createAlert(request);
 
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync(
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification(
                 "ALRT1", true, "pis_intelligentinformationassistant");
     }
 
     @Test
     void createWithVerifyImmediatelyTrueDoesNotBlockForRejectedResult() {
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertCreateRequest request = createRequest(true, true);
         AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
         doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
-        when(managedExecutor.runAsync(any(Runnable.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         AlertDetail result = service.createAlert(request);
 
         assertThat(result.getStatus()).isEqualTo(AlertStatus.VERIFYING);
         assertThat(result.getEnabled()).isFalse();
-        verify(managedExecutor).runAsync(any(Runnable.class));
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", true, null);
     }
 
     @Test
     void createWithVerifyImmediatelyTrueDoesNotBlockForProviderError() {
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertCreateRequest request = createRequest(true, true);
         AlertDetail verifying = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFYING).enabled(false);
         doReturn(verifying).when(service).createVerifyingAlertInNewTransaction(request);
-        when(managedExecutor.runAsync(any(Runnable.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         AlertDetail result = service.createAlert(request);
 
         assertThat(result.getStatus()).isEqualTo(AlertStatus.VERIFYING);
         assertThat(result.getEnabled()).isFalse();
-        verify(managedExecutor).runAsync(any(Runnable.class));
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", true, null);
     }
 
     @Test
@@ -345,9 +321,7 @@ class AlertServiceTest {
     void updateWithChangedPromptAndVerifyImmediatelyTrueSavesVerifyingAndSchedulesAsyncVerification() {
         AlertRepository repository = mock(AlertRepository.class);
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
         service.alertRepository = repository;
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -365,17 +339,12 @@ class AlertServiceTest {
                 .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
         doReturn(java.util.Optional.of(updated)).when(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(0).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
         verify(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
-        verify(managedExecutor).runAsync(any(Runnable.class));
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", true, null);
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", true, null);
         verify(repository, never()).updateAlertMetadataWithoutPromptChange("ALRT1", request);
         verify(repository, never()).updateAlertDraftAfterPromptChange("ALRT1", request);
     }
@@ -384,9 +353,7 @@ class AlertServiceTest {
     void updateWithChangedPromptAndVerifyImmediatelyTrueDoesNotEnablePreviouslyDisabledAlert() {
         AlertRepository repository = mock(AlertRepository.class);
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
         service.alertRepository = repository;
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -404,24 +371,18 @@ class AlertServiceTest {
                 .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
         doReturn(java.util.Optional.of(updated)).when(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(0).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false, null);
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", false, null);
     }
 
     @Test
     void updateWithChangedPromptAndVerifyImmediatelyTrueDoesNotEnableWhenRequestDisablesAfterVerification() {
         AlertRepository repository = mock(AlertRepository.class);
         AlertService service = spy(new AlertService());
-        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
         service.alertRepository = repository;
-        service.managedExecutor = managedExecutor;
         service.alertAsyncVerificationService = mock(AlertAsyncVerificationService.class);
         AlertDetail current = new AlertDetail()
                 .id("ALRT1")
@@ -439,15 +400,11 @@ class AlertServiceTest {
                 .version(2);
         when(repository.getAlert("ALRT1")).thenReturn(java.util.Optional.of(current));
         doReturn(java.util.Optional.of(updated)).when(service).updateAlertVerifyingAfterPromptChangeInNewTransaction("ALRT1", request);
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(0).run();
-            return CompletableFuture.completedFuture(null);
-        }).when(managedExecutor).runAsync(any(Runnable.class));
 
         java.util.Optional<AlertDetail> result = service.updateAlert("ALRT1", request);
 
         assertThat(result).contains(updated);
-        verify(service.alertAsyncVerificationService).verifyCreatedAlertAsync("ALRT1", false, null);
+        verify(service.alertAsyncVerificationService).scheduleCreatedAlertVerification("ALRT1", false, null);
     }
 
     @Test

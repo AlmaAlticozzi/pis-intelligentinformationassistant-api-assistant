@@ -40,23 +40,29 @@ public class AlertVerificationTransactionalPersistence {
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertVerificationPromptData> doLoadAlertForVerification(String alertId) {
         logBoundary("doLoadAlertForVerification", alertId);
+        guardReadyForDbAccess("doLoadAlertForVerification", alertId);
         logQueryBefore("doLoadAlertForVerification", alertId);
-        Optional<AlertVerificationPromptData> promptData = entityManager.createQuery("""
-                        select a
-                        from Alert a
-                        where a.codAlert = :alertId
-                        and a.dtDeletedat is null
-                        """, Alert.class)
-                .setParameter("alertId", alertId)
-                .getResultStream()
-                .findFirst()
-                .map(this::toDetachedPromptData);
-        System.out.println("[IIA][ALERT_VERIFY][TX_QUERY_AFTER]"
-                + " method=doLoadAlertForVerification"
-                + " alertId=" + alertId
-                + " dtoCreated=" + promptData.isPresent());
-        logDone("doLoadAlertForVerification", alertId);
-        return promptData;
+        try {
+            Optional<AlertVerificationPromptData> promptData = entityManager.createQuery("""
+                            select a
+                            from Alert a
+                            where a.codAlert = :alertId
+                            and a.dtDeletedat is null
+                            """, Alert.class)
+                    .setParameter("alertId", alertId)
+                    .getResultStream()
+                    .findFirst()
+                    .map(this::toDetachedPromptData);
+            System.out.println("[IIA][ALERT_VERIFY][TX_QUERY_AFTER]"
+                    + " method=doLoadAlertForVerification"
+                    + " alertId=" + alertId
+                    + " dtoCreated=" + promptData.isPresent());
+            logDone("doLoadAlertForVerification", alertId);
+            return promptData;
+        } catch (RuntimeException ex) {
+            logException("doLoadAlertForVerification", alertId, ex);
+            throw ex;
+        }
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
@@ -65,30 +71,42 @@ public class AlertVerificationTransactionalPersistence {
             AlertVerificationOutcome outcome,
             boolean enableAfterVerification) {
         logBoundary("doPersistVerificationOutcome", alertId);
-        AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
-                .force(Boolean.FALSE);
-        Optional<AlertDetail> verifiedAlert = alertRepository.verifyAlert(alertId, verificationRequest, outcome);
-        Optional<AlertDetail> finalAlert = verifiedAlert;
-        if (verifiedAlert.isPresent()
-                && AlertStatus.VERIFIED.equals(verifiedAlert.get().getStatus())
-                && enableAfterVerification) {
-            finalAlert = alertRepository.updateAlertEnabledAfterCreateVerification(alertId, true)
-                    .or(() -> verifiedAlert);
+        guardReadyForDbAccess("doPersistVerificationOutcome", alertId);
+        try {
+            AlertVerificationRequest verificationRequest = new AlertVerificationRequest()
+                    .force(Boolean.FALSE);
+            Optional<AlertDetail> verifiedAlert = alertRepository.verifyAlert(alertId, verificationRequest, outcome);
+            Optional<AlertDetail> finalAlert = verifiedAlert;
+            if (verifiedAlert.isPresent()
+                    && AlertStatus.VERIFIED.equals(verifiedAlert.get().getStatus())
+                    && enableAfterVerification) {
+                finalAlert = alertRepository.updateAlertEnabledAfterCreateVerification(alertId, true)
+                        .or(() -> verifiedAlert);
+            }
+            logDone("doPersistVerificationOutcome", alertId);
+            return finalAlert;
+        } catch (RuntimeException ex) {
+            logException("doPersistVerificationOutcome", alertId, ex);
+            throw ex;
         }
-        logDone("doPersistVerificationOutcome", alertId);
-        return finalAlert;
     }
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     public Optional<AlertDetail> doPersistTechnicalError(String alertId, String shortMessage) {
         logBoundary("doPersistTechnicalError", alertId);
-        Optional<AlertDetail> result = alertRepository.markAlertVerificationTechnicalError(
-                alertId,
-                shortMessage,
-                aiConfiguration.provider(),
-                aiConfiguration.alertVerify().model());
-        logDone("doPersistTechnicalError", alertId);
-        return result;
+        guardReadyForDbAccess("doPersistTechnicalError", alertId);
+        try {
+            Optional<AlertDetail> result = alertRepository.markAlertVerificationTechnicalError(
+                    alertId,
+                    shortMessage,
+                    aiConfiguration.provider(),
+                    aiConfiguration.alertVerify().model());
+            logDone("doPersistTechnicalError", alertId);
+            return result;
+        } catch (RuntimeException ex) {
+            logException("doPersistTechnicalError", alertId, ex);
+            throw ex;
+        }
     }
 
     private AlertVerificationPromptData toDetachedPromptData(Alert alert) {
@@ -103,6 +121,7 @@ public class AlertVerificationTransactionalPersistence {
         System.out.println("[IIA][ALERT_VERIFY][TX_BOUNDARY]"
                 + " method=" + method
                 + " alertId=" + alertId
+                + " requestContextOwner=CALLER_REQUIRED"
                 + " requestContextActive=" + requestContextActive()
                 + " transactionActive=" + transactionActive()
                 + " tenantPresent=" + (currentTenantId() != null)
@@ -121,11 +140,34 @@ public class AlertVerificationTransactionalPersistence {
         System.out.println("[IIA][ALERT_VERIFY][TX_QUERY_BEFORE]"
                 + " method=" + method
                 + " alertId=" + alertId
+                + " requestContextOwner=CALLER_REQUIRED"
                 + " requestContextActive=" + requestContextActive()
                 + " transactionActive=" + transactionActive()
                 + " tenantPresent=" + (currentTenantId() != null)
                 + " tenant=" + safeTenant(currentTenantId())
                 + " thread=" + Thread.currentThread().getName());
+    }
+
+    private void guardReadyForDbAccess(String method, String alertId) {
+        boolean requestContextActive = requestContextActive();
+        boolean tenantPresent = currentTenantId() != null;
+        System.out.println("[IIA][ALERT_VERIFY][ASYNC_DB_GUARD]"
+                + " phase=transactional-persistence"
+                + " method=" + method
+                + " alertId=" + alertId
+                + " requestContextOwner=CALLER_REQUIRED"
+                + " requestContextActive=" + requestContextActive
+                + " transactionActive=" + transactionActive()
+                + " tenantPresent=" + tenantPresent
+                + " tenant=" + safeTenant(currentTenantId())
+                + " thread=" + Thread.currentThread().getName());
+        if (!requestContextActive || !tenantPresent) {
+            throw new IllegalStateException("Async alert verification DB access is not safe before "
+                    + method
+                    + ": requestContextActive=" + requestContextActive
+                    + ", tenantPresent=" + tenantPresent
+                    + ", alertId=" + alertId + ".");
+        }
     }
 
     private String currentTenantId() {
@@ -156,6 +198,40 @@ public class AlertVerificationTransactionalPersistence {
             return transactionManager.getStatus() == Status.STATUS_ACTIVE;
         } catch (SystemException ex) {
             return false;
+        }
+    }
+
+    private void logException(String method, String alertId, RuntimeException ex) {
+        Throwable rootCause = rootCause(ex);
+        System.out.println("[IIA][ALERT_VERIFY][TX_BOUNDARY][ERROR]"
+                + " method=" + method
+                + " alertId=" + alertId
+                + " exceptionClass=" + ex.getClass().getName()
+                + " exceptionMessage=" + ex.getMessage()
+                + " rootCauseClass=" + rootCause.getClass().getName()
+                + " rootCauseMessage=" + rootCause.getMessage()
+                + " requestContextActive=" + requestContextActive()
+                + " transactionActive=" + transactionActive()
+                + " tenantPresent=" + (currentTenantId() != null)
+                + " tenant=" + safeTenant(currentTenantId())
+                + " thread=" + Thread.currentThread().getName());
+        printStackTracePreview(ex);
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private void printStackTracePreview(Throwable throwable) {
+        StackTraceElement[] stackTrace = throwable.getStackTrace();
+        int limit = Math.min(80, stackTrace.length);
+        for (int index = 0; index < limit; index++) {
+            System.out.println("[IIA][ALERT_VERIFY][TX_BOUNDARY][ERROR] stack[" + index + "]="
+                    + stackTrace[index]);
         }
     }
 }

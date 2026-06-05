@@ -8,6 +8,9 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.SystemException;
 import jakarta.transaction.TransactionManager;
+import io.smallrye.context.api.ManagedExecutorConfig;
+import org.eclipse.microprofile.context.ManagedExecutor;
+import org.eclipse.microprofile.context.ThreadContext;
 
 @ApplicationScoped
 public class AlertAsyncVerificationService {
@@ -16,10 +19,34 @@ public class AlertAsyncVerificationService {
     AlertAsyncVerificationRequestContextRunner requestContextRunner;
 
     @Inject
+    @ManagedExecutorConfig(
+            cleared = {
+                    ThreadContext.CDI,
+                    ThreadContext.TRANSACTION
+            })
+    ManagedExecutor managedExecutor;
+
+    @Inject
     TenantContext tenantContext;
 
     @Inject
     TransactionManager transactionManager;
+
+    public void scheduleCreatedAlertVerification(
+            String alertId,
+            boolean enableAfterVerification,
+            String propagatedTenantId) {
+        managedExecutor.runAsync(() -> {
+            try {
+                verifyCreatedAlertAsync(alertId, enableAfterVerification, propagatedTenantId);
+            } catch (RuntimeException ex) {
+                String shortMessage = shortTechnicalMessage(ex);
+                System.out.println("[IIA][ALERT_VERIFY][ASYNC_ERROR] alertId=" + alertId + " error=" + shortMessage);
+                markCreatedAlertVerificationError(alertId, shortMessage, propagatedTenantId);
+                System.out.println("[IIA][ALERT_CREATE] finalStatus=ERROR enabled=false");
+            }
+        });
+    }
 
     public void verifyCreatedAlertAsync(String alertId, boolean enableAfterVerification) {
         verifyCreatedAlertAsync(alertId, enableAfterVerification, currentTenantId());
@@ -29,11 +56,15 @@ public class AlertAsyncVerificationService {
         System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT] async task entry alertId=" + alertId
                 + " requestContextActive=" + requestContextActive()
                 + " tenantPresent=" + (currentTenantId() != null)
-                + " propagatedTenant=" + safeTenant(normalize(propagatedTenantId)));
+                + " propagatedTenant=" + safeTenant(normalize(propagatedTenantId))
+                + " thread=" + Thread.currentThread().getName()
+                + " executorPath=managed-executor-cdi-cleared");
         System.out.println("[IIA][ALERT_VERIFY][REQUEST_CONTEXT_RUNNER] before runner alertId=" + alertId
                 + " requestContextActive=" + requestContextActive()
                 + " tenantPresent=" + (currentTenantId() != null)
-                + " capturedTenant=" + safeTenant(normalize(propagatedTenantId)));
+                + " capturedTenant=" + safeTenant(normalize(propagatedTenantId))
+                + " thread=" + Thread.currentThread().getName()
+                + " executorPath=managed-executor-cdi-cleared");
         System.out.println("[IIA][ALERT_VERIFY][ASYNC] Started async verification alertId=" + alertId);
         System.out.println("[IIA][ALERT_VERIFY][ASYNC_FLOW] started alertId=" + alertId
                 + " enableAfterVerification=" + enableAfterVerification
@@ -100,8 +131,12 @@ public class AlertAsyncVerificationService {
         if (tenantContext == null) {
             return null;
         }
-        String tenantId = tenantContext.getTenantId();
-        return tenantId == null || tenantId.isBlank() ? null : tenantId;
+        try {
+            String tenantId = tenantContext.getTenantId();
+            return tenantId == null || tenantId.isBlank() ? null : tenantId;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private String normalize(String value) {

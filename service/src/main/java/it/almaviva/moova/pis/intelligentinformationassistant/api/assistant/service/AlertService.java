@@ -62,7 +62,6 @@ import jakarta.transaction.Transactional;
 import jakarta.transaction.TransactionManager;
 import jakarta.ws.rs.ProcessingException;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.eclipse.microprofile.context.ManagedExecutor;
 
 import java.util.List;
 import java.util.Map;
@@ -116,9 +115,6 @@ public class AlertService {
 
     @Inject
     AiConfiguration aiConfiguration;
-
-    @Inject
-    ManagedExecutor managedExecutor;
 
     @Inject
     AlertAsyncVerificationService alertAsyncVerificationService;
@@ -2414,15 +2410,10 @@ public class AlertService {
                 + " capturedTenant=" + safeTenant(tenant.tenantId())
                 + " capturedTenantSource=" + tenant.source()
                 + " defaultSchemaFallback=" + normalizedDefaultSchema());
-        managedExecutor.runAsync(() -> alertAsyncVerificationService.verifyCreatedAlertAsync(
-                        alertId, enableAfterVerification, tenant.tenantId()))
-                .exceptionally(ex -> {
-                    String shortMessage = shortTechnicalMessage(ex);
-                    System.out.println("[IIA][ALERT_VERIFY][ASYNC_ERROR] alertId=" + alertId + " error=" + shortMessage);
-                    alertAsyncVerificationService.markCreatedAlertVerificationError(alertId, shortMessage, tenant.tenantId());
-                    System.out.println("[IIA][ALERT_CREATE] finalStatus=ERROR enabled=false");
-                    return null;
-                });
+        alertAsyncVerificationService.scheduleCreatedAlertVerification(
+                alertId,
+                enableAfterVerification,
+                tenant.tenantId());
     }
 
     protected AlertDetail createDraftAlertInNewTransaction(AlertCreateRequest request) {

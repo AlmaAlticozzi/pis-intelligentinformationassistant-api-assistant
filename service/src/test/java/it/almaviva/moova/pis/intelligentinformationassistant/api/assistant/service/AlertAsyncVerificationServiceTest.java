@@ -7,17 +7,22 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import io.smallrye.context.api.ManagedExecutorConfig;
 import jakarta.enterprise.context.control.ActivateRequestContext;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
+import org.eclipse.microprofile.context.ManagedExecutor;
+import org.eclipse.microprofile.context.ThreadContext;
 import org.hibernate.HibernateException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
@@ -33,25 +38,55 @@ import static org.mockito.Mockito.when;
 class AlertAsyncVerificationServiceTest {
 
     @Test
-    void runnerMethodHasActivateRequestContext() throws NoSuchMethodException {
+    void dbContextRunnerOwnsShortRequestContextsAndAsyncRunnerDoesNot() throws NoSuchMethodException {
         Method method = AlertAsyncVerificationRequestContextRunner.class.getMethod(
                 "verifyCreatedAlertInRequestContext",
                 String.class,
                 boolean.class,
                 String.class);
 
-        assertThat(method.isAnnotationPresent(ActivateRequestContext.class)).isTrue();
+        assertThat(method.isAnnotationPresent(ActivateRequestContext.class)).isFalse();
+        assertThat(AlertAsyncVerificationRequestContextRunner.class.getMethod(
+                "markCreatedAlertVerificationErrorInRequestContext",
+                String.class,
+                String.class,
+                String.class).isAnnotationPresent(ActivateRequestContext.class)).isFalse();
+        assertThat(AlertAsyncVerificationDbContextRunner.class.getMethod(
+                "loadAlertForVerification",
+                String.class,
+                String.class).isAnnotationPresent(ActivateRequestContext.class)).isTrue();
+        assertThat(AlertAsyncVerificationDbContextRunner.class.getMethod(
+                "persistVerificationOutcome",
+                String.class,
+                AlertVerificationOutcome.class,
+                boolean.class,
+                String.class).isAnnotationPresent(ActivateRequestContext.class)).isTrue();
+        assertThat(AlertAsyncVerificationDbContextRunner.class.getMethod(
+                "persistTechnicalError",
+                String.class,
+                String.class,
+                String.class).isAnnotationPresent(ActivateRequestContext.class)).isTrue();
     }
 
     @Test
-    void asyncPersistenceBoundariesSeparateRequestContextAndTransaction() throws NoSuchMethodException {
-        assertContextBoundary("loadAlertForVerification", String.class, String.class);
-        assertContextBoundary("persistVerificationOutcome",
+    void alertAsyncVerificationManagedExecutorClearsCdiAndTransactionContext() throws NoSuchFieldException {
+        Field field = AlertAsyncVerificationService.class.getDeclaredField("managedExecutor");
+        ManagedExecutorConfig config = field.getAnnotation(ManagedExecutorConfig.class);
+
+        assertThat(config).isNotNull();
+        assertThat(Arrays.asList(config.cleared()))
+                .contains(ThreadContext.CDI, ThreadContext.TRANSACTION);
+    }
+
+    @Test
+    void asyncRunnerIsOnlyRequestContextBoundaryAndTransactionalPersistenceOwnsTransactions() throws NoSuchMethodException {
+        assertCallerRequiredContextBoundary("loadAlertForVerification", String.class, String.class);
+        assertCallerRequiredContextBoundary("persistVerificationOutcome",
                 String.class,
                 AlertVerificationOutcome.class,
                 boolean.class,
                 String.class);
-        assertContextBoundary("persistTechnicalError", String.class, String.class, String.class);
+        assertCallerRequiredContextBoundary("persistTechnicalError", String.class, String.class, String.class);
 
         assertTxBoundary("doLoadAlertForVerification", String.class);
         assertTxBoundary("doPersistVerificationOutcome", String.class, AlertVerificationOutcome.class, boolean.class);
@@ -73,66 +108,131 @@ class AlertAsyncVerificationServiceTest {
     }
 
     @Test
-    void tenantRestoreHappensInsideRunnerBeforeAlertVerification() {
-        TenantContext tenantContext = mock(TenantContext.class);
-        AtomicBoolean verifyCalledWithTenant = new AtomicBoolean(false);
-        AlertAsyncVerificationRequestContextRunner runner = runnerCheckingTenant(
-                "tenant-a",
-                tenantContext,
-                verifyCalledWithTenant,
-                AlertStatus.VERIFIED);
+    void serviceSchedulesAsyncVerificationThroughCdiClearedManagedExecutor() {
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
+        AlertAsyncVerificationRequestContextRunner runner = mock(AlertAsyncVerificationRequestContextRunner.class);
+        AlertAsyncVerificationService service = new AlertAsyncVerificationService();
+        service.managedExecutor = managedExecutor;
+        service.requestContextRunner = runner;
+        when(runner.verifyCreatedAlertInRequestContext("ALRT1", true, "tenant-a"))
+                .thenReturn(new AlertDetail().id("ALRT1").status(AlertStatus.VERIFIED).enabled(true));
+        ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+        when(managedExecutor.runAsync(task.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
-        runner.verifyCreatedAlertInRequestContext("ALRT1", false, "tenant-a");
+        service.scheduleCreatedAlertVerification("ALRT1", true, "tenant-a");
 
-        assertThat(verifyCalledWithTenant).isTrue();
-        verify(tenantContext).setTenantId("tenant-a");
-        verify(tenantContext).clear();
+        task.getValue().run();
+        verify(managedExecutor).runAsync(org.mockito.ArgumentMatchers.any(Runnable.class));
+        verify(runner).verifyCreatedAlertInRequestContext("ALRT1", true, "tenant-a");
     }
 
     @Test
-    void runnerUsesDefaultSchemaFallbackWhenCapturedTenantIsMissing() {
-        TenantContext tenantContext = mock(TenantContext.class);
-        AtomicBoolean verifyCalledWithTenant = new AtomicBoolean(false);
-        AlertAsyncVerificationRequestContextRunner runner = runnerCheckingTenant(
-                "pis_intelligentinformationassistant",
-                tenantContext,
-                verifyCalledWithTenant,
-                AlertStatus.VERIFIED);
-        runner.defaultSchema = "pis_intelligentinformationassistant";
+    void consecutiveAsyncVerificationSchedulesIndependentCdiClearedManagedExecutorTasks() {
+        ManagedExecutor managedExecutor = mock(ManagedExecutor.class);
+        AlertAsyncVerificationRequestContextRunner runner = mock(AlertAsyncVerificationRequestContextRunner.class);
+        AlertAsyncVerificationService service = new AlertAsyncVerificationService();
+        service.managedExecutor = managedExecutor;
+        service.requestContextRunner = runner;
+        when(runner.verifyCreatedAlertInRequestContext(org.mockito.ArgumentMatchers.anyString(), eq(true), eq("tenant-a")))
+                .thenAnswer(invocation -> new AlertDetail()
+                        .id(invocation.getArgument(0))
+                        .status(AlertStatus.VERIFIED)
+                        .enabled(true));
+        ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+        when(managedExecutor.runAsync(tasks.capture())).thenReturn(CompletableFuture.completedFuture(null));
 
-        runner.verifyCreatedAlertInRequestContext("ALRT1", false, null);
+        for (int index = 0; index < 6; index++) {
+            service.scheduleCreatedAlertVerification("ALRT" + index, true, "tenant-a");
+        }
 
-        assertThat(verifyCalledWithTenant).isTrue();
-        verify(tenantContext).setTenantId("pis_intelligentinformationassistant");
-        verify(tenantContext).clear();
+        verify(managedExecutor, org.mockito.Mockito.times(6)).runAsync(org.mockito.ArgumentMatchers.any(Runnable.class));
+        tasks.getAllValues().forEach(Runnable::run);
+        for (int index = 0; index < 6; index++) {
+            verify(runner).verifyCreatedAlertInRequestContext("ALRT" + index, true, "tenant-a");
+        }
     }
 
     @Test
-    void runnerDoesNotCallVerificationWithoutTenantAndWithoutDefaultSchema() {
+    void tenantRestoreHappensInsideDbContextRunnerBeforeLoad() {
         TenantContext tenantContext = mock(TenantContext.class);
-        AtomicBoolean verifyCalled = new AtomicBoolean(false);
-        AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
-            @Override
-            protected AlertDetail verifyAndApplyEnable(String alertId, boolean enableAfterVerification, String tenant) {
-                verifyCalled.set(true);
-                return new AlertDetail().id(alertId).status(AlertStatus.VERIFIED).enabled(enableAfterVerification);
-            }
-
+        AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
+        AlertVerificationPromptData promptData = new AlertVerificationPromptData(
+                "ALRT1",
+                "name",
+                "description",
+                "prompt",
+                null);
+        when(contextBoundary.loadAlertForVerification("ALRT1", "tenant-a")).thenReturn(Optional.of(promptData));
+        AlertAsyncVerificationDbContextRunner dbContextRunner = new AlertAsyncVerificationDbContextRunner() {
             @Override
             protected boolean requestContextActive() {
                 return true;
             }
         };
-        runner.tenantContext = tenantContext;
-        runner.defaultSchema = "";
+        dbContextRunner.tenantContext = tenantContext;
+        dbContextRunner.persistenceContextBoundary = contextBoundary;
         configureTenantStorage(tenantContext);
+
+        Optional<AlertVerificationPromptData> result = dbContextRunner.loadAlertForVerification("ALRT1", "tenant-a");
+
+        assertThat(result).contains(promptData);
+        verify(tenantContext).setTenantId("tenant-a");
+        verify(tenantContext).clear();
+        verify(contextBoundary).loadAlertForVerification("ALRT1", "tenant-a");
+    }
+
+    @Test
+    void dbContextRunnerUsesDefaultSchemaFallbackWhenCapturedTenantIsMissing() {
+        TenantContext tenantContext = mock(TenantContext.class);
+        AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
+        AlertVerificationPromptData promptData = new AlertVerificationPromptData(
+                "ALRT1",
+                "name",
+                "description",
+                "prompt",
+                null);
+        when(contextBoundary.loadAlertForVerification("ALRT1", "pis_intelligentinformationassistant"))
+                .thenReturn(Optional.of(promptData));
+        AlertAsyncVerificationDbContextRunner dbContextRunner = new AlertAsyncVerificationDbContextRunner() {
+            @Override
+            protected boolean requestContextActive() {
+                return true;
+            }
+        };
+        dbContextRunner.tenantContext = tenantContext;
+        dbContextRunner.persistenceContextBoundary = contextBoundary;
+        dbContextRunner.defaultSchema = "pis_intelligentinformationassistant";
+        configureTenantStorage(tenantContext);
+
+        Optional<AlertVerificationPromptData> result = dbContextRunner.loadAlertForVerification("ALRT1", null);
+
+        assertThat(result).contains(promptData);
+        verify(tenantContext).setTenantId("pis_intelligentinformationassistant");
+        verify(tenantContext).clear();
+    }
+
+    @Test
+    void runnerDoesNotCallVerificationWhenDbLoadFailsWithoutTenantAndWithoutDefaultSchema() {
+        TenantContext tenantContext = mock(TenantContext.class);
+        AlertAsyncVerificationDbContextRunner dbContextRunner = mock(AlertAsyncVerificationDbContextRunner.class);
+        AlertService alertService = mock(AlertService.class);
+        AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
+            @Override
+            protected boolean requestContextActive() {
+                return false;
+            }
+        };
+        runner.tenantContext = tenantContext;
+        runner.dbContextRunner = dbContextRunner;
+        runner.alertService = alertService;
+        when(dbContextRunner.loadAlertForVerification("ALRT1", null))
+                .thenThrow(new AlertAsyncVerificationService.MissingTenantContextException("tenant missing"));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
                         runner.verifyCreatedAlertInRequestContext("ALRT1", true, null))
                 .isInstanceOf(AlertAsyncVerificationService.MissingTenantContextException.class);
 
-        assertThat(verifyCalled).isFalse();
-        verify(tenantContext, never()).setTenantId(org.mockito.ArgumentMatchers.any());
+        verify(alertService, never()).verifyAlertOutcome(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -152,7 +252,6 @@ class AlertAsyncVerificationServiceTest {
             }
         };
         runner.tenantContext = tenantContext;
-        runner.defaultSchema = "";
         configureTenantStorage(tenantContext);
 
         AlertDetail result = runner.verifyCreatedAlertInRequestContext("ALRT1", true, "tenant-a");
@@ -165,14 +264,27 @@ class AlertAsyncVerificationServiceTest {
     @Test
     void verifiedEnableFalseCompletesNormally() {
         TenantContext tenantContext = mock(TenantContext.class);
-        AlertAsyncVerificationRequestContextRunner runner = runnerCheckingTenant(
-                "tenant-a",
-                tenantContext,
-                new AtomicBoolean(false),
-                AlertStatus.VERIFIED);
+        AtomicReference<String> tenantSeen = new AtomicReference<>();
+        AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
+            @Override
+            protected AlertDetail verifyAndApplyEnable(String alertId, boolean enableAfterVerification, String tenant) {
+                tenantSeen.set(tenant);
+                return new AlertDetail()
+                        .id(alertId)
+                        .status(AlertStatus.VERIFIED)
+                        .enabled(enableAfterVerification);
+            }
+
+            @Override
+            protected boolean requestContextActive() {
+                return true;
+            }
+        };
+        runner.tenantContext = tenantContext;
 
         AlertDetail result = runner.verifyCreatedAlertInRequestContext("ALRT1", false, "tenant-a");
 
+        assertThat(tenantSeen.get()).isEqualTo("tenant-a");
         assertThat(result.getStatus()).isEqualTo(AlertStatus.VERIFIED);
         assertThat(result.getEnabled()).isFalse();
     }
@@ -194,7 +306,6 @@ class AlertAsyncVerificationServiceTest {
             }
         };
         runner.tenantContext = tenantContext;
-        runner.defaultSchema = "";
         configureTenantStorage(tenantContext);
 
         AlertDetail result = runner.verifyCreatedAlertInRequestContext("ALRT1", true, "tenant-a");
@@ -204,7 +315,8 @@ class AlertAsyncVerificationServiceTest {
     }
 
     @Test
-    void runnerLoadsAndPersistsThroughPersistenceContextBoundary() {
+    void runnerLoadsAndPersistsThroughDbContextRunnerWithoutDirectPersistenceBoundaryAccess() {
+        AlertAsyncVerificationDbContextRunner dbContextRunner = mock(AlertAsyncVerificationDbContextRunner.class);
         AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
         AlertService alertService = mock(AlertService.class);
         AlertVerificationPromptData promptData = new AlertVerificationPromptData(
@@ -215,9 +327,9 @@ class AlertAsyncVerificationServiceTest {
                 null);
         AlertVerificationOutcome outcome = mock(AlertVerificationOutcome.class);
         AlertDetail persisted = new AlertDetail().id("ALRT1").status(AlertStatus.VERIFIED).enabled(false);
-        when(contextBoundary.loadAlertForVerification("ALRT1", "tenant-a")).thenReturn(Optional.of(promptData));
+        when(dbContextRunner.loadAlertForVerification("ALRT1", "tenant-a")).thenReturn(Optional.of(promptData));
         when(alertService.verifyAlertOutcome("ALRT1", promptData)).thenReturn(outcome);
-        when(contextBoundary.persistVerificationOutcome(
+        when(dbContextRunner.persistVerificationOutcome(
                 org.mockito.ArgumentMatchers.eq("ALRT1"),
                 org.mockito.ArgumentMatchers.eq(outcome),
                 org.mockito.ArgumentMatchers.eq(false),
@@ -229,25 +341,26 @@ class AlertAsyncVerificationServiceTest {
                 return true;
             }
         };
-        runner.persistenceContextBoundary = contextBoundary;
+        runner.dbContextRunner = dbContextRunner;
         runner.alertService = alertService;
 
         AlertDetail result = runner.verifyAndApplyEnable("ALRT1", false, "tenant-a");
 
         assertThat(result).isSameAs(persisted);
-        verify(contextBoundary).loadAlertForVerification("ALRT1", "tenant-a");
+        verify(dbContextRunner).loadAlertForVerification("ALRT1", "tenant-a");
         verify(alertService).verifyAlertOutcome("ALRT1", promptData);
-        verify(contextBoundary).persistVerificationOutcome(
+        verify(dbContextRunner).persistVerificationOutcome(
                 org.mockito.ArgumentMatchers.eq("ALRT1"),
                 org.mockito.ArgumentMatchers.eq(outcome),
                 org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.eq("tenant-a"));
+        org.mockito.Mockito.verifyNoInteractions(contextBoundary);
     }
 
     @Test
-    void runnerMarksTechnicalErrorThroughPersistenceContextBoundary() {
+    void runnerMarksTechnicalErrorThroughDbContextRunner() {
         TenantContext tenantContext = mock(TenantContext.class);
-        AlertVerificationPersistenceContextBoundary contextBoundary = mock(AlertVerificationPersistenceContextBoundary.class);
+        AlertAsyncVerificationDbContextRunner dbContextRunner = mock(AlertAsyncVerificationDbContextRunner.class);
         AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
             @Override
             protected boolean requestContextActive() {
@@ -255,13 +368,13 @@ class AlertAsyncVerificationServiceTest {
             }
         };
         runner.tenantContext = tenantContext;
-        runner.persistenceContextBoundary = contextBoundary;
+        runner.dbContextRunner = dbContextRunner;
         configureTenantStorage(tenantContext);
 
         runner.markCreatedAlertVerificationErrorInRequestContext("ALRT1", "provider timeout", "tenant-a");
 
-        verify(contextBoundary).persistTechnicalError("ALRT1", "provider timeout", "tenant-a");
-        verify(tenantContext).clear();
+        verify(dbContextRunner).persistTechnicalError("ALRT1", "provider timeout", "tenant-a");
+        verify(tenantContext, never()).clear();
     }
 
     @Test
@@ -354,32 +467,6 @@ class AlertAsyncVerificationServiceTest {
                 .doesNotContain("tenant context is missing during asynchronous verification");
     }
 
-    private AlertAsyncVerificationRequestContextRunner runnerCheckingTenant(
-            String expectedTenant,
-            TenantContext tenantContext,
-            AtomicBoolean verifyCalledWithTenant,
-            AlertStatus status) {
-        AlertAsyncVerificationRequestContextRunner runner = new AlertAsyncVerificationRequestContextRunner() {
-            @Override
-            protected AlertDetail verifyAndApplyEnable(String alertId, boolean enableAfterVerification, String tenant) {
-                verifyCalledWithTenant.set(expectedTenant.equals(currentTenantId()) && expectedTenant.equals(tenant));
-                return new AlertDetail()
-                        .id(alertId)
-                        .status(status)
-                        .enabled(AlertStatus.VERIFIED.equals(status) && enableAfterVerification);
-            }
-
-            @Override
-            protected boolean requestContextActive() {
-                return true;
-            }
-        };
-        runner.tenantContext = tenantContext;
-        runner.defaultSchema = "";
-        configureTenantStorage(tenantContext);
-        return runner;
-    }
-
     private void configureTenantStorage(TenantContext tenantContext) {
         AtomicReference<String> tenantStorage = new AtomicReference<>();
         when(tenantContext.getTenantId()).thenAnswer(invocation -> tenantStorage.get());
@@ -393,11 +480,11 @@ class AlertAsyncVerificationServiceTest {
         }).when(tenantContext).clear();
     }
 
-    private void assertContextBoundary(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
+    private void assertCallerRequiredContextBoundary(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
         Method method = AlertVerificationPersistenceContextBoundary.class.getMethod(methodName, parameterTypes);
         assertThat(method.isAnnotationPresent(ActivateRequestContext.class))
-                .as(methodName + " activates CDI request context")
-                .isTrue();
+                .as(methodName + " must use the caller-owned CDI request context")
+                .isFalse();
         assertThat(method.isAnnotationPresent(Transactional.class))
                 .as(methodName + " must not be transactional on the request context boundary")
                 .isFalse();
