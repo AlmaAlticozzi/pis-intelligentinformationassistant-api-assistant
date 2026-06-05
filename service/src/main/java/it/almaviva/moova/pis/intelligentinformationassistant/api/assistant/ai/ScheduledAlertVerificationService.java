@@ -29,6 +29,9 @@ public class ScheduledAlertVerificationService {
     ScheduledAlertTemporalHintsExtractor temporalHintsExtractor;
 
     @Inject
+    ScheduledAlertPlatformHintsExtractor platformHintsExtractor;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
 
     public AlertVerificationOutcome verify(
@@ -89,6 +92,10 @@ public class ScheduledAlertVerificationService {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][TEMPORAL_HINTS] hasJourneyTimeFilter="
                 + temporalHints.hasJourneyTimeFilter()
                 + " journeyTimeFilters=" + temporalHints.journeyTimeFilters());
+        ScheduledAlertPlatformHints platformHints = platformHints(originalPrompt);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PLATFORM_HINTS] hasPlatformConstraint="
+                + platformHints.hasPlatformConstraint()
+                + " constraints=" + platformHints.constraints());
 
         LlmRequest request = promptBuilder.build(new ScheduledAlertVerificationPromptData(
                 alertId,
@@ -97,7 +104,8 @@ public class ScheduledAlertVerificationService {
                 originalPrompt,
                 route,
                 locationContext,
-                temporalHints));
+                temporalHints,
+                platformHints));
         int systemPromptLength = promptLength(request.systemPrompt());
         int userPromptLength = promptLength(request.userPrompt());
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT] promptLength="
@@ -128,7 +136,7 @@ public class ScheduledAlertVerificationService {
                     + " technicalSpecificationPresent=" + (parsed.technicalSpecification() != null)
                     + " agentBlueprintPreviewPresent=" + (parsed.agentBlueprintPreview() != null));
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision before validation=" + parsed.decision());
-            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route, temporalHints);
+            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route, temporalHints, platformHints);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] final validator decision="
                     + validated.decision() + " rejectedReason=" + validated.rejectedReason());
             printOutcome(validated);
@@ -151,6 +159,14 @@ public class ScheduledAlertVerificationService {
         ScheduledAlertTemporalHintsExtractor extractor = temporalHintsExtractor;
         if (extractor == null) {
             extractor = new ScheduledAlertTemporalHintsExtractor();
+        }
+        return extractor.extract(originalPrompt);
+    }
+
+    private ScheduledAlertPlatformHints platformHints(String originalPrompt) {
+        ScheduledAlertPlatformHintsExtractor extractor = platformHintsExtractor;
+        if (extractor == null) {
+            extractor = new ScheduledAlertPlatformHintsExtractor();
         }
         return extractor.extract(originalPrompt);
     }

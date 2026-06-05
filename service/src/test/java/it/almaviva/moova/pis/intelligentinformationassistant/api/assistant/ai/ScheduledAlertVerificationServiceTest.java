@@ -558,6 +558,95 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesDeparturePlatformEqualityConstraint() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", "3"));
+        TestFixture fixture = fixture(json(validResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled platform threshold",
+                "Scheduled ServiceData platform threshold test",
+                "Avvertimi quando sono presenti almeno 2 treni a Gorla che partono dal binario 3",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsWhenPlatformPromptOmitsPlatformCondition() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureDelay.delay", "GREATER_THAN", 0));
+        TestFixture fixture = fixture(json(validResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled platform omitted",
+                "Scheduled ServiceData platform omitted test",
+                "Avvertimi quando sono presenti almeno 2 treni a Gorla che partono dal binario 3",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Platform constraint was requested");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void verifiesDeparturePlatformGreaterThanReport() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", 2));
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled platform report",
+                "Scheduled ServiceData platform report test",
+                "Fammi sapere quanti treni partono da Garibaldi FS da binario maggiore di 2",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesGenericPlatformChangeBoolean() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("changes", "CONTAINS", "PLATFORM_CHANGED"));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled platform change",
+                "Scheduled ServiceData platform change test",
+                "Fammi sapere se a San Siro Stadio ci sono treni che hanno subito un cambio di binario",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsPlatformChangeMappedToEventField() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("payload.ongroundServiceEvent.eventsType", "CONTAINS", "PLATFORM_CHANGED"));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled platform change event field",
+                "Scheduled ServiceData platform change event field test",
+                "Fammi sapere se a San Siro Stadio ci sono treni che hanno subito un cambio di binario",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("payload.ongroundServiceEvent");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
     void rejectsMalformedInOperatorUsingValueArray() {
         ScheduledServiceDataLocationContext context = originFilterContext();
         Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
@@ -585,6 +674,7 @@ class ScheduledAlertVerificationServiceTest {
         service.responseParser = new ScheduledAlertVerificationResponseParser();
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
         service.temporalHintsExtractor = temporalHintsExtractor();
+        service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -606,6 +696,7 @@ class ScheduledAlertVerificationServiceTest {
         service.responseParser = new ScheduledAlertVerificationResponseParser();
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
         service.temporalHintsExtractor = temporalHintsExtractor();
+        service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);

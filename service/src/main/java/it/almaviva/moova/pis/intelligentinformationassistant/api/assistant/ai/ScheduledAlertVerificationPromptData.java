@@ -9,5 +9,17 @@ public record ScheduledAlertVerificationPromptData(
         String originalPrompt,
         AlertRouteUnderstandingResult route,
         ScheduledServiceDataLocationContext locationContext,
-        ScheduledAlertTemporalHints temporalHints) {
+        ScheduledAlertTemporalHints temporalHints,
+        ScheduledAlertPlatformHints platformHints) {
+
+    public ScheduledAlertVerificationPromptData(
+            String alertId,
+            String name,
+            String description,
+            String originalPrompt,
+            AlertRouteUnderstandingResult route,
+            ScheduledServiceDataLocationContext locationContext,
+            ScheduledAlertTemporalHints temporalHints) {
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, ScheduledAlertPlatformHints.empty());
+    }
 }

@@ -210,6 +210,30 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsArrivalPlatformEquality() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledArrivalPlatform.dsc", "EQUAL_PLATFORM", "1")));
+    }
+
+    @Test
+    void acceptsPlatformNumberGreaterThan() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", 2)));
+    }
+
+    @Test
+    void acceptsPlatformNumberBetween() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 2, "max", 5))));
+    }
+
+    @Test
+    void acceptsPlatformNumberEven() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "PLATFORM_NUMBER_EVEN")));
+    }
+
+    @Test
     void acceptsPlatformFieldToFieldComparison() {
         assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
                 Map.of(
@@ -222,6 +246,12 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     void acceptsChangesEnum() {
         assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("changes", "CONTAINS", "PLATFORM_CHANGED")));
+    }
+
+    @Test
+    void acceptsDeparturePlatformChangedStatus() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_PLATFORM_CHANGED")));
     }
 
     @Test
@@ -310,12 +340,77 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsPlatformNumberOperatorOnNonPlatformField() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("stopPoint.id", "PLATFORM_NUMBER_GREATER_THAN", 2)), "PLATFORM_NUMBER_GREATER_THAN");
+    }
+
+    @Test
+    void rejectsPlatformBetweenWithInvalidRange() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 5, "max", 2))),
+                "min less than or equal to max");
+    }
+
+    @Test
+    void rejectsPlatformMultipleOfZero() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", 0)),
+                "value greater than 0");
+    }
+
+    @Test
+    void rejectsPlatformFieldComparisonMissingOtherField() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of(
+                        "field", "timetabledDeparturePlatform.dsc",
+                        "operator", "PLATFORM_NOT_EQUALS_FIELD")), "otherField");
+    }
+
+    @Test
     void rejectsPlatformFieldComparisonWithNonPlatformOtherField() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
                 Map.of(
                         "field", "timetabledDeparturePlatform.dsc",
                         "operator", "PLATFORM_NOT_EQUALS_FIELD",
                         "otherField", "vehicleJourneyName")), "otherField");
+    }
+
+    @Test
+    void rejectsWhenPlatformHintIsNotCoveredByCondition() {
+        assertRejected(
+                validOutcome(technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("departureDelay.delay", "GREATER_THAN", 0))), blueprint()),
+                null,
+                null,
+                null,
+                new ScheduledAlertPlatformHints(true, List.of(new ScheduledAlertPlatformConstraint(
+                        "binario 3",
+                        ScheduledAlertPlatformConstraint.Direction.DEPARTURE,
+                        ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS,
+                        "3",
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                        0.9)), List.of()),
+                "Platform constraint was requested");
+    }
+
+    @Test
+    void rejectsPlatformValueInServiceDataQueryStopPoints() {
+        assertRejected(
+                validOutcome(
+                        technicalSpecification(List.of("3"), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                                conditionAnyElement("stopPointsJourneyDetails[]",
+                                        leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", "3"))),
+                        blueprint(List.of("3"), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                null,
+                null,
+                null,
+                platformHints(),
+                "Platform values must not appear in serviceDataQuery.stopPoints");
     }
 
     @Test
@@ -1071,6 +1166,21 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.agentBlueprintPreview()).isNull();
     }
 
+    private void assertRejected(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(outcome, context, route, temporalHints, platformHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
     private void assertVerified(Map<String, Object> condition) {
         AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
 
@@ -1254,6 +1364,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         ScheduledAlertJourneyTimeFilter.TargetRoleHint.UNKNOWN,
                         "Europe/Rome")),
                 List.of());
+    }
+
+    private ScheduledAlertPlatformHints platformHints() {
+        return new ScheduledAlertPlatformHints(true, List.of(new ScheduledAlertPlatformConstraint(
+                "binario 3",
+                ScheduledAlertPlatformConstraint.Direction.DEPARTURE,
+                ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS,
+                "3",
+                List.of(),
+                null,
+                null,
+                null,
+                ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                0.9)), List.of());
     }
 
     private void withSchedule(

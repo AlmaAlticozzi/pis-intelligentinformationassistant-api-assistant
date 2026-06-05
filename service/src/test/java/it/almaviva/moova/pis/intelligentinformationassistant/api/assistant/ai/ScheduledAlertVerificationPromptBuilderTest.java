@@ -185,6 +185,39 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptContainsScheduledPlatformRules() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Platform alert",
+                null,
+                "Avvertimi quando sono presenti almeno 2 treni a Gorla che partono dal binario 3",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext(),
+                defaultTemporalHints(),
+                new ScheduledAlertPlatformHints(true, List.of(new ScheduledAlertPlatformConstraint(
+                        "binario 3",
+                        ScheduledAlertPlatformConstraint.Direction.DEPARTURE,
+                        ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS,
+                        "3",
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                        0.9)), List.of())));
+
+        assertThat(request.userPrompt())
+                .contains("Platform/binario/track/quay/banchina/marciapiede are not locations")
+                .contains("Platform constraints must be placed inside snapshotEvaluation.condition")
+                .contains("Never put platform values in serviceDataQuery.stopPoints")
+                .contains("serviceDataQuery.stopPoints must come only from context.serviceDataApiStopPoints")
+                .contains("\"operator\": \"EQUAL_PLATFORM\"")
+                .contains("\"operator\": \"PLATFORM_NUMBER_BETWEEN\"")
+                .contains("\"operator\": \"PLATFORM_NOT_EQUALS_FIELD\"")
+                .contains("changes CONTAINS PLATFORM_CHANGED");
+    }
+
+    @Test
     void promptContainsReplacementCancellationPlatformAndChangeRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 

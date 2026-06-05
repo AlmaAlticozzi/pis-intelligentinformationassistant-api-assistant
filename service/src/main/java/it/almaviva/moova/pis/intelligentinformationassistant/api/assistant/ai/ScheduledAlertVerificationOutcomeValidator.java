@@ -103,6 +103,15 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledServiceDataLocationContext scheduledLocationContext,
             AlertRouteUnderstandingResult route,
             ScheduledAlertTemporalHints temporalHints) {
+        return validate(outcome, scheduledLocationContext, route, temporalHints, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -126,7 +135,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -138,7 +147,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext scheduledLocationContext,
             AlertRouteUnderstandingResult route,
-            ScheduledAlertTemporalHints temporalHints) {
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -197,6 +207,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (journeyTimeFailure != null) {
             return journeyTimeFailure;
         }
+        String platformFailure = validatePlatformHints(outcome.technicalSpecification(), platformHints);
+        if (platformFailure != null) {
+            return platformFailure;
+        }
         String unsupportedTemporalFailure = validateUnsupportedTemporalClaims(outcome);
         if (unsupportedTemporalFailure != null) {
             return unsupportedTemporalFailure;
@@ -233,6 +247,53 @@ public class ScheduledAlertVerificationOutcomeValidator {
             }
         }
         return null;
+    }
+
+    private String validatePlatformHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertPlatformHints hints) {
+        if (hints == null || !hints.hasPlatformConstraint()) {
+            return null;
+        }
+        Map<String, Object> serviceDataQuery = asMap(technicalSpecification.get("serviceDataQuery"));
+        for (String stopPoint : stringList(serviceDataQuery == null ? null : serviceDataQuery.get("stopPoints"))) {
+            if (!STOP_POINT_ID_PATTERN.matcher(stopPoint).matches()) {
+                return "Platform values must not appear in serviceDataQuery.stopPoints.";
+            }
+        }
+
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        boolean covered = leaves.stream().anyMatch(this::isPlatformLeaf);
+        if (!covered) {
+            return "Platform constraint was requested but not represented in snapshotEvaluation.condition.";
+        }
+        return null;
+    }
+
+    private boolean isPlatformLeaf(ConditionLeaf leaf) {
+        if (leaf == null || leaf.resolvedField() == null || leaf.operator() == null) {
+            return false;
+        }
+        ScheduledServiceDataCapabilityCatalog.FieldCapability capability =
+                ScheduledServiceDataCapabilityCatalog.findField(leaf.resolvedField()).orElse(null);
+        if (capability != null && capability.type() == ScheduledServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+            return true;
+        }
+        if (leaf.resolvedField().endsWith("changes")
+                && "CONTAINS".equals(leaf.operator())
+                && leaf.values().stream().anyMatch(value -> "PLATFORM_CHANGED".equals(stringValue(value)))) {
+            return true;
+        }
+        if ((leaf.resolvedField().endsWith("arrivalStatuses[].status")
+                || leaf.resolvedField().endsWith("departureStatuses[].status"))
+                && ("CONTAINS".equals(leaf.operator()) || "CONTAINS_ANY".equals(leaf.operator()))) {
+            return leaf.values().stream()
+                    .map(this::stringValue)
+                    .anyMatch(value -> value != null && value.contains("PLATFORM_CHANGED"));
+        }
+        return false;
     }
 
     private boolean matchesJourneyTimeHint(

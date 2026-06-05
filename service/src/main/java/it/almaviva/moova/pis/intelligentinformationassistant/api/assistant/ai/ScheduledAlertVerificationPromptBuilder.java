@@ -72,6 +72,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 alertInputSection(data),
                 routeSection(data == null ? null : data.route()),
                 temporalHintsSection(data == null ? null : data.temporalHints()),
+                platformHintsSection(data == null ? null : data.platformHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
                 highPriorityMvpRulesSection(),
@@ -91,6 +92,17 @@ public class ScheduledAlertVerificationPromptBuilder {
                     - Use default schedule.frequencySeconds and default ServiceData API lookahead values from the Defaults section.
                     - schedule.defaulted must be true when no explicit user frequency is known.
                     - timeWindow.defaulted must be true when no explicit user visibility window is known.
+                    """;
+        }
+        return hints.compactPromptSection();
+    }
+
+    private String platformHintsSection(ScheduledAlertPlatformHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived platform/binario hints: unavailable.
+                    - Still treat platform/binario/track/quay/banchina/marciapiede as non-location constraints.
+                    - Never place platform values in serviceDataQuery.stopPoints.
                     """;
         }
         return hints.compactPromptSection();
@@ -490,12 +502,26 @@ public class ScheduledAlertVerificationPromptBuilder {
 
                 Platforms:
                 - Platform/binario/track/quay/banchina/marciapiede are not locations; they are non-location constraints.
+                - Platform constraints must be placed inside snapshotEvaluation.condition.
+                - Never put platform values in serviceDataQuery.stopPoints.
+                - Never treat "binario 3" or "platform 3" as a stop point.
+                - Use only ScheduledServiceDataCapabilityCatalog platform fields and operators.
                 - Do not classify as scheduled only because a number exists; distinguish platform values from journey counts.
                 - Simple departure platform equality defaults to timetabledDeparturePlatform.dsc EQUAL_PLATFORM unless actual/current/effective/real is explicit.
+                  Shape: {"field": "timetabledDeparturePlatform.dsc", "operator": "EQUAL_PLATFORM", "value": "3"}.
                 - Simple arrival platform equality defaults to timetabledArrivalPlatform.dsc EQUAL_PLATFORM unless actual/current/effective/real is explicit.
+                  Shape: {"field": "timetabledArrivalPlatform.dsc", "operator": "EQUAL_PLATFORM", "value": "1"}.
+                - If actual/current/effective/real platform is explicit, use actualDeparturePlatform.platform.dsc, actualDeparturePlatform.displayPlatform.dsc, actualArrivalPlatform.platform.dsc, or actualArrivalPlatform.displayPlatform.dsc when catalog-supported.
+                - If direction is unspecified, infer departure from departure wording, arrival from arrival wording; if still unclear use an OR over arrival and departure platform fields or reject if ambiguity is too high.
+                - Platform numeric/property operators must be used on platform .dsc fields:
+                  PLATFORM_NUMBER_GREATER_THAN, PLATFORM_NUMBER_GREATER_OR_EQUAL, PLATFORM_NUMBER_LESS_THAN, PLATFORM_NUMBER_LESS_OR_EQUAL, PLATFORM_NUMBER_BETWEEN, PLATFORM_NUMBER_EVEN, PLATFORM_NUMBER_ODD, PLATFORM_NUMBER_DOUBLE_DIGIT, PLATFORM_HAS_LETTER_SUFFIX, PLATFORM_NUMBER_MULTIPLE_OF.
+                  Shape: {"field": "timetabledDeparturePlatform.dsc", "operator": "PLATFORM_NUMBER_GREATER_THAN", "value": 2}.
+                  Between shape: {"field": "timetabledDeparturePlatform.dsc", "operator": "PLATFORM_NUMBER_BETWEEN", "value": {"min": 2, "max": 5}}.
                 - Platform change uses changes CONTAINS PLATFORM_CHANGED when direction is unspecified.
                 - Departure platform change may use departureStatuses[].status CONTAINS DEPARTURE_PLATFORM_CHANGED or timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc.
                 - Arrival platform change may use arrivalStatuses[].status CONTAINS ARRIVAL_PLATFORM_CHANGED or timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc.
+                - PLATFORM_NOT_EQUALS_FIELD shape: {"field": "timetabledDeparturePlatform.dsc", "operator": "PLATFORM_NOT_EQUALS_FIELD", "otherField": "actualDeparturePlatform.platform.dsc"}.
+                - Platform constraints on journeys must be inside the same stopPointsJourneyDetails[] anyElement as delay/time/origin conditions for the same journey.
 
                 Origin/destination/route/cancelled calls:
                 - monitored X, origin Y -> serviceDataQuery.stopPoints=[X id], condition on callStart.stopPoint.id=Y id.
