@@ -7,12 +7,12 @@
     <parent>
         <groupId>it.almaviva.moova.pis</groupId>
         <artifactId>pis-intelligentinformationassistant-parent-assistant</artifactId>
-        <version>0.0.1</version>
+        <version>0.1.0</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>pis-intelligentinformationassistant-repository-assistant</artifactId>
-    <version>0.0.1</version>
+    <version>0.1.0</version>
     <packaging>jar</packaging>
     <name>repository</name>
 
