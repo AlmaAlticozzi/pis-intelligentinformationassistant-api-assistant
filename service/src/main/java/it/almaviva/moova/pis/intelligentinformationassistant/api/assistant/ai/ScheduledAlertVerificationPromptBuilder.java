@@ -305,8 +305,13 @@ public class ScheduledAlertVerificationPromptBuilder {
                   outputPolicy.includeCount = true.
                   threshold must be null or absent.
                   Do not use COUNT_MATCHING_JOURNEYS for reports.
+                - Phrases such as how many, count, number of, quanti/quante, numero di, dimmi quante, and fammi sapere quanti are report/count intent unless the user also expresses an explicit trigger threshold.
+                - This remains a report/count intent even when the prompt includes filter/control locations such as origin X, destination Y, route includes Z, cancelled stop K, or not destination W.
+                - Do not convert "for monitored stop X, tell me how many journeys have origin Y" into COUNT_MATCHING_JOURNEYS threshold >= 1.
                 - Meaning example: "Every 10 minutes tell me how many delayed journeys are at stop X".
                   Expected: REPORT_COUNT + EVERY_RUN + no threshold.
+                - Meaning example: "For monitored stop X, tell me how many journeys have origin Y".
+                  Expected: REPORT_COUNT + EVERY_RUN + no threshold; map origin Y as a filter condition.
 
                 2. Conditional threshold intent:
                 - If the user asks to notify when/if at least/more than/exactly N journeys match:

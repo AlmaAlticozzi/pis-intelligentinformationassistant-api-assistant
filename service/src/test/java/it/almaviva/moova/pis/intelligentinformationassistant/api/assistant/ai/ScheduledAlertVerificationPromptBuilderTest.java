@@ -116,6 +116,25 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptKeepsHowManyWithFilterLocationsAsReportCount() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Origin filter report",
+                null,
+                "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("quanti/quante")
+                .contains("fammi sapere quanti")
+                .contains("This remains a report/count intent even when the prompt includes filter/control locations")
+                .contains("origin X")
+                .contains("Do not convert \"for monitored stop X, tell me how many journeys have origin Y\" into COUNT_MATCHING_JOURNEYS threshold >= 1")
+                .contains("Expected: REPORT_COUNT + EVERY_RUN + no threshold; map origin Y as a filter condition");
+    }
+
+    @Test
     void promptSaysMonitoredStopPointsAreCoveredByServiceDataQuery() {
         LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
                 "ALRT1",

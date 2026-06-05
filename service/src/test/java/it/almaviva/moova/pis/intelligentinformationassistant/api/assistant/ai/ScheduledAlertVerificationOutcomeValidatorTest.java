@@ -432,6 +432,43 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsCountMatchingJourneysForSnapshotReportRoute() {
+        AlertVerificationOutcome outcome = validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "COUNT_MATCHING_JOURNEYS",
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI)),
+                        Map.of("operator", "GREATER_OR_EQUAL", "value", 1),
+                        "ON_MATCH",
+                        true),
+                blueprint());
+
+        AlertVerificationOutcome validated = validator.validate(outcome, null, reportRoute());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("SNAPSHOT_REPORT route requires REPORT_COUNT or REPORT_MATCHING_JOURNEYS");
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void acceptsReportCountForSnapshotReportRouteWithOriginFilter() {
+        AlertVerificationOutcome outcome = validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI)),
+                        null,
+                        "EVERY_RUN",
+                        true),
+                blueprint());
+
+        AlertVerificationOutcome validated = validator.validate(outcome, null, reportRoute());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsExplicitMonitoredOnlyContext() {
         assertVerifiedWithContext(
                 validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -776,6 +813,27 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 coverage(),
                 List.of(),
                 List.of("No executable code generated."));
+    }
+
+    private AlertRouteUnderstandingResult reportRoute() {
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                List.of("SERVICE_DATA"),
+                "SERVICE_DATA",
+                AlertRouteInterpreterType.SCHEDULED_INTERPRETER,
+                AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT,
+                AlertRouteIntentKind.SNAPSHOT_REPORT,
+                AlertRouteOutputMode.EVERY_RUN_REPORT,
+                true,
+                true,
+                false,
+                true,
+                false,
+                true,
+                0.95,
+                "Scheduled report route.",
+                null,
+                List.of());
     }
 
     private Map<String, Object> technicalSpecification() {

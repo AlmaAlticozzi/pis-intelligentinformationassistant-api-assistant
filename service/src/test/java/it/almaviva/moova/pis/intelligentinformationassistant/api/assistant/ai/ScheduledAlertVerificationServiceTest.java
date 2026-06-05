@@ -28,6 +28,8 @@ class ScheduledAlertVerificationServiceTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String GORLA = "TNPNTS00000000000001";
+    private static final String PERO = "TNPNTS00000000000002";
+    private static final String GARIBALDI = "TNPNTS00000000000003";
     private static final String VAREDO = "TNPNTS00000000000101";
     private static final String PALAZZOLO = "TNPNTS00000000000102";
     private static final String INVENTED = "TNPNTS99999999999999";
@@ -178,6 +180,58 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void rejectsOriginFilterReportResponseUsingCountMatchingJourneysThresholdOne() {
+        ScheduledServiceDataLocationContext context = originFilterContext();
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI));
+        Map<String, Object> response = validResponse(context, condition);
+        Map<String, Object> technical = map(response.get("technicalSpecification"));
+        Map<String, Object> snapshotEvaluation = map(technical.get("snapshotEvaluation"));
+        snapshotEvaluation.put("threshold", Map.of("operator", "GREATER_OR_EQUAL", "value", 1));
+
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Origin filter report",
+                "Scheduled ServiceData origin filter report test",
+                "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("SNAPSHOT_REPORT route requires REPORT_COUNT or REPORT_MATCHING_JOURNEYS");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void verifiesOriginFilterReportResponseUsingReportCount() {
+        ScheduledServiceDataLocationContext context = originFilterContext();
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Origin filter report",
+                "Scheduled ServiceData origin filter report test",
+                "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of(PERO));
+        assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .containsEntry("mode", "REPORT_COUNT")
+                .containsEntry("threshold", null);
+        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "EVERY_RUN")
+                .containsEntry("includeCount", true);
+    }
+
+    @Test
     void rejectsReportResponseUsingCountMatchingJourneysWithoutThreshold() {
         Map<String, Object> response = validReportResponse(explicitContext(), delayCondition());
         Map<String, Object> technical = map(response.get("technicalSpecification"));
@@ -196,7 +250,7 @@ class ScheduledAlertVerificationServiceTest {
                 explicitContext());
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(outcome.rejectedReason()).contains("COUNT_MATCHING_JOURNEYS requires threshold");
+        assertThat(outcome.rejectedReason()).contains("SNAPSHOT_REPORT route requires REPORT_COUNT or REPORT_MATCHING_JOURNEYS");
         assertThat(outcome.technicalSpecification()).isNull();
         assertThat(outcome.agentBlueprintPreview()).isNull();
     }
@@ -494,6 +548,52 @@ class ScheduledAlertVerificationServiceTest {
                         ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS,
                         List.of(),
                         true));
+    }
+
+    private ScheduledServiceDataLocationContext originFilterContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Pero",
+                "Pero",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(PERO),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(new ScheduledServiceDataResolvedLocation(
+                "Garibaldi FS",
+                "Garibaldi FS",
+                ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GARIBALDI),
+                List.of(),
+                false,
+                false,
+                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id",
+                        "stopPointsJourneyDetails[].callStart.stopPoint.nameLong"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
+                List.of(),
+                List.of(PERO),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(PERO),
+                        false));
     }
 
     private ScheduledServiceDataLocationContext multiMonitoredContext() {

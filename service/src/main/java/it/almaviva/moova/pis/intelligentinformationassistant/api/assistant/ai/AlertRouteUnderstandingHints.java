@@ -54,7 +54,8 @@ public record AlertRouteUnderstandingHints(
         boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
         boolean platform = PLATFORM.matcher(normalized).find();
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
-        boolean cardinality = countOrReport || (hasVehicleNoun && quantifiedVehicle);
+        boolean threshold = THRESHOLD.matcher(normalized).find();
+        boolean cardinality = threshold || (hasVehicleNoun && quantifiedVehicle);
         boolean multiLocation = snapshotState
                 && (normalized.contains(" e ") || normalized.contains(" and "))
                 && (normalized.contains(" a ") || normalized.contains(" at "));

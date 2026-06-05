@@ -81,12 +81,19 @@ public class ScheduledAlertVerificationOutcomeValidator {
             "STATELESS_EVENT_MATCH");
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome) {
-        return validate(outcome, null);
+        return validate(outcome, null, null);
     }
 
     public AlertVerificationOutcome validate(
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext scheduledLocationContext) {
+        return validate(outcome, scheduledLocationContext, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -110,7 +117,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext);
+        String failure = validateVerified(outcome, scheduledLocationContext, route);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -120,7 +127,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private String validateVerified(
             AlertVerificationOutcome outcome,
-            ScheduledServiceDataLocationContext scheduledLocationContext) {
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -167,7 +175,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (conditionFailure != null) {
             return conditionFailure;
         }
-        String semanticFailure = validateSnapshotEvaluationSemantics(outcome.technicalSpecification());
+        String semanticFailure = validateSnapshotEvaluationSemantics(outcome.technicalSpecification(), route);
         if (semanticFailure != null) {
             return semanticFailure;
         }
@@ -180,7 +188,9 @@ public class ScheduledAlertVerificationOutcomeValidator {
         return null;
     }
 
-    private String validateSnapshotEvaluationSemantics(Map<String, Object> technicalSpecification) {
+    private String validateSnapshotEvaluationSemantics(
+            Map<String, Object> technicalSpecification,
+            AlertRouteUnderstandingResult route) {
         Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
         Map<String, Object> outputPolicy = asMap(technicalSpecification.get("outputPolicy"));
         String mode = stringValue(snapshotEvaluation == null ? null : snapshotEvaluation.get("mode"));
@@ -188,6 +198,18 @@ public class ScheduledAlertVerificationOutcomeValidator {
         Object threshold = snapshotEvaluation == null ? null : snapshotEvaluation.get("threshold");
         boolean thresholdPresent = threshold instanceof Map<?, ?> thresholdMap && !thresholdMap.isEmpty();
         Boolean includeCount = outputPolicy == null ? null : booleanValue(outputPolicy.get("includeCount"));
+
+        if (isReportRoute(route)) {
+            if (!"REPORT_COUNT".equals(mode) && !"REPORT_MATCHING_JOURNEYS".equals(mode)) {
+                return "SNAPSHOT_REPORT route requires REPORT_COUNT or REPORT_MATCHING_JOURNEYS, not " + mode + ".";
+            }
+            if (!"EVERY_RUN".equals(emit)) {
+                return "SNAPSHOT_REPORT route requires outputPolicy.emit EVERY_RUN.";
+            }
+            if (thresholdPresent) {
+                return "SNAPSHOT_REPORT route must not contain threshold.";
+            }
+        }
 
         if ("COUNT_MATCHING_JOURNEYS".equals(mode)) {
             if (!thresholdPresent) {
@@ -226,6 +248,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return "BOOLEAN_EXISTS must not use outputPolicy.emit EVERY_RUN for this MVP.";
         }
         return null;
+    }
+
+    private boolean isReportRoute(AlertRouteUnderstandingResult route) {
+        return route != null
+                && (route.intentKind() == AlertRouteIntentKind.SNAPSHOT_REPORT
+                || route.outputMode() == AlertRouteOutputMode.EVERY_RUN_REPORT);
     }
 
     private String validateTechnicalSpecification(Map<String, Object> technicalSpecification) {

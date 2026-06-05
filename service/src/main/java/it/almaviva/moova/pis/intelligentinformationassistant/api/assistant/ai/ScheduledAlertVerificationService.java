@@ -93,7 +93,7 @@ public class ScheduledAlertVerificationService {
 
             AlertVerificationOutcome parsed = parseResult.outcome().get();
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] parsed decision=" + parsed.decision());
-            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext);
+            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] validator decision="
                     + validated.decision() + " rejectedReason=" + validated.rejectedReason());
             printOutcome(validated);

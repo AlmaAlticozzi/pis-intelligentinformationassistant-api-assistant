@@ -153,6 +153,26 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesCountReportWithOriginFilterToScheduledSnapshotReport() {
+        String prompt = "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, true, false),
+                prompt,
+                hints);
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+        assertThat(validated.hasCardinalityThreshold()).isFalse();
+        assertThat(validated.hasReportIntent()).isTrue();
+    }
+
+    @Test
     void pollingCountPromptCannotRemainEventInterpreter() {
         String prompt = "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi";
 

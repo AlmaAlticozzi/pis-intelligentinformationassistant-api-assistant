@@ -72,6 +72,9 @@ public class AlertRouteUnderstandingValidator {
             if (shouldNormalizeScheduledRouteToEvent(originalPrompt, safeHints)) {
                 return normalizeScheduledRouteToEvent(route, domains, primaryDomain);
             }
+            if (shouldNormalizeScheduledConditionToReport(route, safeHints)) {
+                return normalizeScheduledConditionToReport(route, domains, primaryDomain);
+            }
             return validateScheduledRoute(route, domains, primaryDomain);
         }
         return rejected("Routed alert requires EVENT_INTERPRETER or SCHEDULED_INTERPRETER.");
@@ -143,6 +146,43 @@ public class AlertRouteUnderstandingValidator {
                 false,
                 false,
                 false,
+                route.confidence(),
+                route.summary(),
+                route.rejectedReason(),
+                mergeWarning(route.warnings(), warning));
+    }
+
+    private boolean shouldNormalizeScheduledConditionToReport(
+            AlertRouteUnderstandingResult route,
+            AlertRouteUnderstandingHints hints) {
+        return hints.containsCountOrReportExpression()
+                && !hints.containsCardinalityThresholdExpression()
+                && (route.intentKind() != AlertRouteIntentKind.SNAPSHOT_REPORT
+                || route.outputMode() != AlertRouteOutputMode.EVERY_RUN_REPORT
+                || route.hasCardinalityThreshold()
+                || !route.hasReportIntent());
+    }
+
+    private AlertRouteUnderstandingResult normalizeScheduledConditionToReport(
+            AlertRouteUnderstandingResult route,
+            List<String> domains,
+            String primaryDomain) {
+        String warning = "Route normalized to SNAPSHOT_REPORT because backend hints detected count/report intent without threshold semantics.";
+        System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] intent=SNAPSHOT_REPORT outputMode=EVERY_RUN_REPORT reason=count/report intent without threshold");
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                domains,
+                primaryDomain,
+                AlertRouteInterpreterType.SCHEDULED_INTERPRETER,
+                AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT,
+                AlertRouteIntentKind.SNAPSHOT_REPORT,
+                AlertRouteOutputMode.EVERY_RUN_REPORT,
+                true,
+                true,
+                false,
+                true,
+                false,
+                true,
                 route.confidence(),
                 route.summary(),
                 route.rejectedReason(),

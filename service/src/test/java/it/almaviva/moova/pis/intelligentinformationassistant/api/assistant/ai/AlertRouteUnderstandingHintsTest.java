@@ -33,6 +33,16 @@ class AlertRouteUnderstandingHintsTest {
 
         assertThat(hints.containsPlatformExpression()).isTrue();
         assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
+    void countReportWithOriginFilterIsNotCardinalityThreshold() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS");
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
     }
 
     @Test
