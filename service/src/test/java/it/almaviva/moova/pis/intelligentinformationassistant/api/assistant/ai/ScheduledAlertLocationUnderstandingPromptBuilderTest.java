@@ -42,6 +42,8 @@ class ScheduledAlertLocationUnderstandingPromptBuilderTest {
                 .contains("FILTER_DESTINATION_STOP_POINT")
                 .contains("FILTER_ROUTE_STOP_POINT")
                 .contains("FILTER_CANCELLED_CALL_STOP_POINT")
+                .contains("fermata soppressa")
+                .contains("MONITORED_STOP_POINT and Y is FILTER_CANCELLED_CALL_STOP_POINT")
                 .contains("must keep polarity=EXCLUDE")
                 .contains("binario, platform, track, quay, banchina or marciapiede")
                 .contains("PLATFORM_NUMERIC");

@@ -374,6 +374,51 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void routesSnapshotSpecificCancelledStopReportToScheduledInterpreter() {
+        String prompt = "Fammi sapere quante corse a Milano Bruzzano Parco hanno come fermata soppressa Palazzolo Milanese";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+    }
+
+    @Test
+    void routesSnapshotSkippedStopReportToScheduledInterpreter() {
+        String prompt = "Per Garibaldi FS dimmi quante corse saltano Bovisa";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+    }
+
+    @Test
+    void routesSnapshotGenericSuppressedStopsBooleanToScheduledInterpreter() {
+        String prompt = "Fammi sapere se a Garibaldi FS ci sono treni con fermate soppresse";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+    }
+
+    @Test
+    void keepsSingleSuppressedStopOccurrenceAsEventInterpreter() {
+        String prompt = "Avvisami quando una corsa sopprime la fermata Bovisa a Garibaldi FS";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+    }
+
+    @Test
     void normalizesUnsafeScheduledPlatformPromptBackToEventInterpreter() {
         String prompt = "Avvisami quando una corsa arriva a Garibaldi sul binario 1";
         AlertRouteUnderstandingResult validated = validator.validate(

@@ -73,6 +73,14 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - A location governed by "passes through/calls at/via" is FILTER_ROUTE_STOP_POINT.
                 - A location governed by "transits through/non-stopping transit" is FILTER_TRANSIT_STOP_POINT.
                 - A location governed by "cancelled/suppressed/skipped stop" is FILTER_CANCELLED_CALL_STOP_POINT.
+                - A stop point governed by "suppressed stop", "cancelled stop", "skipped stop", "cancelled call",
+                  "fermata soppressa", "fermata cancellata", "salta la fermata" or equivalent wording is
+                  FILTER_CANCELLED_CALL_STOP_POINT.
+                - It is a filter/control location, not the monitored stop point, unless the prompt also says "at/in/for
+                  location X" for monitoring.
+                - Example meaning: "at monitored location X, journeys with suppressed stop Y" -> X is
+                  MONITORED_STOP_POINT and Y is FILTER_CANCELLED_CALL_STOP_POINT.
+                - Do not treat "fermata soppressa" itself as a location.
                 - A location governed by "replacement stop" is FILTER_REPLACEMENT_STOP_POINT.
                 - Replacement source route start/end means FILTER_REPLACEMENT_SOURCE_START_STOP_POINT or
                   FILTER_REPLACEMENT_SOURCE_END_STOP_POINT.

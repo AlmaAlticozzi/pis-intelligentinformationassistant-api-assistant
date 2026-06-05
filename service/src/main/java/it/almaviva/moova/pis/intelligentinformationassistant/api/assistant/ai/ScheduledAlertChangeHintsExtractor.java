@@ -30,6 +30,7 @@ public class ScheduledAlertChangeHintsExtractor {
         if (normalized == null || normalized.isBlank()) {
             return ScheduledAlertChangeHints.empty();
         }
+        boolean cancelledCallContext = ScheduledAlertCancelledCallHintsExtractor.containsCancelledCallWording(prompt);
         List<ScheduledAlertChangeConstraint> constraints = new ArrayList<>();
         ScheduledAlertChangeConstraint.Polarity polarity = NEGATIVE.matcher(normalized).find()
                 ? ScheduledAlertChangeConstraint.Polarity.EXCLUDE
@@ -44,7 +45,9 @@ public class ScheduledAlertChangeHintsExtractor {
         add(normalized, prompt, constraints, DEPARTURE_CANCELLATION, ScheduledAlertChangeConstraint.ChangeIntent.DEPARTURE_CANCELLATION, polarity);
         add(normalized, prompt, constraints, TOTAL_EXCLUSION, ScheduledAlertChangeConstraint.ChangeIntent.TOTAL_EXCLUSION, polarity);
         add(normalized, prompt, constraints, TIME_BASED_EXCLUSION, ScheduledAlertChangeConstraint.ChangeIntent.TIME_BASED_EXCLUSION, polarity);
-        addGenericCancellation(normalized, prompt, constraints, polarity);
+        if (!cancelledCallContext) {
+            addGenericCancellation(normalized, prompt, constraints, polarity);
+        }
 
         return constraints.isEmpty()
                 ? ScheduledAlertChangeHints.empty()

@@ -122,6 +122,17 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints) {
+        return validate(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -145,7 +156,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -159,7 +170,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             AlertRouteUnderstandingResult route,
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
-            ScheduledAlertChangeHints changeHints) {
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -225,6 +237,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String changeFailure = validateChangeHints(outcome.technicalSpecification(), changeHints);
         if (changeFailure != null) {
             return changeFailure;
+        }
+        String cancelledCallFailure = validateCancelledCallHints(outcome.technicalSpecification(), cancelledCallHints);
+        if (cancelledCallFailure != null) {
+            return cancelledCallFailure;
         }
         String unsupportedTemporalFailure = validateUnsupportedTemporalClaims(outcome);
         if (unsupportedTemporalFailure != null) {
@@ -384,8 +400,27 @@ public class ScheduledAlertVerificationOutcomeValidator {
                     && !("CONTAINS".equals(expectedOperator) && "CONTAINS_ANY".equals(leaf.operator()))) {
                 return false;
             }
+            if (expectedValue == null) {
+                return true;
+            }
             return leaf.values().stream().anyMatch(value -> expectedValue.equals(value));
         });
+    }
+
+    private String validateCancelledCallHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertCancelledCallHints hints) {
+        if (hints == null || !hints.hasCancelledCallConstraint()) {
+            return null;
+        }
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        if (hints.genericAnyCancelledCallRequested() && !containsLeaf(leaves, "nextCancelledCalls", "NOT_EMPTY", null)
+                && !containsLeaf(leaves, "nextCancelledCalls", "EXISTS", null)) {
+            return "Cancelled/suppressed/skipped stop constraint was requested but not represented with nextCancelledCalls NOT_EMPTY/EXISTS.";
+        }
+        return null;
     }
 
     private boolean matchesJourneyTimeHint(
@@ -809,14 +844,13 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 || trimmed.startsWith(arrayContext + "."))) {
             return null;
         }
-        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(trimmed)) {
-            return trimmed;
+        if (arrayContext != null && !arrayContext.isBlank()) {
+            String candidate = arrayContext + "." + trimmed;
+            if (ScheduledServiceDataCapabilityCatalog.isAllowedField(candidate)) {
+                return candidate;
+            }
         }
-        if (arrayContext == null || arrayContext.isBlank()) {
-            return null;
-        }
-        String candidate = arrayContext + "." + trimmed;
-        return ScheduledServiceDataCapabilityCatalog.isAllowedField(candidate) ? candidate : null;
+        return ScheduledServiceDataCapabilityCatalog.isAllowedField(trimmed) ? trimmed : null;
     }
 
     private boolean isJourneyTimeField(String resolvedField) {

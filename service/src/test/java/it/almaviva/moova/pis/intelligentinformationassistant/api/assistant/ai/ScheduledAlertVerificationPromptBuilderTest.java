@@ -240,6 +240,23 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("replacementType IN/EQUALS DEPARTURE/ARRIVAL/ARRIVALDEPARTURE");
     }
 
+    @Test
+    void promptContainsCancelledCallRules() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Cancelled/suppressed/skipped stops using nextCancelledCalls[]")
+                .contains("different from full journey cancellation")
+                .contains("FILTER_CANCELLED_CALL_STOP_POINT -> stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id/nameLong")
+                .contains("inner anyElement path nextCancelledCalls[]")
+                .contains("\"path\":\"nextCancelledCalls[]\"")
+                .contains("\"field\":\"stopPoint.id\"")
+                .contains("stopPoint.nameLong CONTAINS_NORMALIZED")
+                .contains("nextCancelledCalls NOT_EMPTY")
+                .contains("Do not map \"fermata soppressa X\" to changes CONTAINS CANCELLATION")
+                .contains("Do not use payload.ongroundServiceEvent.*");
+    }
+
     private ScheduledAlertVerificationPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);

@@ -778,6 +778,95 @@ class ScheduledAlertVerificationServiceTest {
         assertThat(outcome.agentBlueprintPreview()).isNull();
     }
 
+    @Test
+    void verifiesSpecificSuppressedStopReport() {
+        ScheduledServiceDataLocationContext context = cancelledStopContext("Milano Bruzzano Parco", "Palazzolo Milanese", PALAZZOLO);
+        Map<String, Object> condition = cancelledStopCondition(leaf("stopPoint.id", "EQUALS", PALAZZOLO));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Suppressed stop report",
+                "Scheduled ServiceData suppressed stop report test",
+                "Fammi sapere quante corse a Milano Bruzzano Parco hanno come fermata soppressa Palazzolo Milanese",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification()).isNotNull();
+    }
+
+    @Test
+    void rejectsSpecificSuppressedStopMappedToJourneyCancellation() {
+        ScheduledServiceDataLocationContext context = cancelledStopContext("Milano Bruzzano Parco", "Palazzolo Milanese", PALAZZOLO);
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("changes", "CONTAINS", "CANCELLATION"));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Suppressed stop wrong mapping",
+                "Scheduled ServiceData suppressed stop wrong mapping test",
+                "Fammi sapere quante corse a Milano Bruzzano Parco hanno come fermata soppressa Palazzolo Milanese",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("not covered");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void verifiesSkippedStopReport() {
+        ScheduledServiceDataLocationContext context = cancelledStopContext("Garibaldi FS", "Bovisa", PALAZZOLO);
+        Map<String, Object> condition = cancelledStopCondition(leaf("stopPoint.id", "EQUALS", PALAZZOLO));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Skipped stop report",
+                "Scheduled ServiceData skipped stop report test",
+                "Per Garibaldi FS dimmi quante corse saltano Bovisa",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesGenericSuppressedStopsBoolean() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("field", "nextCancelledCalls", "operator", "NOT_EMPTY"));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Generic suppressed stops",
+                "Scheduled ServiceData generic suppressed stops test",
+                "Fammi sapere se a Garibaldi FS ci sono treni con fermate soppresse",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsGenericSuppressedStopsWhenOmitted() {
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), delayCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Generic suppressed stops omitted",
+                "Scheduled ServiceData generic suppressed stops omitted test",
+                "Fammi sapere se a Garibaldi FS ci sono treni con fermate soppresse",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("nextCancelledCalls");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
     private TestFixture fixture(String rawResponse) {
         ScheduledAlertVerificationService service = new ScheduledAlertVerificationService();
         service.promptBuilder = promptBuilder();
@@ -786,6 +875,7 @@ class ScheduledAlertVerificationServiceTest {
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
+        service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -809,6 +899,7 @@ class ScheduledAlertVerificationServiceTest {
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
+        service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -1075,6 +1166,13 @@ class ScheduledAlertVerificationServiceTest {
                 "conditions", conditions)));
     }
 
+    private Map<String, Object> cancelledStopCondition(Map<String, Object> leaf) {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(Map.of("anyElement", Map.of(
+                        "path", "nextCancelledCalls[]",
+                        "conditions", leaf)))));
+    }
+
     private Map<String, Object> condition(Map<String, Object> body) {
         Map<String, Object> condition = new LinkedHashMap<>();
         condition.put("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
@@ -1195,6 +1293,55 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(PERO),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext cancelledStopContext(
+            String monitoredRawText,
+            String cancelledStopRawText,
+            String cancelledStopId) {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                monitoredRawText,
+                monitoredRawText,
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GORLA),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(new ScheduledServiceDataResolvedLocation(
+                cancelledStopRawText,
+                cancelledStopRawText,
+                ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(cancelledStopId),
+                List.of(),
+                false,
+                false,
+                List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
+                        "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
+                List.of(),
+                List.of(GORLA),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GORLA),
                         false));
     }
 

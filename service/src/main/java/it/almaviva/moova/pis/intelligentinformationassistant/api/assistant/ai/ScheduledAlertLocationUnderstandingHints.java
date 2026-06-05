@@ -26,7 +26,7 @@ public record ScheduledAlertLocationUnderstandingHints(
     private static final Pattern TIMETABLED_DESTINATION = Pattern.compile(
             "\\b(destinazione programmata|destino programmato|scheduled destination|planned destination|timetabled destination)\\b");
     private static final Pattern ROUTE = Pattern.compile("\\b(passa|passano|passera|via|calls at|passes through|route includes)\\b");
-    private static final Pattern CANCELLED = Pattern.compile("\\b(soppressa|soppresso|fermata soppressa|cancelled stop|suppressed stop|skipped stop)\\b");
+    private static final Pattern CANCELLED = Pattern.compile("\\b(soppressa|soppresse|soppresso|fermata soppressa|fermate soppresse|fermata cancellata|fermate cancellate|fermata saltata|salta la fermata|saltano la fermata|saltano|cancelled stop|suppressed stop|skipped stop|cancelled call)\\b");
     private static final Pattern REPLACEMENT = Pattern.compile("\\b(replacement|sostitutiv|sostituzione)\\b");
 
     public static ScheduledAlertLocationUnderstandingHints fromPrompt(String prompt) {

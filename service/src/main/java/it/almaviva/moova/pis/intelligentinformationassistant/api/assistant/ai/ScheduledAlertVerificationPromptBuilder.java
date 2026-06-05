@@ -74,6 +74,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 temporalHintsSection(data == null ? null : data.temporalHints()),
                 platformHintsSection(data == null ? null : data.platformHints()),
                 changeHintsSection(data == null ? null : data.changeHints()),
+                cancelledCallHintsSection(data == null ? null : data.cancelledCallHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
                 highPriorityMvpRulesSection(),
@@ -115,6 +116,17 @@ public class ScheduledAlertVerificationPromptBuilder {
                     Backend-derived change/cancellation/exclusion hints: unavailable.
                     - Still map change, cancellation and exclusion wording only with Scheduled snapshot catalog fields.
                     - Do not use payload.ongroundServiceEvent.*.
+                    """;
+        }
+        return hints.compactPromptSection();
+    }
+
+    private String cancelledCallHintsSection(ScheduledAlertCancelledCallHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived cancelled/suppressed/skipped stop hints: unavailable.
+                    - Still distinguish full journey cancellation from cancelled/suppressed/skipped stops.
+                    - Cancelled/suppressed/skipped stops must use nextCancelledCalls[] when requested.
                     """;
         }
         return hints.compactPromptSection();
@@ -543,6 +555,24 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - monitored X, passes through Y -> nested anyElement nextCalls[] stopPoint.id=Y.
                 - monitored X, transit through Y -> nested anyElement nextTransitCalls[] stopPoint.id=Y.
                 - monitored X, cancelled/suppressed stop Y -> nested anyElement nextCancelledCalls[] stopPoint.id=Y.
+
+                Cancelled/suppressed/skipped stops using nextCancelledCalls[]:
+                - Cancelled/suppressed/skipped stop constraints are different from full journey cancellation.
+                - "journey/train/service is cancelled" maps to changes/status cancellation fields.
+                - "suppressed/cancelled/skipped stop X", "cancelled call X", "skips stop X" maps to nextCancelledCalls[].stopPoint.
+                - If user asks for a specific suppressed/cancelled/skipped stop X, use a nested anyElement:
+                  outer anyElement path stopPointsJourneyDetails[], inner anyElement path nextCancelledCalls[],
+                  then stopPoint.id EQUALS/IN the resolved id.
+                - Inside nextCancelledCalls[] anyElement, fields are relative: stopPoint.id, stopPoint.nameLong.
+                - Do not use stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id inside the nested anyElement.
+                - If X is unresolved but fallback is allowed, use stopPoint.nameLong CONTAINS_NORMALIZED X.
+                - If user asks for any suppressed/cancelled/skipped stop without a specific stop, use nextCancelledCalls NOT_EMPTY or EXISTS if catalog-supported.
+                - Do not map "fermata soppressa X" to changes CONTAINS CANCELLATION unless the prompt asks that the whole journey is cancelled.
+                - Do not put cancelled stop X into serviceDataQuery.stopPoints unless X is also explicitly monitored.
+                - Specific cancelled stop shape:
+                  {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[{"anyElement":{"path":"nextCancelledCalls[]","conditions":{"field":"stopPoint.id","operator":"EQUALS","value":"TNPNTS..."}}}]}}}
+                - Generic any cancelled stop shape:
+                  {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"field":"nextCancelledCalls","operator":"NOT_EMPTY"}}}
 
                 Changes, cancellations, exclusions:
                 - Use changes CONTAINS CHANGED_ORIGIN for changed origin.

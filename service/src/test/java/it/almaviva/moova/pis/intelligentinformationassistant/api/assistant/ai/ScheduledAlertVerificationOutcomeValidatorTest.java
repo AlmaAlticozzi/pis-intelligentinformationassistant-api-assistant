@@ -1096,6 +1096,93 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsSpecificCancelledStopIdCoverage() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        cancelledStopCondition(leaf("stopPoint.id", "EQUALS", PALAZZOLO))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false));
+    }
+
+    @Test
+    void acceptsSpecificCancelledStopInCoverage() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        cancelledStopCondition(leafValues("stopPoint.id", "IN", List.of(PALAZZOLO)))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false));
+    }
+
+    @Test
+    void acceptsUnresolvedCancelledStopNameFallback() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        cancelledStopCondition(leaf("stopPoint.nameLong", "CONTAINS_NORMALIZED", "Palazzolo Milanese"))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(true));
+    }
+
+    @Test
+    void acceptsGenericAnyCancelledStopCondition() {
+        assertVerifiedWithCancelledCallHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("field", "nextCancelledCalls", "operator", "NOT_EMPTY")),
+                genericCancelledCallHints());
+    }
+
+    @Test
+    void rejectsCancelledStopCoveredWithNextCalls() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                Map.of("all", List.of(Map.of("anyElement", Map.of(
+                                        "path", "nextCalls[]",
+                                        "conditions", leaf("stopPoint.id", "EQUALS", PALAZZOLO))))))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false),
+                "not covered");
+    }
+
+    @Test
+    void rejectsCancelledStopCoveredWithDestinationField() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callEnd.stopPoint.id", "EQUALS", PALAZZOLO))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false),
+                "not covered");
+    }
+
+    @Test
+    void rejectsInventedCancelledStopId() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        cancelledStopCondition(leaf("stopPoint.id", "EQUALS", INVENTED))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false),
+                INVENTED);
+    }
+
+    @Test
+    void rejectsMissingCancelledStopCondition() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CANCELLATION"))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                cancelledStopContext(false),
+                "not covered");
+    }
+
+    @Test
+    void rejectsGenericCancelledStopHintWithoutNextCancelledCallsCondition() {
+        assertRejectedWithCancelledCallHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CANCELLATION")),
+                genericCancelledCallHints(),
+                "nextCancelledCalls");
+    }
+
+    @Test
     void rejectsExtraInventedQueryStopPoint() {
         assertRejectedWithContext(
                 validOutcome(technicalSpecification(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -1326,6 +1413,40 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.agentBlueprintPreview()).isNull();
     }
 
+    private void assertVerifiedWithCancelledCallHints(
+            Map<String, Object> condition,
+            ScheduledAlertCancelledCallHints cancelledCallHints) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                cancelledCallHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertRejectedWithCancelledCallHints(
+            Map<String, Object> condition,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                cancelledCallHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
     private void assertVerifiedWithContext(
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext context) {
@@ -1534,6 +1655,16 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 0.9)), List.of());
     }
 
+    private ScheduledAlertCancelledCallHints genericCancelledCallHints() {
+        return new ScheduledAlertCancelledCallHints(true, List.of(new ScheduledAlertCancelledCallConstraint(
+                "fermate soppresse",
+                false,
+                null,
+                ScheduledAlertCancelledCallConstraint.Polarity.INCLUDE,
+                true,
+                0.9)), List.of());
+    }
+
     private void withSchedule(
             Map<String, Object> technical,
             int frequencySeconds,
@@ -1711,6 +1842,13 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "conditions", conditions)));
     }
 
+    private Map<String, Object> cancelledStopCondition(Map<String, Object> leaf) {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(Map.of("anyElement", Map.of(
+                        "path", "nextCancelledCalls[]",
+                        "conditions", leaf)))));
+    }
+
     private Map<String, Object> leaf(String field, String operator, Object value) {
         return Map.of(
                 "field", field,
@@ -1790,6 +1928,21 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 fallbackToNameLong,
                 targetFieldHints,
                 "");
+    }
+
+    private ScheduledServiceDataLocationContext cancelledStopContext(boolean fallbackToNameLong) {
+        return context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                List.of(monitored("Gorla", GORLA)),
+                List.of(filter("Palazzolo Milanese", ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT,
+                        ScheduledAlertLocationPolarity.INCLUDE,
+                        fallbackToNameLong ? List.of() : List.of(PALAZZOLO),
+                        List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
+                                "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong"),
+                        fallbackToNameLong)),
+                List.of(),
+                List.of(GORLA),
+                false,
+                List.of());
     }
 
     private Map<String, Object> coverage() {
