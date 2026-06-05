@@ -486,6 +486,7 @@ public class AlertService {
         }
         if (route != null && route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
             AlertVerificationOutcome scheduledRejection = scheduledInterpreterNotImplementedOutcome(
+                    alertId,
                     route,
                     aiConfiguration.provider(),
                     aiConfiguration.alertVerify().model());
@@ -2533,27 +2534,39 @@ public class AlertService {
     }
 
     private AlertVerificationOutcome scheduledInterpreterNotImplementedOutcome(
+            String alertId,
             AlertRouteUnderstandingResult route,
             String provider,
             String model) {
+        String summary = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert.";
         String reason = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.";
         List<String> warnings = new ArrayList<>(route.warnings() == null ? List.of() : route.warnings());
         warnings.add(reason);
         warnings.add("ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
         warnings.add("ROUTE_DATA_DOMAINS=SERVICE_DATA");
         warnings.add("ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+        warnings.add("ROUTE_INTENT_KIND=" + route.intentKind());
+        warnings.add("ROUTE_OUTPUT_MODE=" + route.outputMode());
+        warnings.add("SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
         System.out.println("[IIA][ALERT_ROUTE] ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
         System.out.println("[IIA][ALERT_ROUTE] ROUTE_DATA_DOMAINS=SERVICE_DATA");
         System.out.println("[IIA][ALERT_ROUTE] ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+        System.out.println("[IIA][ALERT_VERIFY][SCHEDULED_ROUTE_REJECT] alertId=" + alertId);
+        System.out.println("[IIA][ALERT_VERIFY][SCHEDULED_ROUTE_REJECT] summary=" + summary);
+        System.out.println("[IIA][ALERT_VERIFY][SCHEDULED_ROUTE_REJECT] rejectedReason=" + reason);
+        System.out.println("[IIA][ALERT_VERIFY][SCHEDULED_ROUTE_REJECT] interpreterType=SCHEDULED_INTERPRETER"
+                + " accessMode=SERVICE_DATA_API_SNAPSHOT"
+                + " intentKind=" + route.intentKind());
+        System.out.println("[IIA][ALERT_VERIFY][SCHEDULED_ROUTE_REJECT] technicalSpecificationPresent=false agentBlueprintPreviewPresent=false");
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.REJECTED,
-                "The alert was routed to scheduled ServiceData snapshot verification.",
+                summary,
                 reason,
-                route.confidence(),
+                route.confidence() == null ? 0.0 : route.confidence(),
                 provider,
                 model,
                 "alert-route-understanding-v1",
-                route.dataDomains(),
+                List.of("SERVICE_DATA"),
                 "SCHEDULED_INTERPRETER",
                 null,
                 null,
@@ -2575,7 +2588,8 @@ public class AlertService {
                         "No executable code generated.",
                         "No scheduled technicalSpecification generated.",
                         "No Agent Definition created.",
-                        "No Suggestion created."));
+                        "No Suggestion created.",
+                        "SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED"));
     }
 
     private AlertVerificationOutcome technicalErrorOutcome(String warning, LlmRequest promptRequest) {

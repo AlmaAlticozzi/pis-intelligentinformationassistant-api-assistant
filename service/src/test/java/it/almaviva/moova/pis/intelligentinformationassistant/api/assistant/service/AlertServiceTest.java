@@ -87,6 +87,8 @@ class AlertServiceTest {
     void verifyScheduledRoutePersistsRejectedWithoutCallingAlertVerify() {
         AlertService service = verificationService(false);
         service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.locationUnderstandingEnabled = true;
         AlertVerificationRequest request = new AlertVerificationRequest();
         when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
 
@@ -96,16 +98,26 @@ class AlertServiceTest {
         verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
                 org.mockito.ArgumentMatchers.eq(request), outcome.capture());
         assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().summary()).isEqualTo(
+                "The alert was recognized as a SERVICE_DATA scheduled snapshot alert.");
         assertThat(outcome.getValue().rejectedReason()).isEqualTo(
                 "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.");
+        assertThat(outcome.getValue().confidence()).isEqualTo(0.95);
+        assertThat(outcome.getValue().requiredSources()).containsExactly("SERVICE_DATA");
+        assertThat(outcome.getValue().interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
         assertThat(outcome.getValue().technicalSpecification()).isNull();
         assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
         assertThat(outcome.getValue().warnings()).contains(
                 "ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER",
                 "ROUTE_DATA_DOMAINS=SERVICE_DATA",
-                "ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+                "ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT",
+                "ROUTE_INTENT_KIND=SNAPSHOT_CONDITION",
+                "ROUTE_OUTPUT_MODE=ON_MATCH",
+                "SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
+        assertThat(outcome.getValue().safetyChecks()).contains("SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
         verify(service.alertVerificationPromptBuilder, never()).build(any());
         verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
     }
 
     @Test
@@ -999,7 +1011,7 @@ class AlertServiceTest {
                 true,
                 true,
                 false,
-                0.82,
+                0.95,
                 "Scheduled ServiceData snapshot route.",
                 null,
                 List.of());
