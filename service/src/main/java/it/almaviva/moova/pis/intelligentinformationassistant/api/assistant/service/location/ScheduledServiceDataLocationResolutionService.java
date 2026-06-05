@@ -282,7 +282,8 @@ public class ScheduledServiceDataLocationResolutionService {
                     "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
                     "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong");
             case FILTER_REPLACEMENT_STOP_POINT -> List.of(
-                    "stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id");
+                    "stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
+                    "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].stopPointId.id");
             case FILTER_REPLACEMENT_SOURCE_START_STOP_POINT -> List.of(
                     "stopPointsJourneyDetails[].isReplacementOf[].timetabledCallStart",
                     "future mapping requires catalog confirmation");

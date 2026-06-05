@@ -159,6 +159,35 @@ class ScheduledServiceDataLocationResolutionServiceTest {
                 "All known stop points scope requested; ids will be materialized by runtime or later verification phase.");
     }
 
+    @Test
+    void replacementStopFilterUsesReplacementTargetFieldsAndDoesNotEnterApiStopPoints() {
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Garibaldi FS"),
+                filter("Bovisa", ScheduledAlertLocationRole.FILTER_REPLACEMENT_STOP_POINT)));
+
+        assertThat(context.serviceDataApiStopPoints()).containsExactlyElementsOf(selectedIds("Garibaldi FS"));
+        assertThat(context.filterLocations()).hasSize(1);
+        ScheduledServiceDataResolvedLocation filter = context.filterLocations().getFirst();
+        assertThat(filter.targetFieldHints())
+                .contains("stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
+                        "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].stopPointId.id");
+        assertThat(filter.fallbackAllowed()).isFalse();
+    }
+
+    @Test
+    void unresolvedReplacementStopFilterDoesNotAllowNameFallback() {
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Garibaldi FS"),
+                filter("Fermata Inventata", ScheduledAlertLocationRole.FILTER_REPLACEMENT_STOP_POINT)));
+
+        ScheduledServiceDataResolvedLocation filter = context.filterLocations().getFirst();
+        assertThat(filter.resolutionStatus()).isEqualTo(ScheduledServiceDataLocationResolutionStatus.UNRESOLVED);
+        assertThat(filter.fallbackAllowed()).isFalse();
+        assertThat(filter.fallbackToNameLong()).isFalse();
+    }
+
     private ScheduledAlertLocationUnderstandingResult result(
             ScheduledAlertMonitoringScope scope,
             ScheduledAlertLocationMention... mentions) {

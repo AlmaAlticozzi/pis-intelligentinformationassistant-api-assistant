@@ -257,6 +257,24 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("Do not use payload.ongroundServiceEvent.*");
     }
 
+    @Test
+    void promptContainsReplacementRules() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Replacement / substitute services")
+                .contains("Shape: {\"field\":\"isReplacementOf\",\"operator\":\"NOT_EMPTY\"}")
+                .contains("Shape: {\"field\":\"replacement\",\"operator\":\"NOT_NULL\"}")
+                .contains("Shape: {\"field\":\"externalReplacement\",\"operator\":\"NOT_NULL\"}")
+                .contains("inner anyElement path replacement.stopPointReplacements[]")
+                .contains("\"path\":\"replacement.stopPointReplacements[]\"")
+                .contains("\"field\":\"stopPointId.id\"")
+                .contains("replacementType EQUALS/IN ARRIVAL/DEPARTURE/ARRIVALDEPARTURE")
+                .contains("\"field\":\"replacementType\",\"operator\":\"EQUALS\",\"value\":\"DEPARTURE\"")
+                .contains("Replacement source route start/end stop points are not supported by the Scheduled ServiceData snapshot catalog")
+                .doesNotContain("- field: payload.ongroundServiceEvent.eventsType");
+    }
+
     private ScheduledAlertVerificationPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);

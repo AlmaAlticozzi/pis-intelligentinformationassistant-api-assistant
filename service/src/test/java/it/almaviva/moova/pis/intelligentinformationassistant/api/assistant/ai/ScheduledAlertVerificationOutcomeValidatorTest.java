@@ -1183,6 +1183,148 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsGenericReplacementServiceCondition() {
+        assertVerifiedWithReplacementHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY")),
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.GENERIC_REPLACEMENT_SERVICE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.UNSPECIFIED));
+    }
+
+    @Test
+    void acceptsReplacementObjectCondition() {
+        assertVerifiedWithReplacementHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("field", "replacement", "operator", "NOT_NULL")),
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.HAS_REPLACEMENT_OBJECT,
+                        ScheduledAlertReplacementConstraint.ReplacementType.UNSPECIFIED));
+    }
+
+    @Test
+    void acceptsExternalReplacementObjectCondition() {
+        assertVerifiedWithReplacementHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("field", "externalReplacement", "operator", "NOT_NULL")),
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.HAS_EXTERNAL_REPLACEMENT_OBJECT,
+                        ScheduledAlertReplacementConstraint.ReplacementType.UNSPECIFIED));
+    }
+
+    @Test
+    void acceptsSpecificReplacementStopCoverage() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        replacementStopCondition(leaf("stopPointId.id", "EQUALS", PALAZZOLO))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext());
+    }
+
+    @Test
+    void acceptsReplacementTypeDepartureCondition() {
+        assertVerifiedWithReplacementHints(
+                replacementStopCondition(leaf("replacementType", "EQUALS", "DEPARTURE")),
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_TYPE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.DEPARTURE));
+    }
+
+    @Test
+    void acceptsReplacementStopAndTypeSameEntry() {
+        assertVerified(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        replacementStopCondition(Map.of("all", List.of(
+                                leaf("stopPointId.id", "EQUALS", PALAZZOLO),
+                                leaf("replacementType", "EQUALS", "DEPARTURE"))))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_STOP_WITH_TYPE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.DEPARTURE));
+    }
+
+    @Test
+    void rejectsGenericReplacementHintWithoutReplacementCondition() {
+        assertRejectedWithReplacementHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.GENERIC_REPLACEMENT_SERVICE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.UNSPECIFIED),
+                "GENERIC_REPLACEMENT_SERVICE");
+    }
+
+    @Test
+    void rejectsReplacementStopCoveredWithNextCancelledCalls() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        cancelledStopCondition(leaf("stopPoint.id", "EQUALS", PALAZZOLO))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                "not covered");
+    }
+
+    @Test
+    void rejectsReplacementStopCoveredWithDestinationField() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("callEnd.stopPoint.id", "EQUALS", PALAZZOLO))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                "not covered");
+    }
+
+    @Test
+    void rejectsInventedReplacementStopId() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        replacementStopCondition(leaf("stopPointId.id", "EQUALS", INVENTED))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                INVENTED);
+    }
+
+    @Test
+    void rejectsInvalidReplacementTypeEnum() {
+        assertRejectedForCondition(
+                replacementStopCondition(leaf("replacementType", "EQUALS", "BOTH")),
+                "enum value BOTH");
+    }
+
+    @Test
+    void rejectsReplacementStopAndTypeSplitAcrossDifferentAnyElements() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        Map.of("anyElement", Map.of(
+                                "path", "replacement.stopPointReplacements[]",
+                                "conditions", leaf("stopPointId.id", "EQUALS", PALAZZOLO))),
+                        Map.of("anyElement", Map.of(
+                                "path", "replacement.stopPointReplacements[]",
+                                "conditions", leaf("replacementType", "EQUALS", "DEPARTURE"))))));
+
+        assertRejected(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_STOP_WITH_TYPE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.DEPARTURE),
+                "REPLACEMENT_STOP_WITH_TYPE");
+    }
+
+    @Test
+    void rejectsUnsupportedReplacementSourceRoute() {
+        assertRejectedWithReplacementHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY")),
+                replacementSourceRouteHints(),
+                "Replacement source route start/end stop points are not supported");
+    }
+
+    @Test
     void rejectsExtraInventedQueryStopPoint() {
         assertRejectedWithContext(
                 validOutcome(technicalSpecification(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -1377,6 +1519,40 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.agentBlueprintPreview()).isNull();
     }
 
+    private void assertRejected(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(
+                outcome, context, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
+    private void assertVerified(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
+        AlertVerificationOutcome validated = validator.validate(
+                outcome, context, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
     private void assertVerified(Map<String, Object> condition) {
         AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
 
@@ -1440,6 +1616,42 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 null,
                 null,
                 cancelledCallHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
+    private void assertVerifiedWithReplacementHints(
+            Map<String, Object> condition,
+            ScheduledAlertReplacementHints replacementHints) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                replacementHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertRejectedWithReplacementHints(
+            Map<String, Object> condition,
+            ScheduledAlertReplacementHints replacementHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                replacementHints);
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
         assertThat(validated.rejectedReason()).contains(reasonFragment);
@@ -1665,6 +1877,33 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 0.9)), List.of());
     }
 
+    private ScheduledAlertReplacementHints replacementHints(
+            ScheduledAlertReplacementConstraint.ReplacementIntent intent,
+            ScheduledAlertReplacementConstraint.ReplacementType type) {
+        return new ScheduledAlertReplacementHints(true, List.of(new ScheduledAlertReplacementConstraint(
+                intent.name(),
+                intent,
+                type,
+                intent == ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_STOP
+                        || intent == ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_STOP_WITH_TYPE,
+                "Bovisa",
+                ScheduledAlertReplacementConstraint.Polarity.INCLUDE,
+                null,
+                0.9)), List.of());
+    }
+
+    private ScheduledAlertReplacementHints replacementSourceRouteHints() {
+        return new ScheduledAlertReplacementHints(true, List.of(new ScheduledAlertReplacementConstraint(
+                "tratta sostitutiva da Porto di Mare a Milano Affori",
+                ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_SOURCE_ROUTE,
+                ScheduledAlertReplacementConstraint.ReplacementType.UNSPECIFIED,
+                false,
+                null,
+                ScheduledAlertReplacementConstraint.Polarity.INCLUDE,
+                "Replacement source route start/end stop points are not supported by the Scheduled ServiceData snapshot catalog.",
+                0.9)), List.of());
+    }
+
     private void withSchedule(
             Map<String, Object> technical,
             int frequencySeconds,
@@ -1849,6 +2088,13 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         "conditions", leaf)))));
     }
 
+    private Map<String, Object> replacementStopCondition(Map<String, Object> leaf) {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(Map.of("anyElement", Map.of(
+                        "path", "replacement.stopPointReplacements[]",
+                        "conditions", leaf)))));
+    }
+
     private Map<String, Object> leaf(String field, String operator, Object value) {
         return Map.of(
                 "field", field,
@@ -1939,6 +2185,21 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
                                 "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong"),
                         fallbackToNameLong)),
+                List.of(),
+                List.of(GORLA),
+                false,
+                List.of());
+    }
+
+    private ScheduledServiceDataLocationContext replacementStopContext() {
+        return context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                List.of(monitored("Gorla", GORLA)),
+                List.of(filter("Bovisa", ScheduledAlertLocationRole.FILTER_REPLACEMENT_STOP_POINT,
+                        ScheduledAlertLocationPolarity.INCLUDE,
+                        List.of(PALAZZOLO),
+                        List.of("stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
+                                "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].stopPointId.id"),
+                        false)),
                 List.of(),
                 List.of(GORLA),
                 false,

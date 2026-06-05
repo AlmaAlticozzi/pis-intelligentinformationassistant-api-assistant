@@ -81,7 +81,13 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - Example meaning: "at monitored location X, journeys with suppressed stop Y" -> X is
                   MONITORED_STOP_POINT and Y is FILTER_CANCELLED_CALL_STOP_POINT.
                 - Do not treat "fermata soppressa" itself as a location.
-                - A location governed by "replacement stop" is FILTER_REPLACEMENT_STOP_POINT.
+                - A location governed by "replacement stop / fermata sostitutiva / stop sostitutivo" is FILTER_REPLACEMENT_STOP_POINT.
+                - It is a filter/control location, not the monitored stop point, unless the prompt also explicitly
+                  says "at/in/for location X" for monitoring.
+                - Example: "a Garibaldi FS ... fermata sostitutiva Bovisa" means Garibaldi FS is
+                  MONITORED_STOP_POINT and Bovisa is FILTER_REPLACEMENT_STOP_POINT.
+                - "corse/servizi sostitutivi a X" means X is MONITORED_STOP_POINT and replacement is a
+                  non-location/capability constraint.
                 - Replacement source route start/end means FILTER_REPLACEMENT_SOURCE_START_STOP_POINT or
                   FILTER_REPLACEMENT_SOURCE_END_STOP_POINT.
                 - A location governed by exclusion, "not destination X" or equivalent negation must keep polarity=EXCLUDE

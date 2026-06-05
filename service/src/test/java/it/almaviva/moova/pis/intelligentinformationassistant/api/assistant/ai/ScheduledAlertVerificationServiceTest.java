@@ -867,6 +867,97 @@ class ScheduledAlertVerificationServiceTest {
         assertThat(outcome.technicalSpecification()).isNull();
     }
 
+    @Test
+    void verifiesGenericReplacementReport() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY"));
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Replacement report",
+                "Scheduled ServiceData replacement report test",
+                "Fammi sapere quante corse sostitutive ci sono a Porto di Mare",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesGenericReplacementBoolean() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY"));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Replacement boolean",
+                "Scheduled ServiceData replacement boolean test",
+                "Fammi sapere se a Garibaldi FS ci sono corse sostitutive",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesReplacementStopReport() {
+        ScheduledServiceDataLocationContext context = replacementStopContext("Garibaldi FS", "Bovisa", PALAZZOLO);
+        Map<String, Object> condition = replacementStopCondition(leaf("stopPointId.id", "EQUALS", PALAZZOLO));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Replacement stop report",
+                "Scheduled ServiceData replacement stop report test",
+                "Fammi sapere quante corse a Garibaldi FS hanno fermata sostitutiva Bovisa",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesReplacementStopWithDepartureTypeReport() {
+        ScheduledServiceDataLocationContext context = replacementStopContext("Garibaldi FS", "Bovisa", PALAZZOLO);
+        Map<String, Object> condition = replacementStopCondition(Map.of("all", List.of(
+                leaf("stopPointId.id", "EQUALS", PALAZZOLO),
+                leaf("replacementType", "EQUALS", "DEPARTURE"))));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Replacement stop type report",
+                "Scheduled ServiceData replacement stop type report test",
+                "Fammi sapere quante corse a Garibaldi FS hanno fermata sostitutiva Bovisa in partenza",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsUnsupportedReplacementSourceRouteVerifiedOutput() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY"));
+        Map<String, Object> response = validReportResponse(explicitContext(), condition);
+        withSchedule(response, 7200, false, "Ogni 2 ore");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Unsupported replacement source route",
+                "Scheduled ServiceData unsupported replacement source route test",
+                "Ogni 2 ore voglio sapere le corse sostitutive a Porto di Mare per la tratta che inizia a Porto di Mare fino a Milano Affori",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Replacement source route start/end stop points are not supported");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
     private TestFixture fixture(String rawResponse) {
         ScheduledAlertVerificationService service = new ScheduledAlertVerificationService();
         service.promptBuilder = promptBuilder();
@@ -876,6 +967,7 @@ class ScheduledAlertVerificationServiceTest {
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
+        service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -900,6 +992,7 @@ class ScheduledAlertVerificationServiceTest {
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
+        service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -1173,6 +1266,13 @@ class ScheduledAlertVerificationServiceTest {
                         "conditions", leaf)))));
     }
 
+    private Map<String, Object> replacementStopCondition(Map<String, Object> leaf) {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(Map.of("anyElement", Map.of(
+                        "path", "replacement.stopPointReplacements[]",
+                        "conditions", leaf)))));
+    }
+
     private Map<String, Object> condition(Map<String, Object> body) {
         Map<String, Object> condition = new LinkedHashMap<>();
         condition.put("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
@@ -1328,6 +1428,55 @@ class ScheduledAlertVerificationServiceTest {
                 false,
                 List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
                         "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
+                List.of(),
+                List.of(GORLA),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GORLA),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext replacementStopContext(
+            String monitoredRawText,
+            String replacementStopRawText,
+            String replacementStopId) {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                monitoredRawText,
+                monitoredRawText,
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GORLA),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(new ScheduledServiceDataResolvedLocation(
+                replacementStopRawText,
+                replacementStopRawText,
+                ScheduledAlertLocationRole.FILTER_REPLACEMENT_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(replacementStopId),
+                List.of(),
+                false,
+                false,
+                List.of("stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id",
+                        "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[].stopPointId.id"),
                 ""));
         return new ScheduledServiceDataLocationContext(
                 ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,

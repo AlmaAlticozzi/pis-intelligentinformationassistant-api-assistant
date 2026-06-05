@@ -75,6 +75,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 platformHintsSection(data == null ? null : data.platformHints()),
                 changeHintsSection(data == null ? null : data.changeHints()),
                 cancelledCallHintsSection(data == null ? null : data.cancelledCallHints()),
+                replacementHintsSection(data == null ? null : data.replacementHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
                 highPriorityMvpRulesSection(),
@@ -127,6 +128,17 @@ public class ScheduledAlertVerificationPromptBuilder {
                     Backend-derived cancelled/suppressed/skipped stop hints: unavailable.
                     - Still distinguish full journey cancellation from cancelled/suppressed/skipped stops.
                     - Cancelled/suppressed/skipped stops must use nextCancelledCalls[] when requested.
+                    """;
+        }
+        return hints.compactPromptSection();
+    }
+
+    private String replacementHintsSection(ScheduledAlertReplacementHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived replacement/substitute service hints: unavailable.
+                    - Still map replacement/substitute service constraints only with Scheduled snapshot catalog fields.
+                    - Do not use payload.ongroundServiceEvent.*.
                     """;
         }
         return hints.compactPromptSection();
@@ -593,12 +605,33 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Do not use NOT_CONTAINS_NORMALIZED on enum fields.
                 - Do not use payload.ongroundServiceEvent.*.
 
-                Replacement:
-                - "replacement journey/service" -> isReplacementOf NOT_EMPTY if allowed by catalog.
-                - "has replacement object" -> replacement NOT_NULL/EXISTS if allowed.
+                Replacement / substitute services:
+                - Generic "replacement/substitute service/journey", "corsa sostitutiva", "servizio sostitutivo":
+                  use isReplacementOf NOT_EMPTY inside stopPointsJourneyDetails[] anyElement when catalog-supported.
+                  Shape: {"field":"isReplacementOf","operator":"NOT_EMPTY"}
+                - If the user asks for journeys with replacement data, use replacement NOT_NULL or EXISTS.
+                  Shape: {"field":"replacement","operator":"NOT_NULL"}
+                - If the user explicitly asks for external replacement data, use externalReplacement NOT_NULL or EXISTS.
+                  Shape: {"field":"externalReplacement","operator":"NOT_NULL"}
+                - Specific "replacement stop X" / "fermata sostitutiva X" must use nested anyElement:
+                  outer anyElement path stopPointsJourneyDetails[], inner anyElement path replacement.stopPointReplacements[],
+                  condition stopPointId.id EQUALS/IN resolved id.
                 - "replacement stop X" -> nested anyElement replacement.stopPointReplacements[] stopPointId.id.
-                - "replacement type departure/arrival" -> replacementType IN/EQUALS DEPARTURE/ARRIVAL/ARRIVALDEPARTURE.
-                - Do not map replacement source route start/end to stop point ids if available fields are timestamps only.
+                - Inside replacement.stopPointReplacements[] anyElement, fields are relative:
+                  stopPointId.id, replacementType, arrivalTime, departureTime.
+                - Do not use stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id inside the nested anyElement.
+                - Replacement type uses replacementType EQUALS/IN ARRIVAL/DEPARTURE/ARRIVALDEPARTURE.
+                - Replacement type shape uses replacementType IN/EQUALS DEPARTURE/ARRIVAL/ARRIVALDEPARTURE.
+                - "in partenza" maps to DEPARTURE or IN ["DEPARTURE","ARRIVALDEPARTURE"].
+                - "in arrivo" maps to ARRIVAL or IN ["ARRIVAL","ARRIVALDEPARTURE"].
+                - If replacement stop and replacement type are both requested, put both leaves inside the same replacement.stopPointReplacements[] anyElement.
+                - Unsupported replacement source route start/end stop points:
+                  if the user asks for "tratta sostitutiva da X a Y" and no catalog stop point id fields support that source route,
+                  return REJECTED with reason "Replacement source route start/end stop points are not supported by the Scheduled ServiceData snapshot catalog."
+                Strict replacement stop shape:
+                  {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[{"anyElement":{"path":"replacement.stopPointReplacements[]","conditions":{"field":"stopPointId.id","operator":"EQUALS","value":"TNPNTS..."}}}]}}}
+                Strict replacement stop with type shape:
+                  {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[{"anyElement":{"path":"replacement.stopPointReplacements[]","conditions":{"all":[{"field":"stopPointId.id","operator":"EQUALS","value":"TNPNTS..."},{"field":"replacementType","operator":"EQUALS","value":"DEPARTURE"}]}}}]}}}
                 """;
     }
 

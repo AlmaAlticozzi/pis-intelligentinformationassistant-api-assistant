@@ -12,7 +12,8 @@ public record ScheduledAlertVerificationPromptData(
         ScheduledAlertTemporalHints temporalHints,
         ScheduledAlertPlatformHints platformHints,
         ScheduledAlertChangeHints changeHints,
-        ScheduledAlertCancelledCallHints cancelledCallHints) {
+        ScheduledAlertCancelledCallHints cancelledCallHints,
+        ScheduledAlertReplacementHints replacementHints) {
 
     public ScheduledAlertVerificationPromptData(
             String alertId,
@@ -48,5 +49,19 @@ public record ScheduledAlertVerificationPromptData(
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints) {
         this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, ScheduledAlertCancelledCallHints.empty());
+    }
+
+    public ScheduledAlertVerificationPromptData(
+            String alertId,
+            String name,
+            String description,
+            String originalPrompt,
+            AlertRouteUnderstandingResult route,
+            ScheduledServiceDataLocationContext locationContext,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints) {
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, cancelledCallHints, ScheduledAlertReplacementHints.empty());
     }
 }

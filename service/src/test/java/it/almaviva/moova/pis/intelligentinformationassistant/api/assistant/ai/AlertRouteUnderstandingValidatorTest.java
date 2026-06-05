@@ -210,6 +210,57 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesSnapshotReplacementReportToScheduledInterpreter() {
+        String prompt = "Fammi sapere quante corse sostitutive ci sono a Porto di Mare";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsChangeCancellationExclusionExpression()).isTrue();
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+    }
+
+    @Test
+    void normalizesSnapshotReplacementBooleanToScheduledInterpreter() {
+        String prompt = "Fammi sapere se a Garibaldi FS ci sono corse sostitutive";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsChangeCancellationExclusionExpression()).isTrue();
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.requiresKafkaEvent()).isFalse();
+    }
+
+    @Test
+    void normalizesSnapshotReplacementStopToScheduledInterpreter() {
+        String prompt = "Fammi sapere quante corse a Garibaldi FS hanno fermata sostitutiva Bovisa";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsChangeCancellationExclusionExpression()).isTrue();
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+    }
+
+    @Test
+    void keepsReplacementOccurrenceAsEventInterpreter() {
+        String prompt = "Avvisami quando una corsa diventa sostitutiva a Garibaldi FS";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+    }
+
+    @Test
     void pollingCountPromptCannotRemainEventInterpreter() {
         String prompt = "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi";
 

@@ -133,6 +133,18 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
             ScheduledAlertCancelledCallHints cancelledCallHints) {
+        return validate(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -156,7 +168,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -171,7 +183,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
-            ScheduledAlertCancelledCallHints cancelledCallHints) {
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -241,6 +254,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String cancelledCallFailure = validateCancelledCallHints(outcome.technicalSpecification(), cancelledCallHints);
         if (cancelledCallFailure != null) {
             return cancelledCallFailure;
+        }
+        String replacementFailure = validateReplacementHints(outcome.technicalSpecification(), replacementHints);
+        if (replacementFailure != null) {
+            return replacementFailure;
         }
         String unsupportedTemporalFailure = validateUnsupportedTemporalClaims(outcome);
         if (unsupportedTemporalFailure != null) {
@@ -421,6 +438,124 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return "Cancelled/suppressed/skipped stop constraint was requested but not represented with nextCancelledCalls NOT_EMPTY/EXISTS.";
         }
         return null;
+    }
+
+    private String validateReplacementHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertReplacementHints hints) {
+        if (hints == null || !hints.hasReplacementConstraint()) {
+            return null;
+        }
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        for (ScheduledAlertReplacementConstraint constraint : hints.constraints()) {
+            if (constraint.polarity() == ScheduledAlertReplacementConstraint.Polarity.EXCLUDE) {
+                return "Negative replacement/substitute service constraints are not supported by the Scheduled snapshot catalog without a safe negative operator: "
+                        + constraint.rawText() + ".";
+            }
+            if (constraint.replacementIntent() == ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_SOURCE_ROUTE) {
+                return isBlank(constraint.unsupportedReason())
+                        ? "Replacement source route start/end stop points are not supported by the Scheduled ServiceData snapshot catalog."
+                        : constraint.unsupportedReason();
+            }
+            if (!isReplacementConstraintCovered(condition, leaves, constraint)) {
+                return "Replacement/substitute service constraint was requested but not represented in snapshotEvaluation.condition: "
+                        + constraint.replacementIntent() + ".";
+            }
+        }
+        return null;
+    }
+
+    private boolean isReplacementConstraintCovered(
+            Map<String, Object> condition,
+            List<ConditionLeaf> leaves,
+            ScheduledAlertReplacementConstraint constraint) {
+        return switch (constraint.replacementIntent()) {
+            case GENERIC_REPLACEMENT_SERVICE -> containsLeaf(leaves, "isReplacementOf", "NOT_EMPTY", null)
+                    || containsLeaf(leaves, "isReplacementOf", "SIZE_GREATER_OR_EQUAL", null);
+            case HAS_REPLACEMENT_OBJECT -> containsLeaf(leaves, "replacement", "NOT_NULL", null)
+                    || containsLeaf(leaves, "replacement", "EXISTS", null);
+            case HAS_EXTERNAL_REPLACEMENT_OBJECT -> containsLeaf(leaves, "externalReplacement", "NOT_NULL", null)
+                    || containsLeaf(leaves, "externalReplacement", "EXISTS", null);
+            case REPLACEMENT_STOP -> containsLeaf(leaves, "replacement.stopPointReplacements[].stopPointId.id", "EQUALS", null)
+                    || containsLeaf(leaves, "replacement.stopPointReplacements[].stopPointId.id", "IN", null)
+                    || containsLeaf(leaves, "externalReplacement.stopPointReplacements[].stopPointId.id", "EQUALS", null)
+                    || containsLeaf(leaves, "externalReplacement.stopPointReplacements[].stopPointId.id", "IN", null);
+            case REPLACEMENT_TYPE -> replacementTypeCovered(leaves, constraint);
+            case REPLACEMENT_STOP_WITH_TYPE -> hasReplacementStopAndTypeInSameAnyElement(condition, constraint);
+            case REPLACEMENT_SOURCE_ROUTE -> false;
+            case UNKNOWN -> true;
+        };
+    }
+
+    private boolean replacementTypeCovered(
+            List<ConditionLeaf> leaves,
+            ScheduledAlertReplacementConstraint constraint) {
+        Set<String> expected = expectedReplacementTypes(constraint.replacementType());
+        if (expected.isEmpty()) {
+            return true;
+        }
+        return leaves.stream()
+                .filter(leaf -> leaf.resolvedField() != null
+                        && leaf.resolvedField().endsWith("replacement.stopPointReplacements[].replacementType"))
+                .filter(leaf -> "EQUALS".equals(leaf.operator()) || "IN".equals(leaf.operator()))
+                .anyMatch(leaf -> leaf.values().stream().map(this::stringValue).anyMatch(expected::contains));
+    }
+
+    private boolean hasReplacementStopAndTypeInSameAnyElement(
+            Map<String, Object> node,
+            ScheduledAlertReplacementConstraint constraint) {
+        if (node == null || node.isEmpty()) {
+            return false;
+        }
+        Map<String, Object> anyElement = asMap(node.get("anyElement"));
+        if (anyElement != null) {
+            String path = stringValue(anyElement.get("path"));
+            Map<String, Object> conditions = asMap(anyElement.get("conditions"));
+            if ("replacement.stopPointReplacements[]".equals(path)
+                    || "externalReplacement.stopPointReplacements[]".equals(path)
+                    || "stopPointsJourneyDetails[].replacement.stopPointReplacements[]".equals(path)
+                    || "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[]".equals(path)) {
+                List<ConditionLeaf> leaves = collectConditionLeaves(conditions,
+                        path.startsWith("stopPointsJourneyDetails[]") ? path : "stopPointsJourneyDetails[]." + path);
+                boolean hasStop = leaves.stream().anyMatch(leaf -> leaf.resolvedField() != null
+                        && (leaf.resolvedField().endsWith("replacement.stopPointReplacements[].stopPointId.id")
+                        || leaf.resolvedField().endsWith("externalReplacement.stopPointReplacements[].stopPointId.id"))
+                        && ("EQUALS".equals(leaf.operator()) || "IN".equals(leaf.operator())));
+                boolean hasType = replacementTypeCovered(leaves, constraint);
+                if (hasStop && hasType) {
+                    return true;
+                }
+            }
+            if (hasReplacementStopAndTypeInSameAnyElement(conditions, constraint)) {
+                return true;
+            }
+        }
+        return containsReplacementStopAndTypeInArray(node.get("all"), constraint)
+                || containsReplacementStopAndTypeInArray(node.get("any"), constraint);
+    }
+
+    private boolean containsReplacementStopAndTypeInArray(
+            Object value,
+            ScheduledAlertReplacementConstraint constraint) {
+        if (value instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                if (hasReplacementStopAndTypeInSameAnyElement(asMap(item), constraint)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Set<String> expectedReplacementTypes(ScheduledAlertReplacementConstraint.ReplacementType replacementType) {
+        return switch (replacementType) {
+            case DEPARTURE -> Set.of("DEPARTURE", "ARRIVALDEPARTURE");
+            case ARRIVAL -> Set.of("ARRIVAL", "ARRIVALDEPARTURE");
+            case ARRIVALDEPARTURE -> Set.of("ARRIVALDEPARTURE");
+            case UNSPECIFIED -> Set.of();
+        };
     }
 
     private boolean matchesJourneyTimeHint(
