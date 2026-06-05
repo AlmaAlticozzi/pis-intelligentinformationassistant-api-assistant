@@ -304,6 +304,52 @@ class AlertServiceTest {
     }
 
     @Test
+    void verifyAllLocationsScheduledReportReachesScheduledLocationUnderstanding() {
+        String prompt = "Fammi sapere ogni ora quanti treni sono in ritardo in tutte le località";
+        AlertService service = verificationService(false);
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData("ALRT1", "Alert", null, prompt)));
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS);
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS,
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false,
+                List.of(),
+                List.of("All known stop points scope requested; ids will be materialized by runtime or later verification phase."));
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason()).contains("SCHEDULED_INTERPRETER technical verification is not implemented yet");
+        assertThat(outcome.getValue().rejectedReason()).doesNotContain("Weather");
+        assertThat(outcome.getValue().warnings()).contains(
+                "SCHEDULED_MONITORING_SCOPE=ALL_KNOWN_STOP_POINTS",
+                "SCHEDULED_SERVICE_DATA_API_STOP_POINTS=ALL_KNOWN_STOP_POINTS");
+        verify(service.scheduledAlertLocationUnderstandingService).understandLocations(prompt, "ALRT1");
+        verify(service.scheduledServiceDataLocationResolutionService).resolve(scheduledUnderstanding);
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
     void verifyEventRouteContinuesIntoExistingAlertVerifyFlow() {
         AlertService service = verificationService(false);
         service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);

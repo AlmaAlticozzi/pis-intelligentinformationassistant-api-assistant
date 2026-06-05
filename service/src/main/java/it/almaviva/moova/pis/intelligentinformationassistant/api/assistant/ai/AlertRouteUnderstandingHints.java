@@ -10,6 +10,7 @@ public record AlertRouteUnderstandingHints(
         boolean containsCardinalityThresholdExpression,
         boolean containsMultiMonitoredLocationExpression,
         boolean containsSnapshotStateExpression,
+        boolean containsAllLocationsExpression,
         boolean containsPlatformExpression,
         boolean containsUnsupportedWeatherExpression,
         boolean containsUnsupportedWifiOrOnboardFeatureExpression,
@@ -35,7 +36,10 @@ public record AlertRouteUnderstandingHints(
             "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
     private static final Pattern PLATFORM = Pattern.compile(
             "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
-    private static final Pattern WEATHER = Pattern.compile("\\b(piove|pioggia|meteo|weather|rain)\\b");
+    private static final Pattern ALL_LOCATIONS = Pattern.compile(
+            "\\b(tutte le localita|tutte le fermate|tutte le stazioni|all locations|all stop points|every stop point|all stops|every station)\\b");
+    private static final Pattern WEATHER = Pattern.compile(
+            "\\b(piove|pioggia|meteo|weather|rain|raining|snow|nevica|temporale|vento|wind)\\b");
     private static final Pattern WIFI_OR_ONBOARD = Pattern.compile("\\b(wifi|wi-fi|wireless|a bordo|onboard)\\b");
     private static final Pattern GENERIC_QUESTION = Pattern.compile("\\b(quanto fa|2\\+2|what is|generic question)\\b");
 
@@ -49,6 +53,7 @@ public record AlertRouteUnderstandingHints(
         boolean snapshotState = SNAPSHOT_STATE.matcher(normalized).find();
         boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
         boolean platform = PLATFORM.matcher(normalized).find();
+        boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean cardinality = countOrReport || (hasVehicleNoun && quantifiedVehicle);
         boolean multiLocation = snapshotState
                 && (normalized.contains(" e ") || normalized.contains(" and "))
@@ -60,6 +65,7 @@ public record AlertRouteUnderstandingHints(
                 cardinality,
                 multiLocation,
                 snapshotState || countOrReport,
+                allLocations,
                 platform,
                 WEATHER.matcher(normalized).find(),
                 WIFI_OR_ONBOARD.matcher(normalized).find(),
@@ -67,7 +73,7 @@ public record AlertRouteUnderstandingHints(
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -84,6 +90,7 @@ public record AlertRouteUnderstandingHints(
                 - containsCardinalityThresholdExpression: %s
                 - containsMultiMonitoredLocationExpression: %s
                 - containsSnapshotStateExpression: %s
+                - containsAllLocationsExpression: %s
                 - containsPlatformExpression: %s
                 - containsUnsupportedWeatherExpression: %s
                 - containsUnsupportedWifiOrOnboardFeatureExpression: %s
@@ -99,6 +106,7 @@ public record AlertRouteUnderstandingHints(
                 containsCardinalityThresholdExpression,
                 containsMultiMonitoredLocationExpression,
                 containsSnapshotStateExpression,
+                containsAllLocationsExpression,
                 containsPlatformExpression,
                 containsUnsupportedWeatherExpression,
                 containsUnsupportedWifiOrOnboardFeatureExpression,

@@ -53,4 +53,33 @@ class AlertRouteUnderstandingHintsTest {
         assertThat(hints.containsCardinalityThresholdExpression()).isTrue();
         assertThat(hints.containsSnapshotStateExpression()).isTrue();
     }
+
+    @Test
+    void allLocationsHourlyReportIsServiceDataSnapshotNotWeather() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere ogni ora quanti treni sono in ritardo in tutte le località");
+
+        assertThat(hints.containsPollingExpression()).isTrue();
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsAllLocationsExpression()).isTrue();
+        assertThat(hints.containsUnsupportedWeatherExpression()).isFalse();
+    }
+
+    @Test
+    void weatherPromptStillSetsWeatherHint() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando piove a Garibaldi");
+
+        assertThat(hints.containsUnsupportedWeatherExpression()).isTrue();
+    }
+
+    @Test
+    void allStopsHourlyReportIsServiceDataSnapshotNotWeather() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere ogni ora quanti treni sono in ritardo in tutte le fermate");
+
+        assertThat(hints.containsAllLocationsExpression()).isTrue();
+        assertThat(hints.containsUnsupportedWeatherExpression()).isFalse();
+    }
 }

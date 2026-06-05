@@ -288,7 +288,7 @@ public class AlertRouteUnderstandingValidator {
         if (normalized == null) {
             return null;
         }
-        if (containsAny(normalized, "piove", "pioggia", "rain", "weather", "meteo")) {
+        if (containsWeatherTerm(normalized)) {
             return "Weather alerts are outside the currently supported ServiceData routing domain.";
         }
         if (containsAny(normalized, "quanto fa", "2+2", "what is", "generic question")) {
@@ -318,6 +318,13 @@ public class AlertRouteUnderstandingValidator {
             }
         }
         return false;
+    }
+
+    private boolean containsWeatherTerm(String value) {
+        return java.util.regex.Pattern.compile(
+                        "\\b(piove|pioggia|rain|raining|weather|meteo|snow|nevica|temporale|vento|wind)\\b")
+                .matcher(value)
+                .find();
     }
 
     private String normalizeText(String value) {

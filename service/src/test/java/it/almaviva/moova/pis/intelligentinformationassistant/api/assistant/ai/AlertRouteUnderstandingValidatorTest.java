@@ -39,6 +39,32 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void keepsAllLocationsScheduledReportRouted() {
+        String prompt = "Fammi sapere ogni ora quanti treni sono in ritardo in tutte le località";
+        AlertRouteUnderstandingResult validated = validator.validate(scheduledRoute(
+                        AlertRouteIntentKind.SNAPSHOT_REPORT,
+                        AlertRouteOutputMode.EVERY_RUN_REPORT,
+                        true,
+                        false,
+                        true),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.dataDomains()).containsExactly("SERVICE_DATA");
+        assertThat(validated.primaryDataDomain()).isEqualTo("SERVICE_DATA");
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+        assertThat(validated.requiresPolling()).isTrue();
+        assertThat(validated.requiresServiceDataApi()).isTrue();
+        assertThat(validated.requiresKafkaEvent()).isFalse();
+        assertThat(validated.hasAggregation()).isTrue();
+        assertThat(validated.hasReportIntent()).isTrue();
+    }
+
+    @Test
     void routesScheduledConditionWithAggregationAndCardinalityThreshold() {
         AlertRouteUnderstandingResult validated = validator.validate(scheduledRoute(
                         AlertRouteIntentKind.SNAPSHOT_CONDITION,
