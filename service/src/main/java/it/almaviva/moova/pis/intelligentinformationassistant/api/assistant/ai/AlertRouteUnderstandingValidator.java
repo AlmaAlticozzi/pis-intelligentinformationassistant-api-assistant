@@ -83,7 +83,10 @@ public class AlertRouteUnderstandingValidator {
     private boolean requiresScheduledInterpreter(AlertRouteUnderstandingHints hints) {
         return hints.containsPollingExpression()
                 || hints.stronglyIndicatesAggregateSnapshot()
-                || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression());
+                || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression())
+                || (hints.containsSnapshotStateExpression()
+                && hints.containsPlatformChangeExpression()
+                && !hints.containsEventOccurrenceExpression());
     }
 
     private AlertRouteUnderstandingResult normalizeEventRouteToScheduled(

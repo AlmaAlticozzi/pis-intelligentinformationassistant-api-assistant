@@ -29,7 +29,11 @@ class AlertRouteUnderstandingPromptBuilderTest {
                 .contains("SCHEDULED_INTERPRETER is for alerts that require periodic snapshot queries")
                 .contains("ARRIVING", "DEPARTURE_PLATFORM_CHANGED", "CHANGED_DESTINATION", "RELOAD_JOURNEY")
                 .contains("\"dataDomains\": [\"SERVICE_DATA\"]")
-                .contains("Do not rely on exact wording or one language");
+                .contains("Do not rely on exact wording or one language")
+                .contains("Platform-change wording does not automatically imply EVENT_INTERPRETER")
+                .contains("Snapshot state signals")
+                .contains("SCHEDULED_INTERPRETER with SERVICE_DATA_API_SNAPSHOT")
+                .contains("route to EVENT_INTERPRETER");
     }
 
     private AlertRouteUnderstandingPromptBuilder builder() {

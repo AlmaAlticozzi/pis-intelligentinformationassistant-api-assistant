@@ -92,4 +92,24 @@ class AlertRouteUnderstandingHintsTest {
         assertThat(hints.containsAllLocationsExpression()).isTrue();
         assertThat(hints.containsUnsupportedWeatherExpression()).isFalse();
     }
+
+    @Test
+    void snapshotPlatformChangeBooleanKeepsSnapshotSignals() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere se a San Siro Stadio ci sono treni che hanno subito un cambio di binario");
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsPlatformChangeExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+    }
+
+    @Test
+    void platformChangeEventOccurrenceKeepsEventSignal() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando una corsa cambia binario a San Siro Stadio");
+
+        assertThat(hints.containsPlatformChangeExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isFalse();
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+    }
 }

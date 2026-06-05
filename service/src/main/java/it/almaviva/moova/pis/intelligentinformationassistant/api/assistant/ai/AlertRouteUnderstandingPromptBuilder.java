@@ -101,6 +101,16 @@ public class AlertRouteUnderstandingPromptBuilder {
                 - The presence of event-like words such as arriving, departing, delayed or cancelled does not automatically
                   imply EVENT_INTERPRETER when the request also contains aggregation, count, threshold or multiple
                   monitored stop points.
+                - Platform-change wording does not automatically imply EVENT_INTERPRETER. Classify the user meaning:
+                  snapshot state, count or report prompts about journeys that have changed platform at a monitored
+                  location are SCHEDULED_INTERPRETER; single emitted platform-change event prompts are EVENT_INTERPRETER.
+                - If the user asks "are there trains with platform changes at X", "there are trains that changed
+                  platform at X", "how many trains at X changed platform", or equivalent wording in any language, route
+                  to SCHEDULED_INTERPRETER with SERVICE_DATA_API_SNAPSHOT.
+                - If the user asks "notify me when a journey changes platform at X" or "when the platform of a journey
+                  is changed at X", and there is no snapshot/count/report wording, route to EVENT_INTERPRETER.
+                - Snapshot state signals such as "ci sono", "are there", "sono presenti", "presenti", "quanti",
+                  "how many" or "number of" win over event-like platform-change wording.
                 - Do not classify a prompt as SCHEDULED_INTERPRETER just because it contains a number.
                 - Numbers used as platform, binario, track, quay, banchina or marciapiede values are ServiceData field
                   constraints and can be evaluated by EVENT_INTERPRETER when the rest of the prompt describes a single

@@ -12,6 +12,8 @@ public record AlertRouteUnderstandingHints(
         boolean containsSnapshotStateExpression,
         boolean containsAllLocationsExpression,
         boolean containsPlatformExpression,
+        boolean containsPlatformChangeExpression,
+        boolean containsEventOccurrenceExpression,
         boolean containsUnsupportedWeatherExpression,
         boolean containsUnsupportedWifiOrOnboardFeatureExpression,
         boolean containsGenericQuestionExpression
@@ -36,6 +38,10 @@ public record AlertRouteUnderstandingHints(
             "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
     private static final Pattern PLATFORM = Pattern.compile(
             "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
+    private static final Pattern PLATFORM_CHANGE = Pattern.compile(
+            "\\b(cambio di binario|cambio binario|cambia binario|cambiato il binario|platform change|platform changed|track changed)\\b");
+    private static final Pattern EVENT_OCCURRENCE = Pattern.compile(
+            "\\b(quando\\s+(?:una\\s+)?corsa\\s+cambia|quando\\s+viene\\s+cambiato\\s+il\\s+binario|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+changes|when\\s+platform\\s+changes)\\b");
     private static final Pattern ALL_LOCATIONS = Pattern.compile(
             "\\b(tutte le localita|tutte le fermate|tutte le stazioni|all locations|all stop points|every stop point|all stops|every station)\\b");
     private static final Pattern WEATHER = Pattern.compile(
@@ -53,6 +59,8 @@ public record AlertRouteUnderstandingHints(
         boolean snapshotState = SNAPSHOT_STATE.matcher(normalized).find();
         boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
         boolean platform = PLATFORM.matcher(normalized).find();
+        boolean platformChange = PLATFORM_CHANGE.matcher(normalized).find();
+        boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find();
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean threshold = THRESHOLD.matcher(normalized).find();
         boolean cardinality = threshold || (hasVehicleNoun && quantifiedVehicle);
@@ -68,13 +76,15 @@ public record AlertRouteUnderstandingHints(
                 snapshotState || countOrReport,
                 allLocations,
                 platform,
+                platformChange,
+                eventOccurrence,
                 WEATHER.matcher(normalized).find(),
                 WIFI_OR_ONBOARD.matcher(normalized).find(),
                 GENERIC_QUESTION.matcher(normalized).find());
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -93,6 +103,8 @@ public record AlertRouteUnderstandingHints(
                 - containsSnapshotStateExpression: %s
                 - containsAllLocationsExpression: %s
                 - containsPlatformExpression: %s
+                - containsPlatformChangeExpression: %s
+                - containsEventOccurrenceExpression: %s
                 - containsUnsupportedWeatherExpression: %s
                 - containsUnsupportedWifiOrOnboardFeatureExpression: %s
                 - containsGenericQuestionExpression: %s
@@ -109,6 +121,8 @@ public record AlertRouteUnderstandingHints(
                 containsSnapshotStateExpression,
                 containsAllLocationsExpression,
                 containsPlatformExpression,
+                containsPlatformChangeExpression,
+                containsEventOccurrenceExpression,
                 containsUnsupportedWeatherExpression,
                 containsUnsupportedWifiOrOnboardFeatureExpression,
                 containsGenericQuestionExpression);

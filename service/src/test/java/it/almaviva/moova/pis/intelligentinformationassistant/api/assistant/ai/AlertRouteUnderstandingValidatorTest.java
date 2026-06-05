@@ -173,6 +173,43 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesSnapshotPlatformChangeBooleanToScheduledInterpreter() {
+        String prompt = "Fammi sapere se a San Siro Stadio ci sono treni che hanno subito un cambio di binario";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsPlatformChangeExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_CONDITION);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isTrue();
+        assertThat(validated.requiresServiceDataApi()).isTrue();
+        assertThat(validated.requiresKafkaEvent()).isFalse();
+    }
+
+    @Test
+    void normalizesSnapshotPlatformChangeReportToScheduledReport() {
+        String prompt = "Fammi sapere quanti treni a San Siro Stadio hanno subito un cambio di binario";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsPlatformChangeExpression()).isTrue();
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+        assertThat(validated.requiresServiceDataApi()).isTrue();
+        assertThat(validated.requiresKafkaEvent()).isFalse();
+    }
+
+    @Test
     void pollingCountPromptCannotRemainEventInterpreter() {
         String prompt = "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi";
 
@@ -248,6 +285,35 @@ class AlertRouteUnderstandingValidatorTest {
         assertThat(validated.hasAggregation()).isFalse();
         assertThat(validated.hasCardinalityThreshold()).isFalse();
         assertThat(validated.hasReportIntent()).isFalse();
+    }
+
+    @Test
+    void keepsSinglePlatformChangePromptAsEventInterpreter() {
+        String prompt = "Avvisami quando una corsa cambia binario a San Siro Stadio";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+    }
+
+    @Test
+    void keepsPassiveSinglePlatformChangePromptAsEventInterpreter() {
+        String prompt = "Avvisami quando viene cambiato il binario di una corsa a San Siro Stadio";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
     }
 
     @Test
