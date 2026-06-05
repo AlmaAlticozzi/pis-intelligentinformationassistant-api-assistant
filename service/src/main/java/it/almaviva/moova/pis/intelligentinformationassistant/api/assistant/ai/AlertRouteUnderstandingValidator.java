@@ -29,7 +29,7 @@ public class AlertRouteUnderstandingValidator {
             return rejected("Alert route understanding did not produce a result.");
         }
 
-        String defensiveReason = defensiveUnsupportedPromptReason(originalPrompt, safeHints);
+        String defensiveReason = defensiveUnsupportedPromptReason(originalPrompt, safeHints, route);
         if (defensiveReason != null) {
             return rejected(defensiveReason);
         }
@@ -63,7 +63,7 @@ public class AlertRouteUnderstandingValidator {
         }
 
         if (route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
-            if (safeHints.stronglyIndicatesAggregateSnapshot()) {
+            if (requiresScheduledInterpreter(safeHints)) {
                 return normalizeEventRouteToScheduled(route, domains, primaryDomain, safeHints);
             }
             return validateEventRoute(route, domains, primaryDomain);
@@ -72,6 +72,12 @@ public class AlertRouteUnderstandingValidator {
             return validateScheduledRoute(route, domains, primaryDomain);
         }
         return rejected("Routed alert requires EVENT_INTERPRETER or SCHEDULED_INTERPRETER.");
+    }
+
+    private boolean requiresScheduledInterpreter(AlertRouteUnderstandingHints hints) {
+        return hints.containsPollingExpression()
+                || hints.stronglyIndicatesAggregateSnapshot()
+                || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression());
     }
 
     private AlertRouteUnderstandingResult normalizeEventRouteToScheduled(
@@ -221,7 +227,10 @@ public class AlertRouteUnderstandingValidator {
         return List.copyOf(merged);
     }
 
-    private String defensiveUnsupportedPromptReason(String prompt, AlertRouteUnderstandingHints hints) {
+    private String defensiveUnsupportedPromptReason(
+            String prompt,
+            AlertRouteUnderstandingHints hints,
+            AlertRouteUnderstandingResult route) {
         if (hints.containsUnsupportedWeatherExpression()) {
             return "Weather alerts are outside the currently supported ServiceData routing domain.";
         }
@@ -231,7 +240,11 @@ public class AlertRouteUnderstandingValidator {
         if (hints.containsUnsupportedWifiOrOnboardFeatureExpression()) {
             return "Onboard wifi is not a controlled ServiceData capability for Alert Route Understanding.";
         }
-        String normalized = normalizeText(prompt);
+        String normalized = normalizeText(String.join(" ",
+                prompt == null ? "" : prompt,
+                route == null || route.summary() == null ? "" : route.summary(),
+                route == null || route.rejectedReason() == null ? "" : route.rejectedReason(),
+                route == null || route.warnings() == null ? "" : String.join(" ", route.warnings())));
         if (normalized == null) {
             return null;
         }
@@ -243,6 +256,17 @@ public class AlertRouteUnderstandingValidator {
         }
         if (containsAny(normalized, "wifi", "wi-fi", "wireless")) {
             return "Onboard wifi is not a controlled ServiceData capability for Alert Route Understanding.";
+        }
+        if (containsAny(normalized,
+                "carriage", "carriages", "coach", "coaches", "composizione", "carrozze", "vagoni",
+                "comfort", "aria condizionata", "air conditioning", "posti", "seat", "seats",
+                "passenger profile", "passenger profiles", "profilo passeggero", "profili passeggeri",
+                "ticket", "ticketing", "biglietto", "biglietteria",
+                "device", "devices", "display", "dispositivo", "stato dispositivo",
+                "audio", "messaggio audio", "audio message",
+                "cms", "content", "contenuto",
+                "broadcast", "broadcast history", "storico broadcast")) {
+            return "The route contains unsupported constraints for this phase and cannot be partially accepted as SERVICE_DATA.";
         }
         return null;
     }

@@ -41,25 +41,25 @@ public class AlertRouteUnderstandingService {
         try {
             LlmResponse response = llmGateway.get().generateText(routeRequest);
             String rawResponse = response == null ? null : response.text();
-            System.out.println("[IIA][ALERT_ROUTE] raw LLM response=" + truncate(rawResponse, 2000));
+            System.out.println("[IIA][ALERT_ROUTE][LLM_RAW] " + truncate(rawResponse, 2000));
 
             AlertRouteUnderstandingResponseParser.ParseResult parseResult =
                     responseParser.parseDetailed(rawResponse);
             if (parseResult.result().isEmpty()) {
-                System.out.println("[IIA][ALERT_ROUTE] parsed route=<empty> reason=" + parseResult.failureReason()
+                System.out.println("[IIA][ALERT_ROUTE][PARSED] route=<empty> reason=" + parseResult.failureReason()
                         + " rawLength=" + parseResult.rawLength());
                 AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(
                         "Alert route response could not be parsed: " + parseResult.failureReason());
                 AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt, hints);
-                System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
+                System.out.println("[IIA][ALERT_ROUTE][VALIDATED] " + validated);
                 printFinal(validated);
                 return validated;
             }
 
             AlertRouteUnderstandingResult parsed = parseResult.result().get();
-            System.out.println("[IIA][ALERT_ROUTE] parsed route=" + parsed);
+            System.out.println("[IIA][ALERT_ROUTE][PARSED] " + parsed);
             AlertRouteUnderstandingResult validated = validator.validate(parsed, prompt, hints);
-            System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
+            System.out.println("[IIA][ALERT_ROUTE][VALIDATED] " + validated);
             printFinal(validated);
             return validated;
         } catch (ProcessingException ex) {
@@ -77,6 +77,7 @@ public class AlertRouteUnderstandingService {
                 rejected,
                 prompt,
                 AlertRouteUnderstandingHints.fromPrompt(prompt));
+        System.out.println("[IIA][ALERT_ROUTE][VALIDATED] " + validated);
         printFinal(validated);
         return validated;
     }

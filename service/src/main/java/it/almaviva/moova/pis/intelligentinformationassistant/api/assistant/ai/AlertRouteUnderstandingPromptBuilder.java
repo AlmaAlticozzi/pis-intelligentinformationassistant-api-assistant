@@ -50,10 +50,12 @@ public class AlertRouteUnderstandingPromptBuilder {
                 %s
 
                 Supported data domain:
+                - dataDomains must always be an array.
                 - SERVICE_DATA is currently the only supported data domain for routing to technical verification.
-                - SERVICE_DATA includes public transport journey status information: journeys, stop points, origin,
-                  destination, route calls, delays, cancellations, platform, statuses, exclusions, replacement
-                  information and similar passenger information operations.
+                - Currently the only technically supported data domain is SERVICE_DATA.
+                - SERVICE_DATA means journey, stop point and passenger information operational data: journeys, stop
+                  points, arrival, departure, delay, cancellation, platform, origin, destination, route calls,
+                  exclusions, replacement and service category.
 
                 Unsupported domains:
                 - Reject weather, sports, generic Q&A, devices, audio messages, CMS content, broadcast history,
@@ -61,6 +63,11 @@ public class AlertRouteUnderstandingPromptBuilder {
                 - Reject ServiceData-looking prompts that require uncontrolled attributes not listed above, such as
                   wifi availability, passenger profiles, passenger counts, vehicle color, onboard amenities or arbitrary
                   external metadata.
+                - Do not classify weather, sports, generic Q&A, passenger comfort features not present in ServiceData,
+                  wifi onboard, train composition/carriages, passenger profiles, ticketing, device state, CMS content,
+                  audio messages or broadcast history as supported SERVICE_DATA for this phase.
+                - If a prompt contains both supported and unsupported constraints, reject it. Do not partially accept the
+                  supported part.
 
                 Interpreter routing:
                 - EVENT_INTERPRETER is for alerts triggered by individual ServiceData/Kafka domain events, such as
@@ -95,6 +102,10 @@ public class AlertRouteUnderstandingPromptBuilder {
                   imply EVENT_INTERPRETER when the request also contains aggregation, count, threshold or multiple
                   monitored stop points.
                 - Do not rely on exact wording or one language. Classify the meaning semantically.
+                - The routing step must not generate technicalSpecification.
+                - The routing step must not produce field paths.
+                - The routing step must not resolve locations.
+                - The routing step only classifies the alert.
 
                 Compact example:
                 - Input meaning: "Notify me when at stop point A and stop point B there are two arriving journeys"

@@ -127,6 +127,58 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void pollingCountPromptCannotRemainEventInterpreter() {
+        String prompt = "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                eventRoute(),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.requiresPolling()).isTrue();
+    }
+
+    @Test
+    void rejectsWifiOnboardEvenIfLlmRoutesServiceData() {
+        AlertRouteUnderstandingResult validated = validator.validate(
+                eventRoute(),
+                "Fammi sapere quando una corsa arriva a Garibaldi con wifi a bordo",
+                AlertRouteUnderstandingHints.fromPrompt("Fammi sapere quando una corsa arriva a Garibaldi con wifi a bordo"));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("wifi");
+    }
+
+    @Test
+    void rejectsWeatherEvenWhenStopPointNameIsPresent() {
+        AlertRouteUnderstandingResult validated = validator.validate(
+                eventRoute(),
+                "Avvisami quando piove a Garibaldi",
+                AlertRouteUnderstandingHints.fromPrompt("Avvisami quando piove a Garibaldi"));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Weather");
+    }
+
+    @Test
+    void rejectsUnsupportedComfortOrCompositionEvenIfLlmRoutesServiceData() {
+        AlertRouteUnderstandingResult comfort = validator.validate(
+                eventRoute(),
+                "Avvisami quando una corsa arriva a Garibaldi con aria condizionata",
+                AlertRouteUnderstandingHints.fromPrompt("Avvisami quando una corsa arriva a Garibaldi con aria condizionata"));
+        AlertRouteUnderstandingResult carriages = validator.validate(
+                eventRoute(),
+                "Avvisami quando un treno a Garibaldi ha dieci carrozze",
+                AlertRouteUnderstandingHints.fromPrompt("Avvisami quando un treno a Garibaldi ha dieci carrozze"));
+
+        assertThat(comfort.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(carriages.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+    }
+
+    @Test
     void keepsSingleArrivalPromptAsEventInterpreter() {
         AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
                 "Avvisami quando una corsa arriva a Garibaldi",
