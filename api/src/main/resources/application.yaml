@@ -56,6 +56,9 @@ iia:
     fallback-on-invalid-llm: ${IIA_ALERT_VERIFICATION_FALLBACK_ON_INVALID_LLM:false}
     location-understanding:
       enabled: ${IIA_ALERT_VERIFICATION_LOCATION_UNDERSTANDING_ENABLED:true}
+  alert:
+    scheduled-verify:
+      enabled: ${IIA_ALERT_SCHEDULED_VERIFY_ENABLED:true}
   agent-generation-preview:
     use-llm: ${IIA_AGENT_GENERATION_PREVIEW_USE_LLM:true}
     fallback-to-deterministic-on-llm-error: ${IIA_AGENT_GENERATION_PREVIEW_FALLBACK_TO_DETERMINISTIC_ON_LLM_ERROR:false}
