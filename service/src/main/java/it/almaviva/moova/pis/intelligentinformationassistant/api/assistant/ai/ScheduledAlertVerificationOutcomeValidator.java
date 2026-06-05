@@ -3,16 +3,20 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledServiceDataCapabilityCatalog;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataResolvedLocation;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class ScheduledAlertVerificationOutcomeValidator {
@@ -29,6 +33,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
     private static final String BLUEPRINT_SCHEMA_VERSION = "iia.agent.blueprint/v1";
     private static final String AGENT_NAME = "ScheduledServiceDataSnapshotAlertAgent";
     private static final String OUTPUT_TYPE = "CANDIDATE_SUGGESTION";
+    private static final String SERVICE_DATA_OPERATION = "POST /v2/stoppointjourneys";
     private static final String DEFAULT_REJECTED_REASON =
             "Scheduled alert verification rejected the result because it does not satisfy the Scheduled MVP contract.";
     private static final String CONDITION_TYPE = "SERVICE_DATA_SCHEDULED_FIELD_MATCH";
@@ -64,6 +69,11 @@ public class ScheduledAlertVerificationOutcomeValidator {
             "PLATFORM_NUMBER_ODD",
             "PLATFORM_NUMBER_DOUBLE_DIGIT",
             "PLATFORM_HAS_LETTER_SUFFIX");
+    private static final Set<String> POSITIVE_LOCATION_OPERATORS = Set.of(
+            "EQUALS", "IN", "CONTAINS_NORMALIZED", "EQUALS_NORMALIZED");
+    private static final Set<String> NEGATIVE_LOCATION_OPERATORS = Set.of(
+            "NOT_IN", "NOT_CONTAINS_NORMALIZED", "NOT_EQUALS_NORMALIZED");
+    private static final Pattern STOP_POINT_ID_PATTERN = Pattern.compile("TNPNTS[0-9A-Z]+");
     private static final List<String> FORBIDDEN_OUTPUT_MARKERS = List.of(
             "payload.ongroundServiceEvent",
             "ServiceDataV2",
@@ -71,6 +81,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
             "STATELESS_EVENT_MATCH");
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome) {
+        return validate(outcome, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -94,7 +110,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome);
+        String failure = validateVerified(outcome, scheduledLocationContext);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -102,7 +118,9 @@ public class ScheduledAlertVerificationOutcomeValidator {
         return outcome;
     }
 
-    private String validateVerified(AlertVerificationOutcome outcome) {
+    private String validateVerified(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -148,6 +166,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String conditionFailure = validateScheduledConditions(outcome.technicalSpecification(), outcome.agentBlueprintPreview());
         if (conditionFailure != null) {
             return conditionFailure;
+        }
+        if (scheduledLocationContext != null) {
+            String locationFailure = validateLocationContext(outcome, scheduledLocationContext);
+            if (locationFailure != null) {
+                return locationFailure;
+            }
         }
         return null;
     }
@@ -572,6 +596,267 @@ public class ScheduledAlertVerificationOutcomeValidator {
         return null;
     }
 
+    private String validateLocationContext(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context) {
+        Map<String, Object> technicalSpecification = outcome.technicalSpecification();
+        Map<String, Object> serviceDataQuery = asMap(technicalSpecification.get("serviceDataQuery"));
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        List<String> queryStopPoints = stringList(serviceDataQuery == null ? null : serviceDataQuery.get("stopPoints"));
+        List<String> contextStopPoints = context.serviceDataApiStopPoints();
+        String monitoringScope = stringValue(serviceDataQuery == null ? null : serviceDataQuery.get("monitoringScope"));
+        boolean requiresAllKnownStopPoints = Boolean.TRUE.equals(serviceDataQuery == null
+                ? null
+                : serviceDataQuery.get("requiresAllKnownStopPoints"));
+
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] monitoringScope=" + context.monitoringScope());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] queryStopPoints=" + queryStopPoints);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] contextStopPoints=" + contextStopPoints);
+
+        if (context.monitoringScope() == ScheduledAlertMonitoringScope.UNSPECIFIED) {
+            return locationFailure("Scheduled ServiceData verification requires explicit monitored stop points or ALL_KNOWN_STOP_POINTS scope.");
+        }
+        if (context.hasUnresolvedRequiredMonitoredLocations()) {
+            return locationFailure("Scheduled ServiceData alert has unresolved monitored locations: "
+                    + context.unresolvedRequiredMonitoredLocationTexts() + ".");
+        }
+        if (serviceDataQuery == null || serviceDataQuery.isEmpty()) {
+            return locationFailure("technicalSpecification.serviceDataQuery is required.");
+        }
+        if (!SERVICE_DATA_OPERATION.equals(stringValue(serviceDataQuery.get("operation")))) {
+            return locationFailure("serviceDataQuery.operation must be POST /v2/stoppointjourneys.");
+        }
+        if (!String.valueOf(context.monitoringScope()).equals(monitoringScope)) {
+            return locationFailure("serviceDataQuery.monitoringScope must match ScheduledServiceDataLocationContext.");
+        }
+        if (requiresAllKnownStopPoints != context.requiresAllKnownStopPoints()) {
+            return locationFailure("serviceDataQuery.requiresAllKnownStopPoints must match ScheduledServiceDataLocationContext.");
+        }
+        if (hasDuplicates(queryStopPoints)) {
+            return locationFailure("serviceDataQuery.stopPoints must be deduplicated.");
+        }
+
+        if (context.monitoringScope() == ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS) {
+            if (!requiresAllKnownStopPoints) {
+                return locationFailure("ALL_KNOWN_STOP_POINTS requires requiresAllKnownStopPoints=true.");
+            }
+            if (!queryStopPoints.isEmpty()) {
+                return locationFailure("ALL_KNOWN_STOP_POINTS must not contain explicit serviceDataQuery.stopPoints.");
+            }
+        } else {
+            if (queryStopPoints.isEmpty()) {
+                return locationFailure("EXPLICIT_STOP_POINTS requires non-empty serviceDataQuery.stopPoints.");
+            }
+            if (!queryStopPoints.equals(contextStopPoints)) {
+                return locationFailure("serviceDataQuery.stopPoints must exactly match monitored context stop points.");
+            }
+        }
+
+        String filterInQueryFailure = validateFiltersNotInQuery(context, queryStopPoints);
+        if (filterInQueryFailure != null) {
+            return filterInQueryFailure;
+        }
+
+        String inventedIdFailure = validateNoInventedStopPointIds(technicalSpecification, allowedStopPointIds(context));
+        if (inventedIdFailure != null) {
+            return inventedIdFailure;
+        }
+
+        String blueprintQueryFailure = validateBlueprintServiceDataQuery(outcome.agentBlueprintPreview(), serviceDataQuery);
+        if (blueprintQueryFailure != null) {
+            return blueprintQueryFailure;
+        }
+
+        for (ScheduledServiceDataResolvedLocation location : requiredFilterLocations(context)) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] checking filter rawText="
+                    + location.rawText() + " role=" + location.scheduledRole() + " polarity=" + location.polarity());
+            if (!isFilterCovered(location, leaves)) {
+                return locationFailure("Required filter/control location '" + location.rawText()
+                        + "' was not covered by snapshotEvaluation.condition.");
+            }
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] coverage ok rawText="
+                    + location.rawText());
+        }
+        return null;
+    }
+
+    private String validateFiltersNotInQuery(
+            ScheduledServiceDataLocationContext context,
+            List<String> queryStopPoints) {
+        Set<String> monitoredIds = new LinkedHashSet<>();
+        context.monitoredLocations().forEach(location -> monitoredIds.addAll(location.selectedPointIds()));
+        for (ScheduledServiceDataResolvedLocation filter : requiredFilterLocations(context)) {
+            for (String id : filter.selectedPointIds()) {
+                if (queryStopPoints.contains(id) && !monitoredIds.contains(id)) {
+                    return locationFailure("Filter/control location '" + filter.rawText()
+                            + "' was incorrectly used as a monitored ServiceData API stop point.");
+                }
+            }
+        }
+        return null;
+    }
+
+    private Set<String> allowedStopPointIds(ScheduledServiceDataLocationContext context) {
+        Set<String> ids = new LinkedHashSet<>();
+        ids.addAll(context.serviceDataApiStopPoints());
+        context.monitoredLocations().forEach(location -> ids.addAll(location.selectedPointIds()));
+        context.filterLocations().forEach(location -> ids.addAll(location.selectedPointIds()));
+        context.excludedLocations().forEach(location -> ids.addAll(location.selectedPointIds()));
+        return ids;
+    }
+
+    private String validateNoInventedStopPointIds(Object root, Set<String> allowedStopPointIds) {
+        if (root instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String failure = validateNoInventedStopPointIds(entry.getKey(), allowedStopPointIds);
+                if (failure != null) {
+                    return failure;
+                }
+                failure = validateNoInventedStopPointIds(entry.getValue(), allowedStopPointIds);
+                if (failure != null) {
+                    return failure;
+                }
+            }
+            return null;
+        }
+        if (root instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                String failure = validateNoInventedStopPointIds(item, allowedStopPointIds);
+                if (failure != null) {
+                    return failure;
+                }
+            }
+            return null;
+        }
+        String text = stringValue(root);
+        if (text == null) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = STOP_POINT_ID_PATTERN.matcher(text);
+        while (matcher.find()) {
+            String id = matcher.group();
+            if (!allowedStopPointIds.contains(id)) {
+                return locationFailure("Technical specification uses a stop point id that was not resolved from the user prompt: "
+                        + id + ".");
+            }
+        }
+        return null;
+    }
+
+    private String validateBlueprintServiceDataQuery(
+            Map<String, Object> agentBlueprintPreview,
+            Map<String, Object> technicalServiceDataQuery) {
+        Map<String, Object> parameters = asMap(agentBlueprintPreview.get("parameters"));
+        Map<String, Object> blueprintQuery = parameters == null ? null : asMap(parameters.get("serviceDataQuery"));
+        if (blueprintQuery == null || blueprintQuery.isEmpty()) {
+            return null;
+        }
+        if (!stringValue(technicalServiceDataQuery.get("monitoringScope"))
+                .equals(stringValue(blueprintQuery.get("monitoringScope")))) {
+            return locationFailure("agentBlueprintPreview.parameters.serviceDataQuery.monitoringScope must match technicalSpecification.");
+        }
+        if (Boolean.TRUE.equals(technicalServiceDataQuery.get("requiresAllKnownStopPoints"))
+                != Boolean.TRUE.equals(blueprintQuery.get("requiresAllKnownStopPoints"))) {
+            return locationFailure("agentBlueprintPreview.parameters.serviceDataQuery.requiresAllKnownStopPoints must match technicalSpecification.");
+        }
+        if (!stringList(technicalServiceDataQuery.get("stopPoints")).equals(stringList(blueprintQuery.get("stopPoints")))) {
+            return locationFailure("agentBlueprintPreview.parameters.serviceDataQuery.stopPoints must match technicalSpecification.");
+        }
+        return null;
+    }
+
+    private List<ScheduledServiceDataResolvedLocation> requiredFilterLocations(ScheduledServiceDataLocationContext context) {
+        java.util.ArrayList<ScheduledServiceDataResolvedLocation> locations = new java.util.ArrayList<>();
+        context.filterLocations().stream()
+                .filter(ScheduledServiceDataResolvedLocation::requiredCoverage)
+                .filter(location -> location.scheduledRole() != ScheduledAlertLocationRole.MONITORED_STOP_POINT)
+                .forEach(locations::add);
+        context.excludedLocations().stream()
+                .filter(ScheduledServiceDataResolvedLocation::requiredCoverage)
+                .filter(location -> location.scheduledRole() != ScheduledAlertLocationRole.MONITORED_STOP_POINT)
+                .forEach(locations::add);
+        return locations;
+    }
+
+    private boolean isFilterCovered(ScheduledServiceDataResolvedLocation location, List<ConditionLeaf> leaves) {
+        for (ConditionLeaf leaf : leaves) {
+            if (!location.targetFieldHints().contains(leaf.resolvedField())) {
+                continue;
+            }
+            boolean excluded = location.polarity() == ScheduledAlertLocationPolarity.EXCLUDE;
+            if (excluded && !NEGATIVE_LOCATION_OPERATORS.contains(leaf.operator())) {
+                continue;
+            }
+            if (!excluded && !POSITIVE_LOCATION_OPERATORS.contains(leaf.operator())) {
+                continue;
+            }
+            if (!location.selectedPointIds().isEmpty()
+                    && leaf.values().stream().anyMatch(location.selectedPointIds()::contains)) {
+                return true;
+            }
+            if (location.selectedPointIds().isEmpty() && location.fallbackToNameLong()) {
+                String normalized = location.normalizedText().isBlank() ? location.rawText() : location.normalizedText();
+                if (leaf.values().stream().anyMatch(value -> String.valueOf(value).equalsIgnoreCase(normalized))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<ConditionLeaf> collectConditionLeaves(Map<String, Object> condition, String arrayContext) {
+        java.util.ArrayList<ConditionLeaf> leaves = new java.util.ArrayList<>();
+        collectConditionLeaves(condition, arrayContext, leaves);
+        return leaves;
+    }
+
+    private void collectConditionLeaves(
+            Map<String, Object> node,
+            String arrayContext,
+            List<ConditionLeaf> leaves) {
+        if (node == null || node.isEmpty()) {
+            return;
+        }
+        if (node.containsKey("field") && node.containsKey("operator")) {
+            String field = stringValue(node.get("field"));
+            String resolvedField = field == null ? null : resolveField(arrayContext, field);
+            String operator = stringValue(node.get("operator"));
+            java.util.ArrayList<Object> values = new java.util.ArrayList<>();
+            if (node.containsKey("value")) {
+                values.add(node.get("value"));
+            }
+            values.addAll(stringList(node.get("values")));
+            leaves.add(new ConditionLeaf(field, resolvedField, operator, List.copyOf(values)));
+            return;
+        }
+        collectArrayNodes(node.get("all"), arrayContext, leaves);
+        collectArrayNodes(node.get("any"), arrayContext, leaves);
+        Map<String, Object> anyElement = asMap(node.get("anyElement"));
+        if (anyElement != null) {
+            String resolvedPath = resolveArrayPath(arrayContext, stringValue(anyElement.get("path")));
+            collectConditionLeaves(asMap(anyElement.get("conditions")), resolvedPath, leaves);
+        }
+    }
+
+    private void collectArrayNodes(Object value, String arrayContext, List<ConditionLeaf> leaves) {
+        if (value instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                collectConditionLeaves(asMap(item), arrayContext, leaves);
+            }
+        }
+    }
+
+    private boolean hasDuplicates(List<String> values) {
+        return new LinkedHashSet<>(values).size() != values.size();
+    }
+
+    private String locationFailure(String reason) {
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] coverage failed reason=" + reason);
+        return reason;
+    }
+
     private void logBase(AlertVerificationOutcome outcome) {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision=" + outcome.decision());
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] requiredSources=" + outcome.requiredSources()
@@ -715,5 +1000,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private record ConditionLeaf(
+            String field,
+            String resolvedField,
+            String operator,
+            List<Object> values) {
     }
 }

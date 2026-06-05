@@ -2,6 +2,10 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataApiQueryContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationResolutionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataResolvedLocation;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -11,6 +15,15 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ScheduledAlertVerificationOutcomeValidatorTest {
+
+    private static final String GORLA = "TNPNTS00000000000001";
+    private static final String PERO = "TNPNTS00000000000002";
+    private static final String GARIBALDI = "TNPNTS00000000000003";
+    private static final String BUONARROTI = "TNPNTS00000000000004";
+    private static final String TRE_TORRI = "TNPNTS00000000000005";
+    private static final String VAREDO = "TNPNTS00000000000006";
+    private static final String PALAZZOLO = "TNPNTS00000000000007";
+    private static final String INVENTED = "TNPNTS99999999999999";
 
     private final ScheduledAlertVerificationOutcomeValidator validator = new ScheduledAlertVerificationOutcomeValidator();
 
@@ -318,6 +331,244 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 leaf("departureDelay.delay", "GREATER_THAN", 0))), blueprint), "must equal");
     }
 
+    @Test
+    void acceptsExplicitMonitoredOnlyContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Gorla", GORLA)), List.of(), List.of(), List.of(GORLA), false, List.of()));
+    }
+
+    @Test
+    void acceptsMonitoredAndOriginFilterContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Garibaldi FS", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(GARIBALDI),
+                                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id",
+                                        "stopPointsJourneyDetails[].callStart.stopPoint.nameLong"), false)),
+                        List.of(), List.of(PERO), false, List.of()));
+    }
+
+    @Test
+    void acceptsMonitoredAndExcludedDestinationContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leafValues("callEnd.stopPoint.id", "NOT_IN", List.of(TRE_TORRI)))),
+                        blueprint(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Buonarroti", BUONARROTI)),
+                        List.of(),
+                        List.of(filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.EXCLUDE, List.of(TRE_TORRI),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id",
+                                        "stopPointsJourneyDetails[].callEnd.stopPoint.nameLong"), false)),
+                        List.of(BUONARROTI), false, List.of()));
+    }
+
+    @Test
+    void acceptsMultiMonitoredContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(VAREDO, PALAZZOLO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING"))),
+                        blueprint(List.of(VAREDO, PALAZZOLO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Varedo", VAREDO), monitored("Palazzolo Milanese", PALAZZOLO)),
+                        List.of(), List.of(), List.of(VAREDO, PALAZZOLO), false, List.of()));
+    }
+
+    @Test
+    void acceptsAllKnownStopPointsContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(), ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(), ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true)),
+                context(ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true,
+                        List.of(), List.of(), List.of(), List.of(), false, List.of()));
+    }
+
+    @Test
+    void acceptsUnresolvedIncludeFilterFallback() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callEnd.stopPoint.nameLong", "CONTAINS_NORMALIZED", "Unknown Place"))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Unknown Place", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id",
+                                        "stopPointsJourneyDetails[].callEnd.stopPoint.nameLong"), true)),
+                        List.of(), List.of(PERO), false, List.of()));
+    }
+
+    @Test
+    void rejectsExtraInventedQueryStopPoint() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)), List.of(), List.of(), List.of(PERO), false, List.of()),
+                "stopPoints");
+    }
+
+    @Test
+    void rejectsMissingMonitoredStopPoint() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)), List.of(), List.of(), List.of(PERO), false, List.of()),
+                "non-empty");
+    }
+
+    @Test
+    void rejectsFilterLocationWronglyInQueryStopPoints() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI))),
+                        blueprint(List.of(PERO, GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Garibaldi FS", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(GARIBALDI),
+                                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id"), false)),
+                        List.of(), List.of(PERO, GARIBALDI), false, List.of()),
+                "Filter/control location");
+    }
+
+    @Test
+    void rejectsFilterOriginNotCovered() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Garibaldi FS", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(GARIBALDI),
+                                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id"), false)),
+                        List.of(), List.of(PERO), false, List.of()),
+                "not covered");
+    }
+
+    @Test
+    void rejectsFilterOriginCoveredWithWrongField() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callEnd.stopPoint.id", "EQUALS", GARIBALDI))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Garibaldi FS", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(GARIBALDI),
+                                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id"), false)),
+                        List.of(), List.of(PERO), false, List.of()),
+                "not covered");
+    }
+
+    @Test
+    void rejectsExcludedDestinationRepresentedWithPositiveIn() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leafValues("callEnd.stopPoint.id", "IN", List.of(TRE_TORRI)))),
+                        blueprint(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Buonarroti", BUONARROTI)), List.of(),
+                        List.of(filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.EXCLUDE, List.of(TRE_TORRI),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"), false)),
+                        List.of(BUONARROTI), false, List.of()),
+                "not covered");
+    }
+
+    @Test
+    void rejectsIncludedDestinationRepresentedOnlyWithNotIn() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leafValues("callEnd.stopPoint.id", "NOT_IN", List.of(TRE_TORRI)))),
+                        blueprint(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Buonarroti", BUONARROTI)),
+                        List.of(filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE, List.of(TRE_TORRI),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"), false)),
+                        List.of(), List.of(BUONARROTI), false, List.of()),
+                "not covered");
+    }
+
+    @Test
+    void rejectsInventedIdInCondition() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.stopPoint.id", "EQUALS", INVENTED))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)), List.of(), List.of(), List.of(PERO), false, List.of()),
+                INVENTED);
+    }
+
+    @Test
+    void rejectsAllKnownStopPointsWithExplicitQueryStopPoint() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true)),
+                context(ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS, true,
+                        List.of(), List.of(), List.of(), List.of(), false, List.of()),
+                "ALL_KNOWN_STOP_POINTS");
+    }
+
+    @Test
+    void rejectsBlueprintServiceDataQueryDiffers() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(GARIBALDI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)), List.of(), List.of(), List.of(PERO), false, List.of()),
+                "agentBlueprintPreview");
+    }
+
+    @Test
+    void rejectsUnspecifiedMonitoringScopeInVerified() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(), ScheduledAlertMonitoringScope.UNSPECIFIED, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(), ScheduledAlertMonitoringScope.UNSPECIFIED, false)),
+                context(ScheduledAlertMonitoringScope.UNSPECIFIED, false,
+                        List.of(), List.of(), List.of(), List.of(), false, List.of()),
+                "explicit monitored stop points");
+    }
+
+    @Test
+    void rejectsUnresolvedMonitoredContextEvenWithGuessedId() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(INVENTED), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        blueprint(List.of(INVENTED), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(), List.of(), List.of(), List.of(), true, List.of("Fermata Inventata")),
+                "unresolved monitored");
+    }
+
     private void assertRejected(AlertVerificationOutcome outcome, String reasonFragment) {
         AlertVerificationOutcome validated = validator.validate(outcome);
 
@@ -331,6 +582,26 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertVerifiedWithContext(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context) {
+        AlertVerificationOutcome validated = validator.validate(outcome, context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertRejectedWithContext(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(outcome, context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
     }
 
     private void assertRejectedForCondition(Map<String, Object> condition, String reasonFragment) {
@@ -400,6 +671,17 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     private Map<String, Object> technicalSpecification(Map<String, Object> condition) {
+        return technicalSpecification(List.of("TNPNTS00000000005439"),
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                false,
+                condition);
+    }
+
+    private Map<String, Object> technicalSpecification(
+            List<String> stopPoints,
+            ScheduledAlertMonitoringScope monitoringScope,
+            boolean requiresAllKnownStopPoints,
+            Map<String, Object> condition) {
         return new LinkedHashMap<>(Map.ofEntries(
                 Map.entry("schemaVersion", "iia.alert.technical-specification/v2"),
                 Map.entry("source", "SERVICE_DATA"),
@@ -412,9 +694,9 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 Map.entry("schedule", Map.of("frequencySeconds", 600, "defaulted", true)),
                 Map.entry("serviceDataQuery", Map.of(
                         "operation", "POST /v2/stoppointjourneys",
-                        "monitoringScope", "EXPLICIT_STOP_POINTS",
-                        "stopPoints", List.of("TNPNTS00000000005439"),
-                        "requiresAllKnownStopPoints", false)),
+                        "monitoringScope", String.valueOf(monitoringScope),
+                        "stopPoints", stopPoints,
+                        "requiresAllKnownStopPoints", requiresAllKnownStopPoints)),
                 Map.entry("snapshotEvaluation", Map.of(
                         "mode", "COUNT_MATCHING_JOURNEYS",
                         "journeyPath", "stopPointsJourneyDetails[]",
@@ -425,6 +707,15 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     private Map<String, Object> blueprint() {
+        return blueprint(List.of("TNPNTS00000000005439"),
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                false);
+    }
+
+    private Map<String, Object> blueprint(
+            List<String> stopPoints,
+            ScheduledAlertMonitoringScope monitoringScope,
+            boolean requiresAllKnownStopPoints) {
         return new LinkedHashMap<>(Map.of(
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "agentName", "ScheduledServiceDataSnapshotAlertAgent",
@@ -433,7 +724,11 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
                 "targetTypes", List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
                 "parameters", Map.of(
-                        "serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"),
+                        "serviceDataQuery", Map.of(
+                                "operation", "POST /v2/stoppointjourneys",
+                                "monitoringScope", String.valueOf(monitoringScope),
+                                "stopPoints", stopPoints,
+                                "requiresAllKnownStopPoints", requiresAllKnownStopPoints),
                         "snapshotEvaluation", Map.of("mode", "COUNT_MATCHING_JOURNEYS"),
                         "outputPolicy", Map.of("emit", "ON_MATCH")),
                 "stateRequirements", Map.of("requiresState", false),
@@ -480,6 +775,73 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "field", field,
                 "operator", operator,
                 "values", values);
+    }
+
+    private ScheduledServiceDataLocationContext context(
+            ScheduledAlertMonitoringScope monitoringScope,
+            boolean requiresAllKnownStopPoints,
+            List<ScheduledServiceDataResolvedLocation> monitored,
+            List<ScheduledServiceDataResolvedLocation> filters,
+            List<ScheduledServiceDataResolvedLocation> excluded,
+            List<String> serviceDataApiStopPoints,
+            boolean hasUnresolvedRequiredMonitoredLocations,
+            List<String> unresolvedRequiredMonitoredLocationTexts) {
+        return new ScheduledServiceDataLocationContext(
+                monitoringScope,
+                monitored,
+                filters,
+                excluded,
+                serviceDataApiStopPoints,
+                requiresAllKnownStopPoints,
+                hasUnresolvedRequiredMonitoredLocations,
+                unresolvedRequiredMonitoredLocationTexts,
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        monitoringScope,
+                        serviceDataApiStopPoints,
+                        requiresAllKnownStopPoints));
+    }
+
+    private ScheduledServiceDataResolvedLocation monitored(String rawText, String id) {
+        return new ScheduledServiceDataResolvedLocation(
+                rawText,
+                rawText,
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(id),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                "");
+    }
+
+    private ScheduledServiceDataResolvedLocation filter(
+            String rawText,
+            ScheduledAlertLocationRole role,
+            ScheduledAlertLocationPolarity polarity,
+            List<String> selectedPointIds,
+            List<String> targetFieldHints,
+            boolean fallbackToNameLong) {
+        return new ScheduledServiceDataResolvedLocation(
+                rawText,
+                rawText,
+                role,
+                polarity,
+                false,
+                true,
+                selectedPointIds.isEmpty()
+                        ? ScheduledServiceDataLocationResolutionStatus.UNRESOLVED
+                        : ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                selectedPointIds,
+                List.of(),
+                fallbackToNameLong,
+                fallbackToNameLong,
+                targetFieldHints,
+                "");
     }
 
     private Map<String, Object> coverage() {
