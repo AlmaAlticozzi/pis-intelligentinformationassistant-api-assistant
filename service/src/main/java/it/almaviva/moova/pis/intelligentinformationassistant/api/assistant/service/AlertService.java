@@ -18,6 +18,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertVerificationService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertMonitoringScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
@@ -123,6 +124,9 @@ public class AlertService {
     ScheduledServiceDataLocationResolutionService scheduledServiceDataLocationResolutionService;
 
     @Inject
+    ScheduledAlertVerificationService scheduledAlertVerificationService;
+
+    @Inject
     AlertLocationTargetFieldMapper alertLocationTargetFieldMapper;
 
     @Inject
@@ -166,6 +170,9 @@ public class AlertService {
 
     @ConfigProperty(name = "iia.alert-verification.location-understanding.enabled", defaultValue = "false")
     boolean locationUnderstandingEnabled;
+
+    @ConfigProperty(name = "iia.alert.scheduled-verify.enabled", defaultValue = "false")
+    boolean scheduledVerifyEnabled;
 
     @ConfigProperty(name = "fnd.default-schema", defaultValue = "")
     String defaultSchema;
@@ -496,9 +503,7 @@ public class AlertService {
             return routedRejection;
         }
         if (route != null && route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
-            AlertVerificationOutcome scheduledRejection = verifyScheduledRouteOutcome(alertId, promptData, route);
-            System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> reject scheduled not implemented yet");
-            return scheduledRejection;
+            return verifyScheduledRouteOutcome(alertId, promptData, route);
         }
         if (route != null && route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
             System.out.println("[IIA][ALERT_VERIFY] route EVENT_INTERPRETER -> continue existing event verify");
@@ -2547,6 +2552,7 @@ public class AlertService {
         String provider = aiConfiguration.provider();
         String model = aiConfiguration.alertVerify().model();
         try {
+            System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> scheduled location understanding");
             System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] start alertId=" + alertId);
             System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] prompt=" + promptData.prompt());
             if (scheduledAlertLocationUnderstandingService == null) {
@@ -2598,7 +2604,48 @@ public class AlertService {
                 return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, locationContext.warnings());
             }
 
-            return scheduledInterpreterNotImplementedOutcome(alertId, route, provider, model, locationContext);
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY] enabled=" + scheduledVerifyEnabled);
+            System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> scheduled verify enabled=" + scheduledVerifyEnabled);
+            if (!scheduledVerifyEnabled) {
+                System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> scheduled verify disabled, reject not implemented yet");
+                return scheduledInterpreterNotImplementedOutcome(alertId, route, provider, model, locationContext);
+            }
+            if (scheduledAlertVerificationService == null) {
+                return scheduledLocationValidationRejectedOutcome(
+                        route,
+                        provider,
+                        model,
+                        "Scheduled alert verification failed: service unavailable.",
+                        locationContext.warnings());
+            }
+
+            AlertVerificationOutcome scheduledOutcome;
+            try {
+                scheduledOutcome = scheduledAlertVerificationService.verify(
+                        alertId,
+                        promptData.name(),
+                        promptData.description(),
+                        promptData.prompt(),
+                        route,
+                        locationContext);
+            } catch (RuntimeException exception) {
+                String reason = "Scheduled alert verification failed: " + shortTechnicalMessage(exception);
+                System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][OUTCOME] decision=REJECTED reason=" + reason);
+                return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, locationContext.warnings());
+            }
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][OUTCOME] decision="
+                    + (scheduledOutcome == null ? null : scheduledOutcome.decision()));
+            System.out.println("[IIA][ALERT_VERIFY] scheduled verification outcome -> persist decision="
+                    + (scheduledOutcome == null ? null : scheduledOutcome.decision()));
+            if (scheduledOutcome == null) {
+                return scheduledLocationValidationRejectedOutcome(
+                        route,
+                        provider,
+                        model,
+                        "Scheduled alert verification failed: no outcome.",
+                        locationContext.warnings());
+            }
+            return scheduledOutcome;
         } catch (RuntimeException exception) {
             String reason = "Scheduled location understanding failed: " + shortTechnicalMessage(exception);
             System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][VALIDATION] rejected reason=" + reason);
