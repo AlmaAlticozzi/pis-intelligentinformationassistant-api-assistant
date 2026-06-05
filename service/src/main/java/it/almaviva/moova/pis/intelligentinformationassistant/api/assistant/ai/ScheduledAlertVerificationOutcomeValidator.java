@@ -167,11 +167,63 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (conditionFailure != null) {
             return conditionFailure;
         }
+        String semanticFailure = validateSnapshotEvaluationSemantics(outcome.technicalSpecification());
+        if (semanticFailure != null) {
+            return semanticFailure;
+        }
         if (scheduledLocationContext != null) {
             String locationFailure = validateLocationContext(outcome, scheduledLocationContext);
             if (locationFailure != null) {
                 return locationFailure;
             }
+        }
+        return null;
+    }
+
+    private String validateSnapshotEvaluationSemantics(Map<String, Object> technicalSpecification) {
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> outputPolicy = asMap(technicalSpecification.get("outputPolicy"));
+        String mode = stringValue(snapshotEvaluation == null ? null : snapshotEvaluation.get("mode"));
+        String emit = stringValue(outputPolicy == null ? null : outputPolicy.get("emit"));
+        Object threshold = snapshotEvaluation == null ? null : snapshotEvaluation.get("threshold");
+        boolean thresholdPresent = threshold instanceof Map<?, ?> thresholdMap && !thresholdMap.isEmpty();
+        Boolean includeCount = outputPolicy == null ? null : booleanValue(outputPolicy.get("includeCount"));
+
+        if ("COUNT_MATCHING_JOURNEYS".equals(mode)) {
+            if (!thresholdPresent) {
+                return "COUNT_MATCHING_JOURNEYS requires threshold.";
+            }
+            if (!"ON_MATCH".equals(emit)) {
+                return "COUNT_MATCHING_JOURNEYS requires outputPolicy.emit ON_MATCH.";
+            }
+            if (Boolean.FALSE.equals(includeCount)) {
+                return "COUNT_MATCHING_JOURNEYS requires outputPolicy.includeCount=true.";
+            }
+            return null;
+        }
+        if ("REPORT_COUNT".equals(mode)) {
+            if (thresholdPresent) {
+                return "REPORT_COUNT must not contain threshold.";
+            }
+            if (!"EVERY_RUN".equals(emit)) {
+                return "REPORT_COUNT requires outputPolicy.emit EVERY_RUN.";
+            }
+            if (!Boolean.TRUE.equals(includeCount)) {
+                return "REPORT_COUNT requires outputPolicy.includeCount=true.";
+            }
+            return null;
+        }
+        if ("REPORT_MATCHING_JOURNEYS".equals(mode)) {
+            if (thresholdPresent) {
+                return "REPORT_MATCHING_JOURNEYS must not contain threshold for this MVP.";
+            }
+            if (!"EVERY_RUN".equals(emit)) {
+                return "REPORT_MATCHING_JOURNEYS requires outputPolicy.emit EVERY_RUN.";
+            }
+            return null;
+        }
+        if ("BOOLEAN_EXISTS".equals(mode) && "EVERY_RUN".equals(emit)) {
+            return "BOOLEAN_EXISTS must not use outputPolicy.emit EVERY_RUN for this MVP.";
         }
         return null;
     }
@@ -396,7 +448,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             String arrayContext) {
         if ("IN".equals(operator) || "NOT_IN".equals(operator) || "CONTAINS_ANY".equals(operator)) {
             if (!hasNonEmptyValues(node)) {
-                return catalogFailure("operator " + operator + " requires a non-empty values array.");
+                return catalogFailure("operator " + operator
+                        + " requires a non-empty values array; use values, not value.");
             }
             if (node.containsKey("value")) {
                 return catalogFailure("operator " + operator + " requires values, not value.");
@@ -996,6 +1049,16 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        if (value instanceof String stringValue && !stringValue.isBlank()) {
+            return Boolean.parseBoolean(stringValue);
+        }
+        return null;
     }
 
     private boolean isBlank(String value) {

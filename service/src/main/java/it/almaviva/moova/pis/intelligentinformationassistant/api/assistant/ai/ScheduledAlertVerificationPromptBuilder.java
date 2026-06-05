@@ -73,6 +73,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 routeSection(data == null ? null : data.route()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
+                highPriorityMvpRulesSection(),
                 semanticRulesSection(),
                 locationMappingRulesSection(),
                 journeyCorrelationRulesSection(),
@@ -281,9 +282,10 @@ public class ScheduledAlertVerificationPromptBuilder {
         return """
                 Report vs conditional notification:
                 - Report: user asks "how many", "number of", "count", "list", "report", or "tell me every X minutes how many".
-                  outputPolicy.emit = EVERY_RUN; snapshotEvaluation.mode = REPORT_COUNT or REPORT_MATCHING_JOURNEYS.
-                  threshold should be absent/null unless the user explicitly asks to report threshold evaluation.
+                  outputPolicy.emit = EVERY_RUN; snapshotEvaluation.mode = REPORT_COUNT for count reports or REPORT_MATCHING_JOURNEYS for list/detail reports.
+                  threshold must be absent/null.
                   includeCount=true for count reports.
+                  Do not use COUNT_MATCHING_JOURNEYS for reports.
                 - Conditional: user asks "notify me when/if there are at least/more than/exactly N journeys".
                   outputPolicy.emit = ON_MATCH; snapshotEvaluation.mode = COUNT_MATCHING_JOURNEYS or BOOLEAN_EXISTS.
                   threshold is required when a numeric threshold is requested.
@@ -293,12 +295,58 @@ public class ScheduledAlertVerificationPromptBuilder {
                 """;
     }
 
+    private String highPriorityMvpRulesSection() {
+        return """
+                High-priority Scheduled MVP rules:
+                1. Report/count intent:
+                - If the user asks to report, count, tell how many, list, summarize, or periodically provide a number without a trigger threshold:
+                  snapshotEvaluation.mode = REPORT_COUNT when the output is a count.
+                  outputPolicy.emit = EVERY_RUN.
+                  outputPolicy.includeCount = true.
+                  threshold must be null or absent.
+                  Do not use COUNT_MATCHING_JOURNEYS for reports.
+                - Meaning example: "Every 10 minutes tell me how many delayed journeys are at stop X".
+                  Expected: REPORT_COUNT + EVERY_RUN + no threshold.
+
+                2. Conditional threshold intent:
+                - If the user asks to notify when/if at least/more than/exactly N journeys match:
+                  snapshotEvaluation.mode = COUNT_MATCHING_JOURNEYS.
+                  threshold is required.
+                  outputPolicy.emit = ON_MATCH.
+                  outputPolicy.includeCount = true.
+                - Meaning example: "Notify me when at least two trains are arriving at X".
+                  Expected: COUNT_MATCHING_JOURNEYS + threshold + ON_MATCH.
+
+                3. Boolean exists intent:
+                - If the user asks if there is at least one matching journey without asking for count/report:
+                  prefer snapshotEvaluation.mode = BOOLEAN_EXISTS when supported.
+                  outputPolicy.emit must not be EVERY_RUN for this MVP.
+
+                4. Array operator JSON shape:
+                - IN requires "values": [...].
+                - NOT_IN requires "values": [...].
+                - CONTAINS_ANY requires "values": [...].
+                - Never use "value" with an array for IN, NOT_IN, or CONTAINS_ANY.
+                - EQUALS and CONTAINS use a single "value".
+
+                5. Monitored stop point ids:
+                - serviceDataQuery.stopPoints must contain monitored stop point ids from ScheduledServiceDataLocationContext.
+                - Monitored stop point ids are covered by serviceDataQuery.stopPoints.
+                - Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points.
+                - Filter/control locations must be represented in snapshotEvaluation.condition.
+                - Monitored locations need condition coverage only if the user asks a distinct field constraint not already represented by the API query scope.
+                - For a multi-monitored threshold alert such as "Notify me when at stop A and stop B there are two arriving journeys":
+                  serviceDataQuery.stopPoints=[A id, B id]; condition checks arrival status; threshold >= 2; no required stopPoint.id IN condition.
+                """;
+    }
+
     private String locationMappingRulesSection() {
         return """
                 Monitored stop points vs filter locations:
                 - serviceDataQuery.stopPoints must come only from context.serviceDataApiStopPoints.
                 - If monitoringScope=EXPLICIT_STOP_POINTS, stopPoints must be non-empty.
                 - If monitoringScope=ALL_KNOWN_STOP_POINTS, stopPoints may be empty and requiresAllKnownStopPoints=true.
+                - Monitored stop point ids are already represented by serviceDataQuery.stopPoints and should not be repeated in snapshotEvaluation.condition unless a distinct user constraint requires it.
                 - Filter/control locations must be represented in snapshotEvaluation.condition, not in serviceDataQuery.stopPoints.
                 - Resolved filter locations must use stop point id fields with EQUALS/IN/NOT_IN.
                 - Unresolved include filter locations may use nameLong CONTAINS_NORMALIZED only if the catalog supports it.

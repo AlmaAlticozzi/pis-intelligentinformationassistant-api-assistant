@@ -271,6 +271,18 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsInWithValueArrayInsteadOfValues() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "IN", List.of("TNPNTS00000000005439"))), "values, not value");
+    }
+
+    @Test
+    void acceptsInWithValuesArray() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leafValues("callStart.stopPoint.id", "IN", List.of("TNPNTS00000000005439"))));
+    }
+
+    @Test
     void rejectsContainsAnyWithEmptyValues() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
                 leafValues("arrivalStatuses[].status", "CONTAINS_ANY", List.of())), "non-empty values");
@@ -332,6 +344,94 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsReportCountEveryRunWithNullThreshold() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                        null,
+                        "EVERY_RUN",
+                        true),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsCountMatchingJourneysOnMatchWithThreshold() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "COUNT_MATCHING_JOURNEYS",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING")),
+                        Map.of("operator", "GREATER_OR_EQUAL", "value", 2),
+                        "ON_MATCH",
+                        true),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsCountMatchingJourneysWithoutThreshold() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "COUNT_MATCHING_JOURNEYS",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING")),
+                        null,
+                        "ON_MATCH",
+                        true),
+                blueprint()), "requires threshold");
+    }
+
+    @Test
+    void rejectsCountMatchingJourneysWithEveryRun() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "COUNT_MATCHING_JOURNEYS",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING")),
+                        Map.of("operator", "GREATER_OR_EQUAL", "value", 2),
+                        "EVERY_RUN",
+                        true),
+                blueprint()), "ON_MATCH");
+    }
+
+    @Test
+    void rejectsReportCountWithThreshold() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                        Map.of("operator", "GREATER_OR_EQUAL", "value", 1),
+                        "EVERY_RUN",
+                        true),
+                blueprint()), "must not contain threshold");
+    }
+
+    @Test
+    void rejectsReportCountWithOnMatch() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                        null,
+                        "ON_MATCH",
+                        true),
+                blueprint()), "EVERY_RUN");
+    }
+
+    @Test
+    void rejectsReportCountWithoutIncludeCount() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                        null,
+                        "EVERY_RUN",
+                        false),
+                blueprint()), "includeCount");
+    }
+
+    @Test
     void acceptsExplicitMonitoredOnlyContext() {
         assertVerifiedWithContext(
                 validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -376,6 +476,18 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
 
     @Test
     void acceptsMultiMonitoredContext() {
+        assertVerifiedWithContext(
+                validOutcome(technicalSpecification(List.of(VAREDO, PALAZZOLO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING"))),
+                        blueprint(List.of(VAREDO, PALAZZOLO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Varedo", VAREDO), monitored("Palazzolo Milanese", PALAZZOLO)),
+                        List.of(), List.of(), List.of(VAREDO, PALAZZOLO), false, List.of()));
+    }
+
+    @Test
+    void acceptsMultiMonitoredThresholdWithoutRepeatingStopPointCondition() {
         assertVerifiedWithContext(
                 validOutcome(technicalSpecification(List.of(VAREDO, PALAZZOLO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
                         conditionAnyElement("stopPointsJourneyDetails[]",
@@ -675,6 +787,24 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                 false,
                 condition);
+    }
+
+    private Map<String, Object> technicalSpecificationWithEvaluation(
+            String mode,
+            Map<String, Object> condition,
+            Map<String, Object> threshold,
+            String emit,
+            boolean includeCount) {
+        Map<String, Object> technical = new LinkedHashMap<>(technicalSpecification(condition));
+        Map<String, Object> snapshotEvaluation = new LinkedHashMap<>(map(technical.get("snapshotEvaluation")));
+        snapshotEvaluation.put("mode", mode);
+        snapshotEvaluation.put("threshold", threshold);
+        technical.put("snapshotEvaluation", snapshotEvaluation);
+        technical.put("outputPolicy", Map.of(
+                "emit", emit,
+                "includeCount", includeCount,
+                "includeMatchingJourneys", true));
+        return technical;
     }
 
     private Map<String, Object> technicalSpecification(

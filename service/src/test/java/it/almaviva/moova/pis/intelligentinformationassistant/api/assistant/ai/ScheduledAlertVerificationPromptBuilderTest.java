@@ -77,9 +77,60 @@ class ScheduledAlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("Report vs conditional notification")
                 .contains("outputPolicy.emit = EVERY_RUN")
-                .contains("snapshotEvaluation.mode = REPORT_COUNT or REPORT_MATCHING_JOURNEYS")
+                .contains("snapshotEvaluation.mode = REPORT_COUNT for count reports or REPORT_MATCHING_JOURNEYS")
+                .contains("Do not use COUNT_MATCHING_JOURNEYS for reports")
                 .contains("outputPolicy.emit = ON_MATCH")
                 .contains("threshold is required when a numeric threshold is requested");
+    }
+
+    @Test
+    void promptStronglySeparatesReportCountFromConditionalThreshold() {
+        LlmRequest reportRequest = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Report alert",
+                null,
+                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext()));
+
+        assertThat(reportRequest.userPrompt())
+                .contains("snapshotEvaluation.mode = REPORT_COUNT when the output is a count")
+                .contains("outputPolicy.emit = EVERY_RUN")
+                .contains("threshold must be null or absent")
+                .contains("Do not use COUNT_MATCHING_JOURNEYS for reports")
+                .contains("Every 10 minutes tell me how many delayed journeys are at stop X");
+
+        LlmRequest conditionRequest = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Condition alert",
+                null,
+                "Avvertimi quando sono presenti almeno 2 treni a Gorla che partono dal binario 3",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext()));
+
+        assertThat(conditionRequest.userPrompt())
+                .contains("snapshotEvaluation.mode = COUNT_MATCHING_JOURNEYS")
+                .contains("threshold is required")
+                .contains("outputPolicy.emit = ON_MATCH")
+                .contains("Notify me when at least two trains are arriving at X");
+    }
+
+    @Test
+    void promptSaysMonitoredStopPointsAreCoveredByServiceDataQuery() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Multi monitored alert",
+                null,
+                "Fammi sapere quando a Varedo e Palazzolo Milanese ci sono due treni in arrivo",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
+                .contains("Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points")
+                .contains("serviceDataQuery.stopPoints=[A id, B id]; condition checks arrival status; threshold >= 2")
+                .contains("IN requires \"values\": [...]")
+                .contains("Never use \"value\" with an array for IN, NOT_IN, or CONTAINS_ANY");
     }
 
     @Test
@@ -139,20 +190,26 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     private AlertRouteUnderstandingResult route() {
+        return route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT);
+    }
+
+    private AlertRouteUnderstandingResult route(
+            AlertRouteIntentKind intentKind,
+            AlertRouteOutputMode outputMode) {
         return new AlertRouteUnderstandingResult(
                 AlertRouteDecision.ROUTED,
                 List.of("SERVICE_DATA"),
                 "SERVICE_DATA",
                 AlertRouteInterpreterType.SCHEDULED_INTERPRETER,
                 AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT,
-                AlertRouteIntentKind.SNAPSHOT_REPORT,
-                AlertRouteOutputMode.EVERY_RUN_REPORT,
+                intentKind,
+                outputMode,
                 true,
                 true,
                 false,
                 true,
-                false,
-                true,
+                intentKind == AlertRouteIntentKind.SNAPSHOT_CONDITION,
+                outputMode == AlertRouteOutputMode.EVERY_RUN_REPORT,
                 0.95,
                 "Scheduled ServiceData route.",
                 null,
