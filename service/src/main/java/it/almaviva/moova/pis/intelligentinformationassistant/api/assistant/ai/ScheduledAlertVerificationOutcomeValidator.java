@@ -958,10 +958,11 @@ public class ScheduledAlertVerificationOutcomeValidator {
     }
 
     private AlertVerificationOutcome rejected(AlertVerificationOutcome outcome, String reason) {
+        String safeReason = "Scheduled ServiceData verification failed validation: " + reason;
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.REJECTED,
-                "Scheduled alert verification rejected the result because it does not satisfy the current Scheduled MVP contract.",
-                reason,
+                "Scheduled ServiceData verification failed validation.",
+                safeReason,
                 0.0,
                 outcome == null ? null : outcome.provider(),
                 outcome == null ? null : outcome.model(),
@@ -977,7 +978,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 null,
                 null,
                 outcome == null ? null : outcome.requirementCoverage(),
-                List.of(reason),
+                List.of(safeReason),
                 outcome == null || outcome.safetyChecks() == null ? List.of() : outcome.safetyChecks());
     }
 

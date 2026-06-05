@@ -112,9 +112,27 @@ class ScheduledAlertVerificationServiceTest {
                 explicitContext());
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(outcome.rejectedReason()).contains("could not be parsed or accepted");
+        assertThat(outcome.rejectedReason()).contains("not valid JSON");
         assertThat(outcome.technicalSpecification()).isNull();
         assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void returnsErrorForProviderFailureLikeEventVerify() {
+        TestFixture fixture = fixtureWithProviderFailure(new LlmProviderException("IIA-UTL-TXI-503-001"));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled alert",
+                "Scheduled ServiceData test",
+                "Fammi sapere quando a Gorla ci sono almeno due treni in arrivo",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.ERROR);
+        assertThat(outcome.summary()).contains("AI provider");
+        assertThat(outcome.rejectedReason()).isNull();
+        assertThat(outcome.warnings()).contains("Scheduled alert verification could not complete due to a technical AI provider error.");
     }
 
     @Test
@@ -275,6 +293,28 @@ class ScheduledAlertVerificationServiceTest {
                 .isEqualTo(List.of(VAREDO, PALAZZOLO));
     }
 
+    @Test
+    void rejectsMalformedInOperatorUsingValueArray() {
+        ScheduledServiceDataLocationContext context = originFilterContext();
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "IN", List.of(GARIBALDI)));
+        TestFixture fixture = fixture(json(validReportResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Malformed IN report",
+                "Scheduled ServiceData malformed IN test",
+                "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.summary()).isEqualTo("Scheduled ServiceData verification failed validation.");
+        assertThat(outcome.rejectedReason()).contains("operator IN requires a non-empty values array");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
     private TestFixture fixture(String rawResponse) {
         ScheduledAlertVerificationService service = new ScheduledAlertVerificationService();
         service.promptBuilder = promptBuilder();
@@ -292,6 +332,20 @@ class ScheduledAlertVerificationServiceTest {
                 null,
                 null,
                 "resp-1"));
+        return new TestFixture(service, gateway);
+    }
+
+    private TestFixture fixtureWithProviderFailure(RuntimeException exception) {
+        ScheduledAlertVerificationService service = new ScheduledAlertVerificationService();
+        service.promptBuilder = promptBuilder();
+        service.responseParser = new ScheduledAlertVerificationResponseParser();
+        service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
+        service.llmGateway = mock(Instance.class);
+
+        LlmGateway gateway = mock(LlmGateway.class);
+        when(service.llmGateway.isUnsatisfied()).thenReturn(false);
+        when(service.llmGateway.get()).thenReturn(gateway);
+        when(gateway.generateText(any())).thenThrow(exception);
         return new TestFixture(service, gateway);
     }
 

@@ -2604,6 +2604,13 @@ public class AlertService {
                 return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, locationContext.warnings());
             }
 
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][REQUEST] alertId=" + alertId
+                    + " route.intentKind=" + (route == null ? null : route.intentKind())
+                    + " route.outputMode=" + (route == null ? null : route.outputMode())
+                    + " monitoringScope=" + locationContext.monitoringScope()
+                    + " serviceDataApiStopPoints.count=" + locationContext.serviceDataApiStopPoints().size()
+                    + " requiresAllKnownStopPoints=" + locationContext.requiresAllKnownStopPoints()
+                    + " featureFlag.enabled=" + scheduledVerifyEnabled);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY] enabled=" + scheduledVerifyEnabled);
             System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> scheduled verify enabled=" + scheduledVerifyEnabled);
             if (!scheduledVerifyEnabled) {

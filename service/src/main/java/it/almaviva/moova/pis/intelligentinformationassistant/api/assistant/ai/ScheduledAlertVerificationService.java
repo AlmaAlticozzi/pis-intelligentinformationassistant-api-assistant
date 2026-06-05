@@ -9,6 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.ProcessingException;
 
 import java.util.List;
+import java.util.Map;
 
 @ApplicationScoped
 public class ScheduledAlertVerificationService {
@@ -35,6 +36,13 @@ public class ScheduledAlertVerificationService {
             AlertRouteUnderstandingResult route,
             ScheduledServiceDataLocationContext locationContext) {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY] start alertId=" + alertId);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][REQUEST] alertId=" + alertId
+                + " route.intentKind=" + (route == null ? null : route.intentKind())
+                + " route.outputMode=" + (route == null ? null : route.outputMode())
+                + " monitoringScope=" + (locationContext == null ? null : locationContext.monitoringScope())
+                + " serviceDataApiStopPoints.count=" + serviceDataStopPointCount(locationContext)
+                + " requiresAllKnownStopPoints=" + (locationContext != null && locationContext.requiresAllKnownStopPoints())
+                + " featureFlag.enabled=true");
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY] route intentKind="
                 + (route == null ? null : route.intentKind())
                 + " outputMode=" + (route == null ? null : route.outputMode()));
@@ -70,8 +78,13 @@ public class ScheduledAlertVerificationService {
                 originalPrompt,
                 route,
                 locationContext));
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY] prompt length="
-                + promptLength(request.systemPrompt()) + "+" + promptLength(request.userPrompt()));
+        int systemPromptLength = promptLength(request.systemPrompt());
+        int userPromptLength = promptLength(request.userPrompt());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT] promptLength="
+                + systemPromptLength + "+" + userPromptLength
+                + " total=" + (systemPromptLength + userPromptLength)
+                + " catalogLength=unknown"
+                + " locationContext=" + locationContextSummary(locationContext));
 
         try {
             LlmResponse response = llmGateway.get().generateText(request);
@@ -79,22 +92,24 @@ public class ScheduledAlertVerificationService {
             String provider = response == null ? null : response.provider();
             String model = response == null ? request.model() : response.model();
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][LLM] raw response="
-                    + truncate(rawResponse, 3000));
+                    + truncate(rawResponse, 5000));
 
             ScheduledAlertVerificationResponseParser.ParseResult parseResult =
                     responseParser.parseDetailed(rawResponse, provider, model);
             if (parseResult.outcome().isEmpty()) {
-                String reason = "Scheduled alert verification failed because the LLM response could not be parsed or accepted: "
-                        + safeReason(parseResult.failureReason());
+                String reason = parserRejectedReason(parseResult.failureReason());
                 System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] parsed decision=<empty> reason="
                         + reason + " rawLength=" + parseResult.rawLength());
                 return rejected(alertId, "Scheduled alert verification response could not be parsed.", reason, provider, model);
             }
 
             AlertVerificationOutcome parsed = parseResult.outcome().get();
-            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] parsed decision=" + parsed.decision());
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] decision=" + parsed.decision()
+                    + " technicalSpecificationPresent=" + (parsed.technicalSpecification() != null)
+                    + " agentBlueprintPreviewPresent=" + (parsed.agentBlueprintPreview() != null));
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision before validation=" + parsed.decision());
             AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route);
-            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] validator decision="
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] final validator decision="
                     + validated.decision() + " rejectedReason=" + validated.rejectedReason());
             printOutcome(validated);
             return validated;
@@ -122,14 +137,46 @@ public class ScheduledAlertVerificationService {
     }
 
     private AlertVerificationOutcome providerFailure(String alertId, LlmRequest request, RuntimeException ex) {
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][LLM] provider failure alertId="
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][ERROR] provider failure alertId="
                 + alertId + " reason=" + shortTechnicalMessage(ex));
-        return rejected(
-                alertId,
-                "Scheduled alert verification could not complete.",
-                "Scheduled alert verification could not complete due to a technical AI provider error.",
+        AlertVerificationOutcome outcome = technicalErrorOutcome(request == null ? null : request.model());
+        printOutcome(outcome);
+        return outcome;
+    }
+
+    private AlertVerificationOutcome technicalErrorOutcome(String model) {
+        return new AlertVerificationOutcome(
+                AlertVerificationDecision.ERROR,
+                "Alert verification could not complete because the AI provider was unavailable or returned an invalid technical response.",
                 null,
-                request == null ? null : request.model());
+                0.0,
+                null,
+                model,
+                PROMPT_VERSION,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                Map.of(
+                        "schemaVersion", "iia.alert.technical-specification/v2",
+                        "decision", "ERROR",
+                        "error", "Scheduled alert verification could not complete due to a technical AI provider error."),
+                Map.of(
+                        "schemaVersion", "iia.agent.blueprint/v1",
+                        "canGenerate", false,
+                        "error", "Scheduled alert verification could not complete due to a technical AI provider error."),
+                Map.of(
+                        "requirements", List.of(),
+                        "allRequiredRequirementsMapped", false),
+                List.of("Scheduled alert verification could not complete due to a technical AI provider error."),
+                List.of(
+                        "No executable code generated.",
+                        "No Agent Definition created.",
+                        "No Suggestion created."));
     }
 
     private AlertVerificationOutcome rejected(
@@ -168,6 +215,8 @@ public class ScheduledAlertVerificationService {
     private void printOutcome(AlertVerificationOutcome outcome) {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][OUTCOME] final decision="
                 + (outcome == null ? null : outcome.decision())
+                + " summary=" + (outcome == null ? null : outcome.summary())
+                + " rejectedReason=" + (outcome == null ? null : outcome.rejectedReason())
                 + " technicalSpecificationPresent="
                 + (outcome != null && outcome.technicalSpecification() != null)
                 + " agentBlueprintPreviewPresent="
@@ -189,6 +238,17 @@ public class ScheduledAlertVerificationService {
         return stopPoints.subList(0, 10) + "...[count=" + stopPoints.size() + "]";
     }
 
+    private String locationContextSummary(ScheduledServiceDataLocationContext context) {
+        if (context == null) {
+            return "null";
+        }
+        return "monitoringScope=" + context.monitoringScope()
+                + ", monitoredCount=" + (context.monitoredLocations() == null ? 0 : context.monitoredLocations().size())
+                + ", filterCount=" + (context.filterLocations() == null ? 0 : context.filterLocations().size())
+                + ", serviceDataApiStopPoints.count=" + serviceDataStopPointCount(context)
+                + ", requiresAllKnownStopPoints=" + context.requiresAllKnownStopPoints();
+    }
+
     private int promptLength(String prompt) {
         return prompt == null ? 0 : prompt.length();
     }
@@ -198,6 +258,15 @@ public class ScheduledAlertVerificationService {
             return "Unknown scheduled verification failure.";
         }
         return reason.length() > 500 ? reason.substring(0, 500) : reason;
+    }
+
+    private String parserRejectedReason(String failureReason) {
+        String safe = safeReason(failureReason);
+        if (safe.toLowerCase(java.util.Locale.ROOT).contains("json")) {
+            return "Scheduled alert verification failed because the LLM response was not valid JSON.";
+        }
+        return "Scheduled alert verification failed because the LLM response did not match the required Scheduled verification contract: "
+                + safe;
     }
 
     private String shortTechnicalMessage(Throwable throwable) {
