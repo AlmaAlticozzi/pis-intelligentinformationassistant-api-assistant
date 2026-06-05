@@ -130,6 +130,53 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void accessoryProgressiveArrivalAcceptsRelativeArrivalDelayInsideAnyElement() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "DELAY_THRESHOLD",
+                                "operator=GREATER_THAN;value=900;unit=SECONDS")),
+                resolved("Rho Fieramilano", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "all", List.of(
+                                        Map.of(
+                                                "field", eventField,
+                                                "operator", "CONTAINS",
+                                                "value", "ARRIVING"),
+                                        Map.of(
+                                                "field", stopPointField,
+                                                "operator", "EQUALS",
+                                                "value", RHO_FIERAMILANO_ID),
+                                        Map.of("anyElement", Map.of(
+                                                "path", detailsPath,
+                                                "conditions", Map.of(
+                                                        "field", "arrivalDelay.delay",
+                                                        "operator", "GREATER_THAN",
+                                                        "value", 900))))),
+                        coverageFor(
+                                eventField,
+                                stopPointField,
+                                detailsPath + ".arrivalDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
     void accessoryCompletedArrivalUsesArrivedAndArrivalDelayPredicate() {
         AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),

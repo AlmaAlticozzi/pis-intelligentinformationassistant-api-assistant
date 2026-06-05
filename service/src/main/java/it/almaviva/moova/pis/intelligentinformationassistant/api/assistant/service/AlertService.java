@@ -1839,17 +1839,28 @@ public class AlertService {
                         "DELAY_THRESHOLD",
                         delayThreshold.rawText()));
             }
-            String delayEventType = delayEventType(prompt);
-            if (delayEventType != null && !derivation.accessoryDelay()) {
+            String promptDelayEventType = delayEventType(prompt);
+            String derivedDelayEventType = normalizedDelayEventType(constraints);
+            if (promptDelayEventType != null && !derivation.accessoryDelay()) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_ROLE",
                         "PRIMARY_DELAY_EVENT"));
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_EVENT_TYPE",
-                        delayEventType));
+                        promptDelayEventType));
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
-                        delayDirection(delayEventType)));
+                        delayDirection(promptDelayEventType)));
+            } else if (derivation.accessoryDelay() && derivedDelayEventType != null
+                    && nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE") == null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_EVENT_TYPE",
+                        derivedDelayEventType));
+                if (nonLocationConstraintValue(constraints, "DELAY_DIRECTION") == null) {
+                    constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                            "DELAY_DIRECTION",
+                            delayDirection(derivedDelayEventType)));
+                }
             } else if (derivation.accessoryDelay() && nonLocationConstraintValue(constraints, "DELAY_DIRECTION") == null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
@@ -1909,7 +1920,28 @@ public class AlertService {
 
     private String normalizedDelayEventType(List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
         String value = nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE");
-        return AlertDelayEventTypeNormalizer.normalize(value);
+        String normalized = AlertDelayEventTypeNormalizer.normalize(value);
+        if (normalized != null) {
+            return normalized;
+        }
+        return normalizedDelayEventTypeFromDirection(nonLocationConstraintValue(constraints, "DELAY_DIRECTION"));
+    }
+
+    private String normalizedDelayEventTypeFromDirection(String value) {
+        String normalized = normalizeText(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (containsAny(normalized, "arrival", "arriving", "arrive", "arrivo", "arrivi")) {
+            return "ARRIVAL_DELAY";
+        }
+        if (containsAny(normalized, "departure", "departing", "depart", "partenza", "partenze")) {
+            return "DEPARTURE_DELAY";
+        }
+        if (containsAny(normalized, "both", "generic", "generico", "generica")) {
+            return "BOTH";
+        }
+        return null;
     }
 
     private String nonLocationConstraintValue(

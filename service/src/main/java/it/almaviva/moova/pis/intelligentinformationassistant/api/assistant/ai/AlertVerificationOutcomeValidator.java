@@ -1699,9 +1699,16 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private void validateDelayThresholdPredicate(ValidationContext context, String delayEventType) {
-        if (nonLocationConstraintValue(context, "DELAY_THRESHOLD") == null) {
+        String threshold = nonLocationConstraintValue(context, "DELAY_THRESHOLD");
+        if (threshold == null) {
             return;
         }
+        String delayRole = nonLocationConstraintValue(context, "DELAY_ROLE");
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][DELAY_THRESHOLD] requested=true"
+                + " operator=" + delayThresholdPart(threshold, "operator")
+                + " value=" + delayThresholdPart(threshold, "value")
+                + " delayRole=" + delayRole
+                + " delayEventType=" + delayEventType);
         boolean represented;
         if ("DEPARTURE_DELAY".equals(delayEventType)) {
             represented = hasDelayField(context, "departureDelay.delay");
@@ -1714,6 +1721,8 @@ public class AlertVerificationOutcomeValidator {
         } else {
             represented = hasDelayField(context, "arrivalDelay.delay") && hasDelayField(context, "departureDelay.delay");
         }
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][DELAY_THRESHOLD] matched=" + represented
+                + " reason=" + (represented ? "coherent-delay-predicate-found" : "missing-coherent-delay-predicate"));
         if (!represented) {
             context.fail("Delay threshold requested by the user is not represented by a delay.delay predicate.");
         }
@@ -1721,8 +1730,44 @@ public class AlertVerificationOutcomeValidator {
 
     private boolean hasDelayField(ValidationContext context, String fieldFragment) {
         return context.conditionLeaves.stream()
-                .map(ConditionLeaf::field)
-                .anyMatch(field -> field != null && field.contains(fieldFragment));
+                .anyMatch(leaf -> {
+                    String normalizedField = normalizedConditionField(leaf);
+                    boolean matched = normalizedField != null && normalizedField.contains(fieldFragment);
+                    System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][DELAY_THRESHOLD] candidate leaf field="
+                            + leaf.field()
+                            + " arrayPath=" + leaf.arrayPath()
+                            + " operator=" + leaf.operator()
+                            + " value=" + leaf.value()
+                            + " normalizedField=" + normalizedField);
+                    return matched;
+                });
+    }
+
+    private String normalizedConditionField(ConditionLeaf leaf) {
+        if (leaf == null || leaf.field() == null || leaf.field().isBlank()) {
+            return null;
+        }
+        if (leaf.field().startsWith("payload.")) {
+            return leaf.field();
+        }
+        if (leaf.arrayPath() != null && !leaf.arrayPath().isBlank()) {
+            return leaf.arrayPath() + "." + leaf.field();
+        }
+        return leaf.field();
+    }
+
+    private String delayThresholdPart(String threshold, String key) {
+        if (threshold == null || key == null) {
+            return null;
+        }
+        String prefix = key + "=";
+        for (String part : threshold.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.startsWith(prefix)) {
+                return trimmed.substring(prefix.length());
+            }
+        }
+        return null;
     }
 
     private String nonLocationConstraintValue(ValidationContext context, String type) {

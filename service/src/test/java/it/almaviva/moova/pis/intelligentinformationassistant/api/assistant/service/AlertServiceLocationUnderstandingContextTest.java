@@ -519,6 +519,40 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void derivesProgressiveArrivalAccessoryDelayFromDelayDirectionWithoutExplicitDelayEventType() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in arrivo a Rho Fieramilano con piu di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "Rho Fieramilano",
+                                "Rho Fieramilano",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_STOP_POINT,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.90)),
+                        List.of(
+                                new AlertLocationUnderstandingNonLocationConstraint(
+                                        AlertLocationNonLocationConstraintType.DELAY,
+                                        "con piu di 15 minuti di ritardo"),
+                                new AlertLocationUnderstandingNonLocationConstraint(
+                                        AlertLocationNonLocationConstraintType.DELAY_DIRECTION,
+                                        "in arrivo")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "ARRIVAL");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "ARRIVAL_DELAY");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
     void normalizesRawDelayEventTypeFromLocationUnderstanding() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Avvisami quando una corsa ha più di 15 minuti di ritardo",
