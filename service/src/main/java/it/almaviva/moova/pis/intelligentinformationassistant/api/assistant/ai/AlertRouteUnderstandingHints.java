@@ -10,6 +10,7 @@ public record AlertRouteUnderstandingHints(
         boolean containsCardinalityThresholdExpression,
         boolean containsMultiMonitoredLocationExpression,
         boolean containsSnapshotStateExpression,
+        boolean containsPlatformExpression,
         boolean containsUnsupportedWeatherExpression,
         boolean containsUnsupportedWifiOrOnboardFeatureExpression,
         boolean containsGenericQuestionExpression
@@ -20,6 +21,10 @@ public record AlertRouteUnderstandingHints(
             "\\b(uno|una|due|tre|quattro|cinque|one|two|three|four|five)\\b");
     private static final Pattern VEHICLE_NOUN = Pattern.compile(
             "\\b(treni|treno|corse|corsa|servizi|servizio|bus|tram|trains|train|services|service|journeys|journey|buses)\\b");
+    private static final Pattern QUANTIFIED_VEHICLE = Pattern.compile(
+            "\\b(\\d+|due|tre|quattro|cinque|two|three|four|five)\\s+"
+                    + "(?:\\w+\\s+){0,2}"
+                    + "(treni|treno|corse|corsa|servizi|servizio|bus|tram|trains|train|services|service|journeys|journey|buses)\\b");
     private static final Pattern COUNT_OR_REPORT = Pattern.compile(
             "\\b(quanti|quante|numero|conteggio|count|how many|total|quantity|report|rapporto|dimmi quante|dimmi quanti)\\b");
     private static final Pattern THRESHOLD = Pattern.compile(
@@ -28,6 +33,8 @@ public record AlertRouteUnderstandingHints(
             "\\b(ci sono|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
     private static final Pattern POLLING = Pattern.compile(
             "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
+    private static final Pattern PLATFORM = Pattern.compile(
+            "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
     private static final Pattern WEATHER = Pattern.compile("\\b(piove|pioggia|meteo|weather|rain)\\b");
     private static final Pattern WIFI_OR_ONBOARD = Pattern.compile("\\b(wifi|wi-fi|wireless|a bordo|onboard)\\b");
     private static final Pattern GENERIC_QUESTION = Pattern.compile("\\b(quanto fa|2\\+2|what is|generic question)\\b");
@@ -38,11 +45,11 @@ public record AlertRouteUnderstandingHints(
             return empty();
         }
         boolean hasVehicleNoun = VEHICLE_NOUN.matcher(normalized).find();
-        boolean hasNumber = DIGIT_NUMBER.matcher(normalized).find() || SMALL_NUMBER_WORD.matcher(normalized).find();
         boolean countOrReport = COUNT_OR_REPORT.matcher(normalized).find();
         boolean snapshotState = SNAPSHOT_STATE.matcher(normalized).find();
-        boolean threshold = THRESHOLD.matcher(normalized).find();
-        boolean cardinality = hasVehicleNoun && (hasNumber || threshold || countOrReport);
+        boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
+        boolean platform = PLATFORM.matcher(normalized).find();
+        boolean cardinality = countOrReport || (hasVehicleNoun && quantifiedVehicle);
         boolean multiLocation = snapshotState
                 && (normalized.contains(" e ") || normalized.contains(" and "))
                 && (normalized.contains(" a ") || normalized.contains(" at "));
@@ -53,13 +60,14 @@ public record AlertRouteUnderstandingHints(
                 cardinality,
                 multiLocation,
                 snapshotState || countOrReport,
+                platform,
                 WEATHER.matcher(normalized).find(),
                 WIFI_OR_ONBOARD.matcher(normalized).find(),
                 GENERIC_QUESTION.matcher(normalized).find());
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -76,18 +84,22 @@ public record AlertRouteUnderstandingHints(
                 - containsCardinalityThresholdExpression: %s
                 - containsMultiMonitoredLocationExpression: %s
                 - containsSnapshotStateExpression: %s
+                - containsPlatformExpression: %s
                 - containsUnsupportedWeatherExpression: %s
                 - containsUnsupportedWifiOrOnboardFeatureExpression: %s
                 - containsGenericQuestionExpression: %s
 
                 Treat these as backend observations. They are not a technicalSpecification.
                 If aggregate snapshot/cardinality hints are true, prefer SCHEDULED_INTERPRETER over EVENT_INTERPRETER.
+                Platform expressions are ServiceData event constraints and do not imply SCHEDULED_INTERPRETER by themselves.
+                A number attached to a platform/binario/track/quay expression is a platform value/property, not a count of journeys.
                 """.formatted(
                 containsPollingExpression,
                 containsCountOrReportExpression,
                 containsCardinalityThresholdExpression,
                 containsMultiMonitoredLocationExpression,
                 containsSnapshotStateExpression,
+                containsPlatformExpression,
                 containsUnsupportedWeatherExpression,
                 containsUnsupportedWifiOrOnboardFeatureExpression,
                 containsGenericQuestionExpression);

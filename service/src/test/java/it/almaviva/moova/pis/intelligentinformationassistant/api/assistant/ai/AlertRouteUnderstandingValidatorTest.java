@@ -196,6 +196,33 @@ class AlertRouteUnderstandingValidatorTest {
 
         assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
         assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+        assertThat(validated.hasAggregation()).isFalse();
+        assertThat(validated.hasCardinalityThreshold()).isFalse();
+        assertThat(validated.hasReportIntent()).isFalse();
+    }
+
+    @Test
+    void normalizesUnsafeScheduledPlatformPromptBackToEventInterpreter() {
+        String prompt = "Avvisami quando una corsa arriva a Garibaldi sul binario 1";
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, true, false),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.EVENT_OCCURRENCE);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+        assertThat(validated.hasAggregation()).isFalse();
+        assertThat(validated.hasCardinalityThreshold()).isFalse();
+        assertThat(validated.hasReportIntent()).isFalse();
     }
 
     @Test

@@ -69,6 +69,9 @@ public class AlertRouteUnderstandingValidator {
             return validateEventRoute(route, domains, primaryDomain);
         }
         if (route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
+            if (shouldNormalizeScheduledRouteToEvent(originalPrompt, safeHints)) {
+                return normalizeScheduledRouteToEvent(route, domains, primaryDomain);
+            }
             return validateScheduledRoute(route, domains, primaryDomain);
         }
         return rejected("Routed alert requires EVENT_INTERPRETER or SCHEDULED_INTERPRETER.");
@@ -107,6 +110,43 @@ public class AlertRouteUnderstandingValidator {
                 route.summary(),
                 route.rejectedReason(),
                 warnings);
+    }
+
+    private boolean shouldNormalizeScheduledRouteToEvent(String originalPrompt, AlertRouteUnderstandingHints hints) {
+        boolean hasScheduledSignal = hints.containsPollingExpression()
+                || hints.containsCountOrReportExpression()
+                || hints.containsSnapshotStateExpression()
+                || hints.containsMultiMonitoredLocationExpression()
+                || hints.containsCardinalityThresholdExpression();
+        return !hasScheduledSignal
+                && hints.containsPlatformExpression()
+                && looksLikeSingleEventOccurrence(originalPrompt);
+    }
+
+    private AlertRouteUnderstandingResult normalizeScheduledRouteToEvent(
+            AlertRouteUnderstandingResult route,
+            List<String> domains,
+            String primaryDomain) {
+        String warning = "Route normalized from SCHEDULED_INTERPRETER to EVENT_INTERPRETER because backend hints detected a single ServiceData event with a platform constraint, not journey cardinality.";
+        System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] from=SCHEDULED_INTERPRETER to=EVENT_INTERPRETER reason=platform constraint is not cardinality");
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                domains,
+                primaryDomain,
+                AlertRouteInterpreterType.EVENT_INTERPRETER,
+                AlertRouteAccessMode.KAFKA_EVENT,
+                AlertRouteIntentKind.EVENT_OCCURRENCE,
+                AlertRouteOutputMode.ON_MATCH,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                route.confidence(),
+                route.summary(),
+                route.rejectedReason(),
+                mergeWarning(route.warnings(), warning));
     }
 
     private AlertRouteUnderstandingResult validateEventRoute(
@@ -287,5 +327,17 @@ public class AlertRouteUnderstandingValidator {
         return Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private boolean looksLikeSingleEventOccurrence(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null) {
+            return false;
+        }
+        return containsAny(normalized,
+                "arriva", "arrivo", "arrivi", "arrivera", "arrival", "arrive", "arrives",
+                "parte", "parta", "partenza", "partira", "departure", "depart", "departs",
+                "ritardo", "delayed", "delay",
+                "cancell", "soppresso", "soppressa");
     }
 }

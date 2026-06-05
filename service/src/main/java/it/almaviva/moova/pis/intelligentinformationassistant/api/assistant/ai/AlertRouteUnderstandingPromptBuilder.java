@@ -101,6 +101,13 @@ public class AlertRouteUnderstandingPromptBuilder {
                 - The presence of event-like words such as arriving, departing, delayed or cancelled does not automatically
                   imply EVENT_INTERPRETER when the request also contains aggregation, count, threshold or multiple
                   monitored stop points.
+                - Do not classify a prompt as SCHEDULED_INTERPRETER just because it contains a number.
+                - Numbers used as platform, binario, track, quay, banchina or marciapiede values are ServiceData field
+                  constraints and can be evaluated by EVENT_INTERPRETER when the rest of the prompt describes a single
+                  ServiceData event.
+                - "A journey arrives or departs at stop X on platform N" is EVENT_INTERPRETER.
+                - "There are N journeys arriving, departing or delayed at stop X" is SCHEDULED_INTERPRETER.
+                - The distinction is whether N modifies the platform/track/quay or the number of journeys.
                 - Do not rely on exact wording or one language. Classify the meaning semantically.
                 - The routing step must not generate technicalSpecification.
                 - The routing step must not produce field paths.
