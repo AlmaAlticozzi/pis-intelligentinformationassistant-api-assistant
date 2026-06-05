@@ -21,10 +21,10 @@ public class ScheduledAlertVerificationPromptBuilder {
     @Inject
     TemporalConfiguration temporalConfiguration;
 
-    @ConfigProperty(name = "iia.alert-scheduled-verification.default-polling-frequency-seconds", defaultValue = "600")
+    @ConfigProperty(name = "iia.alert.scheduled-verify.default-frequency-seconds", defaultValue = "600")
     int defaultPollingFrequencySeconds = 600;
 
-    @ConfigProperty(name = "iia.alert-scheduled-verification.default-lookahead-minutes", defaultValue = "480")
+    @ConfigProperty(name = "iia.alert.scheduled-verify.default-lookahead-minutes", defaultValue = "480")
     int defaultLookaheadMinutes = 480;
 
     public LlmRequest build(ScheduledAlertVerificationPromptData data) {
@@ -71,6 +71,7 @@ public class ScheduledAlertVerificationPromptBuilder {
         return String.join("\n\n",
                 alertInputSection(data),
                 routeSection(data == null ? null : data.route()),
+                temporalHintsSection(data == null ? null : data.temporalHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
                 highPriorityMvpRulesSection(),
@@ -81,6 +82,18 @@ public class ScheduledAlertVerificationPromptBuilder {
                 timeRulesSection(),
                 rejectionRulesSection(),
                 responseSkeletonSection());
+    }
+
+    private String temporalHintsSection(ScheduledAlertTemporalHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived temporal hints: unavailable.
+                    - Use default schedule.frequencySeconds and default ServiceData API lookahead values from the Defaults section.
+                    - schedule.defaulted must be true when no explicit user frequency is known.
+                    - timeWindow.defaulted must be true when no explicit user visibility window is known.
+                    """;
+        }
+        return hints.compactPromptSection();
     }
 
     private String missionAndSafetySection() {

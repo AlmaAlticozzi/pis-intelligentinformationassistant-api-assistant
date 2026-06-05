@@ -91,7 +91,8 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
                 route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
-                explicitContext()));
+                explicitContext(),
+                explicitFrequencyHints()));
 
         assertThat(reportRequest.userPrompt())
                 .contains("snapshotEvaluation.mode = REPORT_COUNT when the output is a count")
@@ -106,7 +107,8 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 "Avvertimi quando sono presenti almeno 2 treni a Gorla che partono dal binario 3",
                 route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
-                explicitContext()));
+                explicitContext(),
+                defaultTemporalHints()));
 
         assertThat(conditionRequest.userPrompt())
                 .contains("snapshotEvaluation.mode = COUNT_MATCHING_JOURNEYS")
@@ -123,7 +125,8 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 "Per la localita Pero fammi sapere quanti hanno come origine Garibaldi FS",
                 route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
-                explicitContext()));
+                explicitContext(),
+                defaultTemporalHints()));
 
         assertThat(request.userPrompt())
                 .contains("quanti/quante")
@@ -142,7 +145,8 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 "Fammi sapere quando a Varedo e Palazzolo Milanese ci sono due treni in arrivo",
                 route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
-                explicitContext()));
+                explicitContext(),
+                defaultTemporalHints()));
 
         assertThat(request.userPrompt())
                 .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
@@ -205,7 +209,61 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 "Scheduled ServiceData test",
                 "Ogni 10 minuti dimmi quante corse hanno origine Garibaldi FS a Pero",
                 route(),
-                context);
+                context,
+                explicitFrequencyHints());
+    }
+
+    @Test
+    void promptContainsBackendDerivedTemporalHints() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Scheduled alert",
+                "Scheduled ServiceData test",
+                "Every 10 minutes tell me if there are delayed trains in the next 2 hours",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext(),
+                explicitFrequencyAndLookaheadHints()));
+
+        assertThat(request.userPrompt())
+                .contains("Backend-derived temporal hints")
+                .contains("hasExplicitFrequency: true")
+                .contains("frequencySeconds: 600")
+                .contains("schedule.defaulted must be false")
+                .contains("hasExplicitLookaheadWindow: true")
+                .contains("lookaheadMinutes: 120")
+                .contains("timeWindow.endMode must be NOW_PLUS_DURATION")
+                .contains("timeWindow.defaulted must be false");
+    }
+
+    @Test
+    void promptContainsDefaultTemporalRulesWhenNoExplicitTemporalExpressionExists() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Scheduled alert",
+                "Scheduled ServiceData test",
+                "Fammi sapere se a Garibaldi ci sono treni in ritardo",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext(),
+                defaultTemporalHints()));
+
+        assertThat(request.userPrompt())
+                .contains("hasExplicitFrequency: false")
+                .contains("defaultFrequencySeconds: 600")
+                .contains("schedule.defaulted must be true")
+                .contains("hasExplicitLookaheadWindow: false")
+                .contains("defaultLookaheadMinutes: 480")
+                .contains("timeWindow.endMode must be NOW_PLUS_DEFAULT_LOOKAHEAD")
+                .contains("timeWindow.defaulted must be true");
+    }
+
+    @Test
+    void promptClearlyDistinguishesFrequencyFromLookahead() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("\"every 10 minutes\" is schedule frequency, not ServiceData lookahead")
+                .contains("\"next 2 hours\" is ServiceData lookahead, not schedule frequency")
+                .contains("startMode is always NOW_TRUNCATED_TO_MINUTE");
     }
 
     private AlertRouteUnderstandingResult route() {
@@ -232,6 +290,63 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 0.95,
                 "Scheduled ServiceData route.",
                 null,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints defaultTemporalHints() {
+        return new ScheduledAlertTemporalHints(
+                false,
+                600,
+                null,
+                true,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints explicitFrequencyHints() {
+        return new ScheduledAlertTemporalHints(
+                true,
+                600,
+                "Ogni 10 minuti",
+                false,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints explicitFrequencyAndLookaheadHints() {
+        return new ScheduledAlertTemporalHints(
+                true,
+                600,
+                "Every 10 minutes",
+                false,
+                true,
+                120,
+                "next 2 hours",
+                false,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
                 List.of());
     }
 

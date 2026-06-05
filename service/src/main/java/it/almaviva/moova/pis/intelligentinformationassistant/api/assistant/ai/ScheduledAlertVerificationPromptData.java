@@ -8,5 +8,6 @@ public record ScheduledAlertVerificationPromptData(
         String description,
         String originalPrompt,
         AlertRouteUnderstandingResult route,
-        ScheduledServiceDataLocationContext locationContext) {
+        ScheduledServiceDataLocationContext locationContext,
+        ScheduledAlertTemporalHints temporalHints) {
 }

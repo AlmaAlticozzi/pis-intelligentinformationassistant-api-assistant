@@ -59,6 +59,12 @@ iia:
   alert:
     scheduled-verify:
       enabled: ${IIA_ALERT_SCHEDULED_VERIFY_ENABLED:true}
+      default-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_DEFAULT_FREQUENCY_SECONDS:600}
+      min-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_MIN_FREQUENCY_SECONDS:60}
+      max-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_MAX_FREQUENCY_SECONDS:86400}
+      default-lookahead-minutes: ${IIA_ALERT_SCHEDULED_VERIFY_DEFAULT_LOOKAHEAD_MINUTES:480}
+      min-lookahead-minutes: ${IIA_ALERT_SCHEDULED_VERIFY_MIN_LOOKAHEAD_MINUTES:1}
+      max-lookahead-minutes: ${IIA_ALERT_SCHEDULED_VERIFY_MAX_LOOKAHEAD_MINUTES:1440}
   agent-generation-preview:
     use-llm: ${IIA_AGENT_GENERATION_PREVIEW_USE_LLM:true}
     fallback-to-deterministic-on-llm-error: ${IIA_AGENT_GENERATION_PREVIEW_FALLBACK_TO_DETERMINISTIC_ON_LLM_ERROR:false}

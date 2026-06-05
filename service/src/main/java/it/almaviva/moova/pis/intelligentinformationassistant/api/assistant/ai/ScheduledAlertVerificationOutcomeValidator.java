@@ -94,6 +94,14 @@ public class ScheduledAlertVerificationOutcomeValidator {
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext scheduledLocationContext,
             AlertRouteUnderstandingResult route) {
+        return validate(outcome, scheduledLocationContext, route, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -117,7 +125,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -128,7 +136,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
     private String validateVerified(
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext scheduledLocationContext,
-            AlertRouteUnderstandingResult route) {
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -179,10 +188,102 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (semanticFailure != null) {
             return semanticFailure;
         }
+        String temporalFailure = validateTemporalSemantics(outcome.technicalSpecification(), temporalHints);
+        if (temporalFailure != null) {
+            return temporalFailure;
+        }
         if (scheduledLocationContext != null) {
             String locationFailure = validateLocationContext(outcome, scheduledLocationContext);
             if (locationFailure != null) {
                 return locationFailure;
+            }
+        }
+        return null;
+    }
+
+    private String validateTemporalSemantics(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertTemporalHints hints) {
+        if (hints == null) {
+            return null;
+        }
+        Map<String, Object> schedule = asMap(technicalSpecification.get("schedule"));
+        Map<String, Object> serviceDataQuery = asMap(technicalSpecification.get("serviceDataQuery"));
+        Map<String, Object> timeWindow = serviceDataQuery == null ? null : asMap(serviceDataQuery.get("timeWindow"));
+        Integer frequencySeconds = integerValue(schedule == null ? null : schedule.get("frequencySeconds"));
+        Boolean scheduleDefaulted = schedule == null ? null : booleanValue(schedule.get("defaulted"));
+        String scheduleRawText = stringValue(schedule == null ? null : schedule.get("rawText"));
+
+        if (frequencySeconds == null) {
+            return "technicalSpecification.schedule.frequencySeconds is required.";
+        }
+        if (frequencySeconds < hints.minFrequencySeconds() || frequencySeconds > hints.maxFrequencySeconds()) {
+            return "schedule.frequencySeconds must be between "
+                    + hints.minFrequencySeconds() + " and " + hints.maxFrequencySeconds() + ".";
+        }
+        if (hints.hasExplicitFrequency()) {
+            if (!frequencySeconds.equals(hints.frequencySeconds())) {
+                return "Scheduled frequency does not match backend-derived frequency: expected "
+                        + hints.frequencySeconds() + " seconds but got " + frequencySeconds + ".";
+            }
+            if (!Boolean.FALSE.equals(scheduleDefaulted)) {
+                return "Scheduled frequency was explicitly provided by the user but schedule.defaulted=true.";
+            }
+            if (isBlank(scheduleRawText)) {
+                return "Scheduled frequency was explicitly provided by the user but schedule.rawText is missing.";
+            }
+        } else {
+            if (!frequencySeconds.equals(hints.defaultFrequencySeconds())) {
+                return "Default scheduled frequency must be " + hints.defaultFrequencySeconds()
+                        + " seconds when no explicit frequency is provided.";
+            }
+            if (!Boolean.TRUE.equals(scheduleDefaulted)) {
+                return "Scheduled frequency was not explicitly provided by the user but schedule.defaulted=false.";
+            }
+        }
+
+        if (timeWindow == null || timeWindow.isEmpty()) {
+            return "technicalSpecification.serviceDataQuery.timeWindow is required.";
+        }
+        String startMode = stringValue(timeWindow.get("startMode"));
+        String endMode = stringValue(timeWindow.get("endMode"));
+        Integer lookaheadMinutes = integerValue(timeWindow.get("lookaheadMinutes"));
+        Boolean timeWindowDefaulted = booleanValue(timeWindow.get("defaulted"));
+        String timeWindowRawText = stringValue(timeWindow.get("rawText"));
+        if (!"NOW_TRUNCATED_TO_MINUTE".equals(startMode)) {
+            return "ServiceData timeWindow.startMode must be NOW_TRUNCATED_TO_MINUTE.";
+        }
+        if (lookaheadMinutes == null) {
+            return "ServiceData timeWindow.lookaheadMinutes is required.";
+        }
+        if (lookaheadMinutes < hints.minLookaheadMinutes() || lookaheadMinutes > hints.maxLookaheadMinutes()) {
+            return "ServiceData timeWindow.lookaheadMinutes must be between "
+                    + hints.minLookaheadMinutes() + " and " + hints.maxLookaheadMinutes() + ".";
+        }
+        if (hints.hasExplicitLookaheadWindow()) {
+            if (!"NOW_PLUS_DURATION".equals(endMode)) {
+                return "ServiceData lookahead endMode must be NOW_PLUS_DURATION when the user provides an explicit lookahead window.";
+            }
+            if (!lookaheadMinutes.equals(hints.lookaheadMinutes())) {
+                return "ServiceData lookahead window does not match backend-derived value: expected "
+                        + hints.lookaheadMinutes() + " minutes but got " + lookaheadMinutes + ".";
+            }
+            if (!Boolean.FALSE.equals(timeWindowDefaulted)) {
+                return "ServiceData lookahead window was explicitly provided by the user but timeWindow.defaulted=true.";
+            }
+            if (isBlank(timeWindowRawText)) {
+                return "ServiceData lookahead window was explicitly provided by the user but timeWindow.rawText is missing.";
+            }
+        } else {
+            if (!"NOW_PLUS_DEFAULT_LOOKAHEAD".equals(endMode)) {
+                return "ServiceData lookahead endMode must be NOW_PLUS_DEFAULT_LOOKAHEAD when no explicit lookahead window is provided.";
+            }
+            if (!lookaheadMinutes.equals(hints.defaultLookaheadMinutes())) {
+                return "Default ServiceData lookahead must be " + hints.defaultLookaheadMinutes()
+                        + " minutes when no explicit lookahead window is provided.";
+            }
+            if (!Boolean.TRUE.equals(timeWindowDefaulted)) {
+                return "ServiceData lookahead window was not explicitly provided by the user but timeWindow.defaulted=false.";
             }
         }
         return null;
@@ -1086,6 +1187,20 @@ public class ScheduledAlertVerificationOutcomeValidator {
         }
         if (value instanceof String stringValue && !stringValue.isBlank()) {
             return Boolean.parseBoolean(stringValue);
+        }
+        return null;
+    }
+
+    private Integer integerValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String stringValue && !stringValue.isBlank()) {
+            try {
+                return Integer.parseInt(stringValue);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
         }
         return null;
     }

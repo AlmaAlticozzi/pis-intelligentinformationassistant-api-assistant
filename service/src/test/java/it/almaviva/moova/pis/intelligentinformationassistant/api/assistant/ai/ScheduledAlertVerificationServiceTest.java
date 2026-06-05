@@ -158,7 +158,9 @@ class ScheduledAlertVerificationServiceTest {
     @Test
     void verifiesAllKnownStopPointsContext() {
         ScheduledServiceDataLocationContext context = allKnownContext();
-        TestFixture fixture = fixture(json(validReportResponse(context, delayCondition())));
+        Map<String, Object> response = validReportResponse(context, delayCondition());
+        withSchedule(response, 3600, false, "ogni ora");
+        TestFixture fixture = fixture(json(response));
 
         AlertVerificationOutcome outcome = fixture.service.verify(
                 "ALRT1",
@@ -178,7 +180,9 @@ class ScheduledAlertVerificationServiceTest {
 
     @Test
     void verifiesReportResponseUsingReportCount() {
-        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), delayCondition())));
+        Map<String, Object> response = validReportResponse(explicitContext(), delayCondition());
+        withSchedule(response, 600, false, "Ogni 10 minuti");
+        TestFixture fixture = fixture(json(response));
 
         AlertVerificationOutcome outcome = fixture.service.verify(
                 "ALRT1",
@@ -274,6 +278,85 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void rejectsExplicitFrequencyWhenLlmMarksScheduleDefaulted() {
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), delayCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled report",
+                "Scheduled ServiceData report test",
+                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("schedule.defaulted=true");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void verifiesExplicitFrequencyWhenScheduleMatchesBackendHints() {
+        Map<String, Object> response = validReportResponse(explicitContext(), delayCondition());
+        withSchedule(response, 600, false, "Ogni 10 minuti");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled report",
+                "Scheduled ServiceData report test",
+                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("schedule")))
+                .containsEntry("frequencySeconds", 600)
+                .containsEntry("defaulted", false)
+                .containsEntry("rawText", "Ogni 10 minuti");
+    }
+
+    @Test
+    void rejectsExplicitLookaheadWhenLlmUsesDefaultWindow() {
+        TestFixture fixture = fixture(json(validResponse(explicitContext(), delayCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled condition",
+                "Scheduled ServiceData condition test",
+                "Fammi sapere se ci sono almeno due treni in ritardo a Garibaldi FS nelle prossime 2 ore",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("NOW_PLUS_DURATION");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void verifiesExplicitLookaheadWhenTimeWindowMatchesBackendHints() {
+        Map<String, Object> response = validResponse(explicitContext(), delayCondition());
+        withLookahead(response, 120, false, "NOW_PLUS_DURATION", "nelle prossime 2 ore");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled condition",
+                "Scheduled ServiceData condition test",
+                "Fammi sapere se ci sono almeno due treni in ritardo a Garibaldi FS nelle prossime 2 ore",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(map(outcome.technicalSpecification().get("serviceDataQuery")).get("timeWindow")))
+                .containsEntry("endMode", "NOW_PLUS_DURATION")
+                .containsEntry("lookaheadMinutes", 120)
+                .containsEntry("defaulted", false)
+                .containsEntry("rawText", "nelle prossime 2 ore");
+    }
+
+    @Test
     void verifiesMultiMonitoredResponseWithValuesArray() {
         ScheduledServiceDataLocationContext context = multiMonitoredContext();
         Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
@@ -320,6 +403,7 @@ class ScheduledAlertVerificationServiceTest {
         service.promptBuilder = promptBuilder();
         service.responseParser = new ScheduledAlertVerificationResponseParser();
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
+        service.temporalHintsExtractor = temporalHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -340,6 +424,7 @@ class ScheduledAlertVerificationServiceTest {
         service.promptBuilder = promptBuilder();
         service.responseParser = new ScheduledAlertVerificationResponseParser();
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
+        service.temporalHintsExtractor = temporalHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -366,6 +451,17 @@ class ScheduledAlertVerificationServiceTest {
         builder.defaultPollingFrequencySeconds = 600;
         builder.defaultLookaheadMinutes = 480;
         return builder;
+    }
+
+    private ScheduledAlertTemporalHintsExtractor temporalHintsExtractor() {
+        ScheduledAlertTemporalHintsExtractor extractor = new ScheduledAlertTemporalHintsExtractor();
+        extractor.defaultFrequencySeconds = 600;
+        extractor.minFrequencySeconds = 60;
+        extractor.maxFrequencySeconds = 86400;
+        extractor.defaultLookaheadMinutes = 480;
+        extractor.minLookaheadMinutes = 1;
+        extractor.maxLookaheadMinutes = 1440;
+        return extractor;
     }
 
     private AlertRouteUnderstandingResult route(
@@ -517,6 +613,36 @@ class ScheduledAlertVerificationServiceTest {
                         "endMode", "NOW_PLUS_DEFAULT_LOOKAHEAD",
                         "lookaheadMinutes", 480,
                         "defaulted", true));
+    }
+
+    private void withSchedule(
+            Map<String, Object> response,
+            int frequencySeconds,
+            boolean defaulted,
+            String rawText) {
+        Map<String, Object> schedule = new LinkedHashMap<>();
+        schedule.put("frequencySeconds", frequencySeconds);
+        schedule.put("defaulted", defaulted);
+        schedule.put("rawText", rawText);
+        map(response.get("technicalSpecification")).put("schedule", schedule);
+    }
+
+    private void withLookahead(
+            Map<String, Object> response,
+            int lookaheadMinutes,
+            boolean defaulted,
+            String endMode,
+            String rawText) {
+        Map<String, Object> technical = map(response.get("technicalSpecification"));
+        Map<String, Object> serviceDataQuery = new LinkedHashMap<>(map(technical.get("serviceDataQuery")));
+        Map<String, Object> timeWindow = new LinkedHashMap<>();
+        timeWindow.put("startMode", "NOW_TRUNCATED_TO_MINUTE");
+        timeWindow.put("endMode", endMode);
+        timeWindow.put("lookaheadMinutes", lookaheadMinutes);
+        timeWindow.put("defaulted", defaulted);
+        timeWindow.put("rawText", rawText);
+        serviceDataQuery.put("timeWindow", timeWindow);
+        technical.put("serviceDataQuery", serviceDataQuery);
     }
 
     private Map<String, Object> validCondition() {

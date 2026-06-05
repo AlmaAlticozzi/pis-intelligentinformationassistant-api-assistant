@@ -469,6 +469,154 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsExplicitFrequencyWhenScheduleMatchesTemporalHints() {
+        Map<String, Object> technical = technicalSpecification();
+        withSchedule(technical, 600, false, "Ogni 10 minuti");
+
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitFrequencyHints(600));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsDefaultFrequencyWhenNoExplicitFrequencyExists() {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(), blueprint()),
+                null,
+                null,
+                defaultTemporalHints());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsExplicitLookaheadWhenTimeWindowMatchesTemporalHints() {
+        Map<String, Object> technical = technicalSpecification();
+        withLookahead(technical, 120, false, "NOW_PLUS_DURATION", "nelle prossime 2 ore");
+
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitLookaheadHints(120));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsDefaultLookaheadWhenNoExplicitWindowExists() {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(), blueprint()),
+                null,
+                null,
+                defaultTemporalHints());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsExplicitFrequencyMarkedDefaulted() {
+        assertRejected(
+                validOutcome(technicalSpecification(), blueprint()),
+                null,
+                null,
+                explicitFrequencyHints(600),
+                "schedule.defaulted=true");
+    }
+
+    @Test
+    void rejectsExplicitFrequencyMismatch() {
+        Map<String, Object> technical = technicalSpecification();
+        withSchedule(technical, 300, false, "Ogni 10 minuti");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitFrequencyHints(600),
+                "expected 600 seconds but got 300");
+    }
+
+    @Test
+    void rejectsDefaultFrequencyMarkedExplicit() {
+        Map<String, Object> technical = technicalSpecification();
+        withSchedule(technical, 600, false, "Ogni 10 minuti");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                defaultTemporalHints(),
+                "schedule.defaulted=false");
+    }
+
+    @Test
+    void rejectsExplicitLookaheadWithDefaultEndMode() {
+        assertRejected(
+                validOutcome(technicalSpecification(), blueprint()),
+                null,
+                null,
+                explicitLookaheadHints(120),
+                "NOW_PLUS_DURATION");
+    }
+
+    @Test
+    void rejectsExplicitLookaheadMismatch() {
+        Map<String, Object> technical = technicalSpecification();
+        withLookahead(technical, 480, false, "NOW_PLUS_DURATION", "nelle prossime 2 ore");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitLookaheadHints(120),
+                "expected 120 minutes but got 480");
+    }
+
+    @Test
+    void rejectsDefaultLookaheadUsingDurationMode() {
+        Map<String, Object> technical = technicalSpecification();
+        withLookahead(technical, 480, false, "NOW_PLUS_DURATION", "nelle prossime 2 ore");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                defaultTemporalHints(),
+                "NOW_PLUS_DEFAULT_LOOKAHEAD");
+    }
+
+    @Test
+    void rejectsFrequencyBelowMinimum() {
+        Map<String, Object> technical = technicalSpecification();
+        withSchedule(technical, 30, false, "Ogni 30 secondi");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitFrequencyHints(30),
+                "between 60 and 86400");
+    }
+
+    @Test
+    void rejectsLookaheadAboveMaximum() {
+        Map<String, Object> technical = technicalSpecification();
+        withLookahead(technical, 2000, false, "NOW_PLUS_DURATION", "nelle prossime 2000 minuti");
+
+        assertRejected(
+                validOutcome(technical, blueprint()),
+                null,
+                null,
+                explicitLookaheadHints(2000),
+                "between 1 and 1440");
+    }
+
+    @Test
     void acceptsExplicitMonitoredOnlyContext() {
         assertVerifiedWithContext(
                 validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -727,6 +875,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.agentBlueprintPreview()).isNull();
     }
 
+    private void assertRejected(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext context,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(outcome, context, route, temporalHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
     private void assertVerified(Map<String, Object> condition) {
         AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
 
@@ -865,6 +1027,92 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         return technical;
     }
 
+    private void withSchedule(
+            Map<String, Object> technical,
+            int frequencySeconds,
+            boolean defaulted,
+            String rawText) {
+        Map<String, Object> schedule = new LinkedHashMap<>();
+        schedule.put("frequencySeconds", frequencySeconds);
+        schedule.put("defaulted", defaulted);
+        schedule.put("rawText", rawText);
+        technical.put("schedule", schedule);
+    }
+
+    private void withLookahead(
+            Map<String, Object> technical,
+            int lookaheadMinutes,
+            boolean defaulted,
+            String endMode,
+            String rawText) {
+        Map<String, Object> serviceDataQuery = new LinkedHashMap<>(map(technical.get("serviceDataQuery")));
+        Map<String, Object> timeWindow = new LinkedHashMap<>();
+        timeWindow.put("startMode", "NOW_TRUNCATED_TO_MINUTE");
+        timeWindow.put("endMode", endMode);
+        timeWindow.put("lookaheadMinutes", lookaheadMinutes);
+        timeWindow.put("defaulted", defaulted);
+        timeWindow.put("rawText", rawText);
+        serviceDataQuery.put("timeWindow", timeWindow);
+        technical.put("serviceDataQuery", serviceDataQuery);
+    }
+
+    private ScheduledAlertTemporalHints defaultTemporalHints() {
+        return new ScheduledAlertTemporalHints(
+                false,
+                600,
+                null,
+                true,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints explicitFrequencyHints(int frequencySeconds) {
+        return new ScheduledAlertTemporalHints(
+                true,
+                frequencySeconds,
+                "Ogni 10 minuti",
+                false,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints explicitLookaheadHints(int lookaheadMinutes) {
+        return new ScheduledAlertTemporalHints(
+                false,
+                600,
+                null,
+                true,
+                true,
+                lookaheadMinutes,
+                "nelle prossime 2 ore",
+                false,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                List.of());
+    }
+
     private Map<String, Object> technicalSpecification(
             List<String> stopPoints,
             ScheduledAlertMonitoringScope monitoringScope,
@@ -884,7 +1132,12 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         "operation", "POST /v2/stoppointjourneys",
                         "monitoringScope", String.valueOf(monitoringScope),
                         "stopPoints", stopPoints,
-                        "requiresAllKnownStopPoints", requiresAllKnownStopPoints)),
+                        "requiresAllKnownStopPoints", requiresAllKnownStopPoints,
+                        "timeWindow", Map.of(
+                                "startMode", "NOW_TRUNCATED_TO_MINUTE",
+                                "endMode", "NOW_PLUS_DEFAULT_LOOKAHEAD",
+                                "lookaheadMinutes", 480,
+                                "defaulted", true))),
                 Map.entry("snapshotEvaluation", Map.of(
                         "mode", "COUNT_MATCHING_JOURNEYS",
                         "journeyPath", "stopPointsJourneyDetails[]",
