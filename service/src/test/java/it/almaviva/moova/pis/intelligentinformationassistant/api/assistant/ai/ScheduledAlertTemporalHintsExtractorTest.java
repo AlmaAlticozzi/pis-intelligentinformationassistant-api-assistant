@@ -94,6 +94,68 @@ class ScheduledAlertTemporalHintsExtractorTest {
         assertThat(hints.lookaheadRawText()).containsIgnoringCase("prossimi 30 minuti");
     }
 
+    @Test
+    void extractsDepartureBetweenJourneyTimeFilter() {
+        ScheduledAlertTemporalHints hints = extractor().extract("partono tra le 10:00 e le 12:00");
+
+        assertThat(hints.hasJourneyTimeFilter()).isTrue();
+        assertThat(hints.journeyTimeFilters()).hasSize(1);
+        ScheduledAlertJourneyTimeFilter filter = hints.journeyTimeFilters().getFirst();
+        assertThat(filter.direction()).isEqualTo(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE);
+        assertThat(filter.timeRelation()).isEqualTo(ScheduledAlertJourneyTimeFilter.TimeRelation.BETWEEN);
+        assertThat(filter.startLocalTime()).isEqualTo("10:00:00");
+        assertThat(filter.endLocalTime()).isEqualTo("12:00:00");
+        assertThat(filter.timezone()).isEqualTo("Europe/Rome");
+    }
+
+    @Test
+    void extractsArrivalBetweenJourneyTimeFilterWithoutMinutes() {
+        ScheduledAlertTemporalHints hints = extractor().extract("arrivano tra le 14 e le 16");
+
+        assertThat(hints.hasJourneyTimeFilter()).isTrue();
+        ScheduledAlertJourneyTimeFilter filter = hints.journeyTimeFilters().getFirst();
+        assertThat(filter.direction()).isEqualTo(ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL);
+        assertThat(filter.startLocalTime()).isEqualTo("14:00:00");
+        assertThat(filter.endLocalTime()).isEqualTo("16:00:00");
+    }
+
+    @Test
+    void extractsDepartureAfterJourneyTimeFilter() {
+        ScheduledAlertTemporalHints hints = extractor().extract("corse che partono dopo le 18:30");
+
+        ScheduledAlertJourneyTimeFilter filter = hints.journeyTimeFilters().getFirst();
+        assertThat(filter.direction()).isEqualTo(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE);
+        assertThat(filter.timeRelation()).isEqualTo(ScheduledAlertJourneyTimeFilter.TimeRelation.AFTER);
+        assertThat(filter.startLocalTime()).isEqualTo("18:30:00");
+        assertThat(filter.endLocalTime()).isEqualTo("23:59:59");
+    }
+
+    @Test
+    void extractsArrivalBeforeJourneyTimeFilter() {
+        ScheduledAlertTemporalHints hints = extractor().extract("corse che arrivano prima delle 09:00");
+
+        ScheduledAlertJourneyTimeFilter filter = hints.journeyTimeFilters().getFirst();
+        assertThat(filter.direction()).isEqualTo(ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL);
+        assertThat(filter.timeRelation()).isEqualTo(ScheduledAlertJourneyTimeFilter.TimeRelation.BEFORE);
+        assertThat(filter.startLocalTime()).isEqualTo("00:00:00");
+        assertThat(filter.endLocalTime()).isEqualTo("09:00:00");
+    }
+
+    @Test
+    void extractsFrequencyLookaheadAndJourneyTimeFilterSeparately() {
+        ScheduledAlertTemporalHints hints = extractor().extract(
+                "Ogni 10 minuti dimmi quante corse partono da Garibaldi FS tra le 18 e le 20 nelle prossime 2 ore");
+
+        assertThat(hints.hasExplicitFrequency()).isTrue();
+        assertThat(hints.frequencySeconds()).isEqualTo(600);
+        assertThat(hints.hasExplicitLookaheadWindow()).isTrue();
+        assertThat(hints.lookaheadMinutes()).isEqualTo(120);
+        assertThat(hints.hasJourneyTimeFilter()).isTrue();
+        ScheduledAlertJourneyTimeFilter filter = hints.journeyTimeFilters().getFirst();
+        assertThat(filter.startLocalTime()).isEqualTo("18:00:00");
+        assertThat(filter.endLocalTime()).isEqualTo("20:00:00");
+    }
+
     private ScheduledAlertTemporalHintsExtractor extractor() {
         ScheduledAlertTemporalHintsExtractor extractor = new ScheduledAlertTemporalHintsExtractor();
         extractor.defaultFrequencySeconds = 600;

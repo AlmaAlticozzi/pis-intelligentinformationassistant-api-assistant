@@ -10,6 +10,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -192,11 +193,97 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (temporalFailure != null) {
             return temporalFailure;
         }
+        String journeyTimeFailure = validateJourneyTimeHints(outcome.technicalSpecification(), temporalHints);
+        if (journeyTimeFailure != null) {
+            return journeyTimeFailure;
+        }
+        String unsupportedTemporalFailure = validateUnsupportedTemporalClaims(outcome);
+        if (unsupportedTemporalFailure != null) {
+            return unsupportedTemporalFailure;
+        }
         if (scheduledLocationContext != null) {
             String locationFailure = validateLocationContext(outcome, scheduledLocationContext);
             if (locationFailure != null) {
                 return locationFailure;
             }
+        }
+        return null;
+    }
+
+    private String validateJourneyTimeHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertTemporalHints hints) {
+        if (hints == null || !hints.hasJourneyTimeFilter()) {
+            return null;
+        }
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        List<ConditionLeaf> localTimeLeaves = leaves.stream()
+                .filter(leaf -> "LOCAL_TIME_BETWEEN".equals(leaf.operator()))
+                .toList();
+        if (localTimeLeaves.isEmpty()) {
+            return "Scheduled journey time filter was requested but not represented in snapshotEvaluation.condition.";
+        }
+        for (ScheduledAlertJourneyTimeFilter hint : hints.journeyTimeFilters()) {
+            boolean covered = localTimeLeaves.stream().anyMatch(leaf -> matchesJourneyTimeHint(leaf, hint));
+            if (!covered) {
+                return "Scheduled journey time filter was requested but not represented with a direction-compatible LOCAL_TIME_BETWEEN condition: "
+                        + hint.rawText() + ".";
+            }
+        }
+        return null;
+    }
+
+    private boolean matchesJourneyTimeHint(
+            ConditionLeaf leaf,
+            ScheduledAlertJourneyTimeFilter hint) {
+        if (!isDirectionCompatibleTimeField(leaf.resolvedField(), hint.direction())) {
+            return false;
+        }
+        Map<String, Object> value = asMap(leaf.value());
+        if (value == null) {
+            return false;
+        }
+        String start = stringValue(value.get("start"));
+        String end = stringValue(value.get("end"));
+        String timezone = stringValue(value.get("timezone"));
+        return (isBlank(hint.startLocalTime()) || hint.startLocalTime().equals(start))
+                && (isBlank(hint.endLocalTime()) || hint.endLocalTime().equals(end))
+                && (isBlank(hint.timezone()) || hint.timezone().equals(timezone));
+    }
+
+    private boolean isDirectionCompatibleTimeField(
+            String resolvedField,
+            ScheduledAlertJourneyTimeFilter.Direction direction) {
+        if (isBlank(resolvedField)) {
+            return false;
+        }
+        return switch (direction) {
+            case DEPARTURE -> isDepartureTimeField(resolvedField);
+            case ARRIVAL -> isArrivalTimeField(resolvedField);
+            case PASSING -> isPassingTimeField(resolvedField)
+                    || (resolvedField.contains("nextCalls[]") && (isDepartureTimeField(resolvedField) || isArrivalTimeField(resolvedField)));
+            case UNKNOWN -> isJourneyTimeField(resolvedField);
+        };
+    }
+
+    private String validateUnsupportedTemporalClaims(AlertVerificationOutcome outcome) {
+        String generated = String.join(" ",
+                stringValue(outcome.summary()),
+                stringValue(outcome.requirementCoverage()),
+                stringValue(outcome.technicalSpecification()),
+                stringValue(outcome.agentBlueprintPreview()))
+                .toLowerCase(Locale.ROOT);
+        if (generated.contains("trend")
+                || generated.contains("aumentando")
+                || generated.contains("increasing")
+                || generated.contains("rispetto a ieri")
+                || generated.contains("compared with yesterday")
+                || generated.contains("historical comparison")
+                || generated.contains("absence over time")
+                || generated.contains("per 30 minuti non")) {
+            return "Scheduled verification cannot support temporal trend, historical comparison or continuous absence requirements in this MVP.";
         }
         return null;
     }
@@ -569,6 +656,28 @@ public class ScheduledAlertVerificationOutcomeValidator {
         return ScheduledServiceDataCapabilityCatalog.isAllowedField(candidate) ? candidate : null;
     }
 
+    private boolean isJourneyTimeField(String resolvedField) {
+        return isDepartureTimeField(resolvedField)
+                || isArrivalTimeField(resolvedField)
+                || isPassingTimeField(resolvedField);
+    }
+
+    private boolean isDepartureTimeField(String resolvedField) {
+        return resolvedField != null && (resolvedField.endsWith("departureTime")
+                || resolvedField.endsWith("timetabledDepartureTime")
+                || resolvedField.endsWith("estimatedDepartureTime"));
+    }
+
+    private boolean isArrivalTimeField(String resolvedField) {
+        return resolvedField != null && (resolvedField.endsWith("arrivalTime")
+                || resolvedField.endsWith("timetabledArrivalTime")
+                || resolvedField.endsWith("estimatedArrivalTime"));
+    }
+
+    private boolean isPassingTimeField(String resolvedField) {
+        return resolvedField != null && resolvedField.endsWith("passingTime");
+    }
+
     private String validateOperatorShape(
             Map<String, Object> node,
             String operator,
@@ -606,6 +715,9 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return catalogFailure("boolean field " + resolvedField + " requires boolean value.");
         }
         if ("LOCAL_TIME_BETWEEN".equals(operator)) {
+            if (!isJourneyTimeField(resolvedField)) {
+                return catalogFailure("LOCAL_TIME_BETWEEN is allowed only on journey time fields.");
+            }
             return validateLocalTimeBetween(node.get("value"));
         }
         if ("LOCAL_DAY_OF_WEEK_IN".equals(operator) || "LOCAL_DAY_OF_WEEK_NOT_IN".equals(operator)) {
@@ -669,10 +781,18 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return catalogFailure("LOCAL_TIME_BETWEEN requires value.start, value.end and value.timezone.");
         }
         try {
-            LocalTime.parse(start);
-            LocalTime.parse(end);
+            LocalTime parsedStart = LocalTime.parse(start);
+            LocalTime parsedEnd = LocalTime.parse(end);
+            if (parsedStart.equals(parsedEnd)) {
+                return catalogFailure("LOCAL_TIME_BETWEEN start and end must not be equal for this MVP.");
+            }
         } catch (DateTimeException ex) {
             return catalogFailure("LOCAL_TIME_BETWEEN start/end must use HH:mm:ss.");
+        }
+        try {
+            ZoneId.of(timezone);
+        } catch (DateTimeException ex) {
+            return catalogFailure("LOCAL_TIME_BETWEEN timezone must be a valid IANA ZoneId.");
         }
         return null;
     }
@@ -1010,7 +1130,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 values.add(node.get("value"));
             }
             values.addAll(stringList(node.get("values")));
-            leaves.add(new ConditionLeaf(field, resolvedField, operator, List.copyOf(values)));
+            leaves.add(new ConditionLeaf(field, resolvedField, operator, node.get("value"), List.copyOf(values)));
             return;
         }
         collectArrayNodes(node.get("all"), arrayContext, leaves);
@@ -1213,6 +1333,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             String field,
             String resolvedField,
             String operator,
+            Object value,
             List<Object> values) {
     }
 }

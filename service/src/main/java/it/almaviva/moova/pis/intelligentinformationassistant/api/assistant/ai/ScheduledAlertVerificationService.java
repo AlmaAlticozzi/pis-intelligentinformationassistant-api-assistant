@@ -86,6 +86,9 @@ public class ScheduledAlertVerificationService {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][TEMPORAL_HINTS] defaults frequencySeconds="
                 + temporalHints.defaultFrequencySeconds()
                 + " lookaheadMinutes=" + temporalHints.defaultLookaheadMinutes());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][TEMPORAL_HINTS] hasJourneyTimeFilter="
+                + temporalHints.hasJourneyTimeFilter()
+                + " journeyTimeFilters=" + temporalHints.journeyTimeFilters());
 
         LlmRequest request = promptBuilder.build(new ScheduledAlertVerificationPromptData(
                 alertId,

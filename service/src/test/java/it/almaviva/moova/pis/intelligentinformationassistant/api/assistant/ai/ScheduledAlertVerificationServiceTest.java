@@ -357,6 +357,89 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesDepartureBetweenJourneyTimeFilter() {
+        Map<String, Object> response = validReportResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00"))));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Departure time report",
+                "Scheduled ServiceData departure time report test",
+                "Fammi sapere quante corse partono da Garibaldi FS tra le 10:00 e le 12:00",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsJourneyTimePromptWhenLlmOmitsTimeFilter() {
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), delayCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Departure time report",
+                "Scheduled ServiceData departure time report test",
+                "Fammi sapere quante corse partono da Garibaldi FS tra le 10:00 e le 12:00",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Scheduled journey time filter was requested");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void rejectsArrivalJourneyTimePromptWhenLlmUsesDepartureField() {
+        Map<String, Object> response = validResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00"))));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Arrival time condition",
+                "Scheduled ServiceData arrival time condition test",
+                "Fammi sapere se c'e almeno una corsa che arriva a Garibaldi FS tra le 14:00 e le 16:00",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("direction-compatible");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void verifiesFrequencyLookaheadAndJourneyTimeTogether() {
+        Map<String, Object> response = validReportResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("18:00:00", "20:00:00"))));
+        withSchedule(response, 600, false, "Ogni 10 minuti");
+        withLookahead(response, 120, false, "NOW_PLUS_DURATION", "nelle prossime 2 ore");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Mixed temporal report",
+                "Scheduled ServiceData mixed temporal report test",
+                "Ogni 10 minuti dimmi quante corse partono da Garibaldi FS tra le 18:00 e le 20:00 nelle prossime 2 ore",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("schedule")))
+                .containsEntry("frequencySeconds", 600)
+                .containsEntry("defaulted", false);
+        assertThat(map(map(outcome.technicalSpecification().get("serviceDataQuery")).get("timeWindow")))
+                .containsEntry("lookaheadMinutes", 120)
+                .containsEntry("defaulted", false);
+    }
+
+    @Test
     void verifiesMultiMonitoredResponseWithValuesArray() {
         ScheduledServiceDataLocationContext context = multiMonitoredContext();
         Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
@@ -613,6 +696,13 @@ class ScheduledAlertVerificationServiceTest {
                         "endMode", "NOW_PLUS_DEFAULT_LOOKAHEAD",
                         "lookaheadMinutes", 480,
                         "defaulted", true));
+    }
+
+    private Map<String, Object> timeValue(String start, String end) {
+        return Map.of(
+                "start", start,
+                "end", end,
+                "timezone", "Europe/Rome");
     }
 
     private void withSchedule(

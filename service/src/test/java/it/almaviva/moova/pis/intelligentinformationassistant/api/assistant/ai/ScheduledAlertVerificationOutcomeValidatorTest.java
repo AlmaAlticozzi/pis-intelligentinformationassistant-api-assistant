@@ -617,6 +617,159 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsDepartureLocalTimeBetweenOnDepartureField() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsArrivalLocalTimeBetweenOnArrivalField() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00")))),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsDelayAndDepartureTimeFilterInSameAnyElement() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]", Map.of(
+                "all", List.of(
+                        leaf("departureDelay.delay", "GREATER_THAN", 0),
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))));
+
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsReportCountWithTimeFilter() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00"))),
+                        null,
+                        "EVERY_RUN",
+                        true),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsConditionalThresholdWithTimeFilter() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "COUNT_MATCHING_JOURNEYS",
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("18:00:00", "20:00:00"))),
+                        Map.of("operator", "GREATER_OR_EQUAL", "value", 5),
+                        "ON_MATCH",
+                        true),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsBooleanExistsWithTimeFilter() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "BOOLEAN_EXISTS",
+                        conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00"))),
+                        null,
+                        "ON_MATCH",
+                        true),
+                blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsRequestedJourneyTimeFilterWhenConditionOmitsLocalTimeBetween() {
+        assertRejected(
+                validOutcome(technicalSpecification(), blueprint()),
+                null,
+                null,
+                journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE, "10:00:00", "12:00:00"),
+                "Scheduled journey time filter was requested");
+    }
+
+    @Test
+    void rejectsDepartureHintCoveredByArrivalField() {
+        assertRejected(
+                validOutcome(technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))), blueprint()),
+                null,
+                null,
+                journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE, "10:00:00", "12:00:00"),
+                "direction-compatible");
+    }
+
+    @Test
+    void rejectsArrivalHintCoveredByDepartureField() {
+        assertRejected(
+                validOutcome(technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00")))), blueprint()),
+                null,
+                null,
+                journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL, "14:00:00", "16:00:00"),
+                "direction-compatible");
+    }
+
+    @Test
+    void rejectsLocalTimeBetweenOnNonTimeField() {
+        assertRejected(validOutcome(
+                        technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("vehicleJourneyName", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))),
+                        blueprint()),
+                "LOCAL_TIME_BETWEEN");
+    }
+
+    @Test
+    void rejectsLocalTimeBetweenWithoutTimezone() {
+        assertRejected(validOutcome(
+                        technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN",
+                                        Map.of("start", "10:00:00", "end", "12:00:00")))),
+                        blueprint()),
+                "timezone");
+    }
+
+    @Test
+    void rejectsLocalTimeBetweenInvalidTime() {
+        assertRejected(validOutcome(
+                        technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("25:00:00", "12:00:00")))),
+                        blueprint()),
+                "HH:mm:ss");
+    }
+
+    @Test
+    void rejectsUnsupportedTemporalTrendClaims() {
+        AlertVerificationOutcome outcome = validOutcome(
+                technicalSpecification(),
+                blueprint(),
+                Map.of(
+                        "requirements", List.of(Map.of(
+                                "text", "trend increasing every hour",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("trend"))),
+                        "allRequiredRequirementsMapped", true));
+
+        assertRejected(outcome, "temporal trend");
+    }
+
+    @Test
     void acceptsExplicitMonitoredOnlyContext() {
         assertVerifiedWithContext(
                 validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -954,6 +1107,13 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     private AlertVerificationOutcome validOutcome(Map<String, Object> technicalSpecification, Map<String, Object> blueprint) {
+        return validOutcome(technicalSpecification, blueprint, coverage());
+    }
+
+    private AlertVerificationOutcome validOutcome(
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> blueprint,
+            Map<String, Object> requirementCoverage) {
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.VERIFIED,
                 "Verified.",
@@ -972,7 +1132,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
                 technicalSpecification,
                 blueprint,
-                coverage(),
+                requirementCoverage,
                 List.of(),
                 List.of("No executable code generated."));
     }
@@ -1025,6 +1185,46 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "includeCount", includeCount,
                 "includeMatchingJourneys", true));
         return technical;
+    }
+
+    private Map<String, Object> timeValue(String start, String end) {
+        return Map.of(
+                "start", start,
+                "end", end,
+                "timezone", "Europe/Rome");
+    }
+
+    private ScheduledAlertTemporalHints journeyTimeHints(
+            ScheduledAlertJourneyTimeFilter.Direction direction,
+            String start,
+            String end) {
+        return new ScheduledAlertTemporalHints(
+                false,
+                600,
+                null,
+                true,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                true,
+                List.of(new ScheduledAlertJourneyTimeFilter(
+                        "tra le " + start.substring(0, 5) + " e le " + end.substring(0, 5),
+                        ScheduledAlertJourneyTimeFilter.TimeRelation.BETWEEN,
+                        start,
+                        end,
+                        null,
+                        direction,
+                        ScheduledAlertJourneyTimeFilter.TimetabledPreference.UNSPECIFIED,
+                        ScheduledAlertJourneyTimeFilter.TargetRoleHint.UNKNOWN,
+                        "Europe/Rome")),
+                List.of());
     }
 
     private void withSchedule(

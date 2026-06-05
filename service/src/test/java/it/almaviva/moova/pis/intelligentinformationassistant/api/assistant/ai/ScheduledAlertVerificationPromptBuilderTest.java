@@ -266,6 +266,65 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("startMode is always NOW_TRUNCATED_TO_MINUTE");
     }
 
+    @Test
+    void promptDistinguishesJourneyTimeFilterFromFrequencyAndLookahead() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Departure report",
+                null,
+                "Fammi sapere quante corse partono da Garibaldi FS tra le 10:00 e le 12:00",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext(),
+                journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE, "10:00:00", "12:00:00")));
+
+        assertThat(request.userPrompt())
+                .contains("Journey time filters are conditions inside snapshotEvaluation.condition")
+                .contains("they are not serviceDataQuery.timeWindow")
+                .contains("hasJourneyTimeFilter: true")
+                .contains("direction=DEPARTURE")
+                .contains("startLocalTime=10:00:00")
+                .contains("endLocalTime=12:00:00")
+                .contains("LOCAL_TIME_BETWEEN");
+    }
+
+    @Test
+    void promptContainsArrivalJourneyTimeHints() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Arrival condition",
+                null,
+                "Fammi sapere se ci sono treni che arrivano a Garibaldi FS tra le 14:00 e le 16:00",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext(),
+                journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL, "14:00:00", "16:00:00")));
+
+        assertThat(request.userPrompt())
+                .contains("direction=ARRIVAL")
+                .contains("Arrival time fields")
+                .contains("callEnd.arrivalTime");
+    }
+
+    @Test
+    void promptContainsFrequencyLookaheadAndJourneyTimeTogether() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Mixed temporal report",
+                null,
+                "Ogni 10 minuti dimmi quante corse partono da Garibaldi FS tra le 18:00 e le 20:00 nelle prossime 2 ore",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext(),
+                explicitFrequencyLookaheadAndJourneyTimeHints()));
+
+        assertThat(request.userPrompt())
+                .contains("hasExplicitFrequency: true")
+                .contains("frequencySeconds: 600")
+                .contains("hasExplicitLookaheadWindow: true")
+                .contains("lookaheadMinutes: 120")
+                .contains("hasJourneyTimeFilter: true")
+                .contains("startLocalTime=18:00:00")
+                .contains("endLocalTime=20:00:00");
+    }
+
     private AlertRouteUnderstandingResult route() {
         return route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT);
     }
@@ -347,6 +406,71 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 480,
                 1,
                 1440,
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints journeyTimeHints(
+            ScheduledAlertJourneyTimeFilter.Direction direction,
+            String start,
+            String end) {
+        return new ScheduledAlertTemporalHints(
+                false,
+                600,
+                null,
+                true,
+                false,
+                480,
+                null,
+                true,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                true,
+                List.of(new ScheduledAlertJourneyTimeFilter(
+                        "tra le " + start.substring(0, 5) + " e le " + end.substring(0, 5),
+                        ScheduledAlertJourneyTimeFilter.TimeRelation.BETWEEN,
+                        start,
+                        end,
+                        null,
+                        direction,
+                        ScheduledAlertJourneyTimeFilter.TimetabledPreference.UNSPECIFIED,
+                        direction == ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE
+                                ? ScheduledAlertJourneyTimeFilter.TargetRoleHint.ORIGIN_CALL
+                                : ScheduledAlertJourneyTimeFilter.TargetRoleHint.DESTINATION_CALL,
+                        "Europe/Rome")),
+                List.of());
+    }
+
+    private ScheduledAlertTemporalHints explicitFrequencyLookaheadAndJourneyTimeHints() {
+        return new ScheduledAlertTemporalHints(
+                true,
+                600,
+                "Ogni 10 minuti",
+                false,
+                true,
+                120,
+                "nelle prossime 2 ore",
+                false,
+                600,
+                60,
+                86400,
+                480,
+                1,
+                1440,
+                true,
+                List.of(new ScheduledAlertJourneyTimeFilter(
+                        "tra le 18:00 e le 20:00",
+                        ScheduledAlertJourneyTimeFilter.TimeRelation.BETWEEN,
+                        "18:00:00",
+                        "20:00:00",
+                        null,
+                        ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE,
+                        ScheduledAlertJourneyTimeFilter.TimetabledPreference.UNSPECIFIED,
+                        ScheduledAlertJourneyTimeFilter.TargetRoleHint.ORIGIN_CALL,
+                        "Europe/Rome")),
                 List.of());
     }
 

@@ -472,14 +472,31 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - If absent, use default lookahead minutes and defaulted=true.
 
                 3. Journey time filters:
+                - Journey time filters are conditions inside snapshotEvaluation.condition; they are not serviceDataQuery.timeWindow.
+                - API visibility window controls how far the ServiceData API query looks ahead.
+                - Journey time filters select journeys inside the returned snapshot.
                 - "departures between 10:00 and 12:00" -> condition on departure timestamp field using LOCAL_TIME_BETWEEN.
-                - Use the coherent timestamp: callStart.departureTime, timetabledCallStart.departureTime, callEnd.arrivalTime, timetabledCallEnd.arrivalTime, nextCalls[].departureTime/arrivalTime, nextTransitCalls[].passingTime.
+                - "after 18:30" -> LOCAL_TIME_BETWEEN start=18:30:00 end=23:59:59 when no LOCAL_TIME_AFTER operator exists.
+                - "before 09:00" -> LOCAL_TIME_BETWEEN start=00:00:00 end=09:00:00 when no LOCAL_TIME_BEFORE operator exists.
+                - Departure time fields: callStart.departureTime, timetabledCallStart.departureTime, timetabledDepartureTime, estimatedDepartureTime, nextCalls[].departureTime.
+                - Arrival time fields: callEnd.arrivalTime, timetabledCallEnd.arrivalTime, timetabledArrivalTime, estimatedArrivalTime, nextCalls[].arrivalTime.
+                - Passing/transit time fields: nextTransitCalls[].passingTime; use nextCalls[].arrivalTime/departureTime for route-call filters when appropriate.
+                - Planned/scheduled/timetabled/programmed departure/arrival uses timetabled fields.
+                - Actual/effective/current departure/arrival uses callStart/callEnd or estimated fields.
+                - If unspecified, prefer callStart.departureTime for departure and callEnd.arrivalTime for arrival when available.
+                - Time filters must be correlated with other journey constraints inside the same stopPointsJourneyDetails[] anyElement.
+                - Do not put a time filter outside the journey anyElement in a way that loses correlation.
+                - Boolean exists prompts such as "there is at least one journey between 10:00 and 12:00" should use BOOLEAN_EXISTS + ON_MATCH, or COUNT_MATCHING_JOURNEYS threshold >= 1 when necessary.
+                - Count reports with time filters use REPORT_COUNT + EVERY_RUN + no threshold.
+                - Conditional thresholds with time filters use COUNT_MATCHING_JOURNEYS + threshold + ON_MATCH.
                 - Use Europe/Rome unless explicit timezone is supplied.
 
                 Reject:
                 - historical trends across multiple runs
                 - prediction beyond the ServiceData API visibility window
                 - absence over time requiring state/history
+                - historical comparison such as "compared with yesterday"
+                - exact single time filters unless a supported backend policy can map them safely
                 """;
     }
 

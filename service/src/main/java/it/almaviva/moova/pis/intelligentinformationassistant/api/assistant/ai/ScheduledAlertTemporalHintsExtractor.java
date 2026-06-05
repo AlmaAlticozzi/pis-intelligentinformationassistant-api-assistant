@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -34,6 +35,12 @@ public class ScheduledAlertTemporalHintsExtractor {
             "\\b(?:(?:in\\s+the\\s+)?next|from\\s+now\\s+for|nelle\\s+prossime|nei\\s+prossimi|prossime|prossimi|da\\s+ora\\s+per)\\s+"
                     + "(\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+"
                     + "(minutes?|mins?|minuti|min|hours?|h|ore)\\b");
+    private static final String TIME = "([0-2]?\\d(?::[0-5]\\d)?)";
+    private static final Pattern JOURNEY_BETWEEN = Pattern.compile(
+            "\\b(?:between|from|tra\\s+le|tra|dalle|dalla)\\s+" + TIME
+                    + "\\s+(?:and|to|e|alle|alla|a)(?:\\s+le|\\s+ore)?\\s+" + TIME + "\\b");
+    private static final Pattern JOURNEY_AFTER = Pattern.compile("\\b(?:after|dopo\\s+le|dopo)\\s+" + TIME + "\\b");
+    private static final Pattern JOURNEY_BEFORE = Pattern.compile("\\b(?:before|prima\\s+delle|prima\\s+di|prima)\\s+" + TIME + "\\b");
 
     @ConfigProperty(name = "iia.alert.scheduled-verify.default-frequency-seconds", defaultValue = "600")
     int defaultFrequencySeconds = 600;
@@ -61,6 +68,7 @@ public class ScheduledAlertTemporalHintsExtractor {
 
         TemporalMatch frequency = frequency(normalized, prompt);
         TemporalMatch lookahead = lookahead(normalized, prompt);
+        List<ScheduledAlertJourneyTimeFilter> journeyTimeFilters = journeyTimeFilters(normalized, prompt);
         return new ScheduledAlertTemporalHints(
                 frequency != null,
                 frequency == null ? defaultFrequencySeconds : clamp(frequency.value(), minFrequencySeconds, maxFrequencySeconds),
@@ -76,6 +84,8 @@ public class ScheduledAlertTemporalHintsExtractor {
                 defaultLookaheadMinutes,
                 minLookaheadMinutes,
                 maxLookaheadMinutes,
+                !journeyTimeFilters.isEmpty(),
+                journeyTimeFilters,
                 List.of());
     }
 
@@ -95,6 +105,8 @@ public class ScheduledAlertTemporalHintsExtractor {
                 defaultLookaheadMinutes,
                 minLookaheadMinutes,
                 maxLookaheadMinutes,
+                false,
+                List.of(),
                 List.of());
     }
 
@@ -124,6 +136,101 @@ public class ScheduledAlertTemporalHintsExtractor {
         int number = number(matcher.group(1));
         String unit = matcher.group(2);
         return new TemporalMatch(minutes(number, unit), rawText(originalPrompt, matcher));
+    }
+
+    private List<ScheduledAlertJourneyTimeFilter> journeyTimeFilters(String normalized, String originalPrompt) {
+        List<ScheduledAlertJourneyTimeFilter> filters = new ArrayList<>();
+        ScheduledAlertJourneyTimeFilter.Direction direction = direction(normalized);
+        ScheduledAlertJourneyTimeFilter.TimetabledPreference timetabledPreference = timetabledPreference(normalized);
+        ScheduledAlertJourneyTimeFilter.TargetRoleHint targetRoleHint = targetRoleHint(direction);
+
+        Matcher between = JOURNEY_BETWEEN.matcher(normalized);
+        while (between.find()) {
+            filters.add(new ScheduledAlertJourneyTimeFilter(
+                    rawText(originalPrompt, between),
+                    ScheduledAlertJourneyTimeFilter.TimeRelation.BETWEEN,
+                    normalizeTime(between.group(1)),
+                    normalizeTime(between.group(2)),
+                    null,
+                    direction,
+                    timetabledPreference,
+                    targetRoleHint,
+                    "Europe/Rome"));
+        }
+        if (!filters.isEmpty()) {
+            return List.copyOf(filters);
+        }
+
+        Matcher after = JOURNEY_AFTER.matcher(normalized);
+        while (after.find()) {
+            String start = normalizeTime(after.group(1));
+            filters.add(new ScheduledAlertJourneyTimeFilter(
+                    rawText(originalPrompt, after),
+                    ScheduledAlertJourneyTimeFilter.TimeRelation.AFTER,
+                    start,
+                    "23:59:59",
+                    start,
+                    direction,
+                    timetabledPreference,
+                    targetRoleHint,
+                    "Europe/Rome"));
+        }
+
+        Matcher before = JOURNEY_BEFORE.matcher(normalized);
+        while (before.find()) {
+            String end = normalizeTime(before.group(1));
+            filters.add(new ScheduledAlertJourneyTimeFilter(
+                    rawText(originalPrompt, before),
+                    ScheduledAlertJourneyTimeFilter.TimeRelation.BEFORE,
+                    "00:00:00",
+                    end,
+                    end,
+                    direction,
+                    timetabledPreference,
+                    targetRoleHint,
+                    "Europe/Rome"));
+        }
+        return List.copyOf(filters);
+    }
+
+    private ScheduledAlertJourneyTimeFilter.Direction direction(String normalized) {
+        if (Pattern.compile("\\b(departure|departing|leaves|starts|partenza|partenze|parte|partono)\\b").matcher(normalized).find()) {
+            return ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE;
+        }
+        if (Pattern.compile("\\b(arrival|arriving|arrives|arrivo|arrivi|arriva|arrivano)\\b").matcher(normalized).find()) {
+            return ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL;
+        }
+        if (Pattern.compile("\\b(passing|transit|passes|passa|passano|transita|transitano)\\b").matcher(normalized).find()) {
+            return ScheduledAlertJourneyTimeFilter.Direction.PASSING;
+        }
+        return ScheduledAlertJourneyTimeFilter.Direction.UNKNOWN;
+    }
+
+    private ScheduledAlertJourneyTimeFilter.TimetabledPreference timetabledPreference(String normalized) {
+        if (Pattern.compile("\\b(scheduled|planned|timetabled|programmed|programmata|programmato|orario\\s+previsto)\\b").matcher(normalized).find()) {
+            return ScheduledAlertJourneyTimeFilter.TimetabledPreference.TIMETABLED;
+        }
+        if (Pattern.compile("\\b(actual|effective|current|reale|effettiva|effettivo)\\b").matcher(normalized).find()) {
+            return ScheduledAlertJourneyTimeFilter.TimetabledPreference.ACTUAL_OR_EFFECTIVE;
+        }
+        return ScheduledAlertJourneyTimeFilter.TimetabledPreference.UNSPECIFIED;
+    }
+
+    private ScheduledAlertJourneyTimeFilter.TargetRoleHint targetRoleHint(
+            ScheduledAlertJourneyTimeFilter.Direction direction) {
+        return switch (direction) {
+            case DEPARTURE -> ScheduledAlertJourneyTimeFilter.TargetRoleHint.ORIGIN_CALL;
+            case ARRIVAL -> ScheduledAlertJourneyTimeFilter.TargetRoleHint.DESTINATION_CALL;
+            case PASSING -> ScheduledAlertJourneyTimeFilter.TargetRoleHint.TRANSIT_CALL;
+            case UNKNOWN -> ScheduledAlertJourneyTimeFilter.TargetRoleHint.UNKNOWN;
+        };
+    }
+
+    private String normalizeTime(String value) {
+        String[] parts = value.split(":");
+        int hour = Integer.parseInt(parts[0]);
+        int minute = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+        return "%02d:%02d:00".formatted(hour, minute);
     }
 
     private int seconds(int number, String unit) {
