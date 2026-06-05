@@ -106,6 +106,158 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void accessoryProgressiveArrivalUsesArrivingAndArrivalDelayPredicate() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("ARRIVING", "arrivalDelay.delay", "GREATER_THAN", 900),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void accessoryCompletedArrivalUsesArrivedAndArrivalDelayPredicate() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "COMPLETED"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVED"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("ARRIVED", "arrivalDelay.delay", "GREATER_THAN", 900),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void accessoryProgressiveDepartureUsesDepartingAndDepartureDelayPredicate() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("DEPARTING", "departureDelay.delay", "GREATER_THAN", 900),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void accessoryCompletedDepartureUsesDepartedAndDepartureDelayPredicate() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "COMPLETED"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTED"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=900;unit=SECONDS"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("DEPARTED", "departureDelay.delay", "GREATER_THAN", 900),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void delayPrimaryArrivalUsesArrivalDelayEventAndArrivalDelayPredicate() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_OR_EQUAL;value=720;unit=SECONDS"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        delayCondition("ARRIVAL_DELAY", "arrivalDelay.delay", "GREATER_OR_EQUAL", 720),
+                        coverageFor(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void missingExpectedMainEventTypeDoesNotThrow() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "AMBIGUOUS"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        eventOnlyCondition("ARRIVING"),
+                        coverageFor("payload.ongroundServiceEvent.eventsType")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void explicitExpectedMainEventMismatchIsControlledRejection() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        eventOnlyCondition("ARRIVED"),
+                        coverageFor("payload.ongroundServiceEvent.eventsType")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("ARRIVING");
+    }
+
+    @Test
     void departureDelayThresholdRequiresDepartureDelayPredicate() {
         AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),

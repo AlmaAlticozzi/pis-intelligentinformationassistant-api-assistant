@@ -1560,7 +1560,10 @@ public class AlertVerificationOutcomeValidator {
     private void validateMainEventPhase(ValidationContext context) {
         String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
         String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
-        String expectedEventType = intent == null || phase == null ? null : expectedMainEventType(intent, phase);
+        String expectedEventType = nonLocationConstraintValue(context, "EXPECTED_MAIN_EVENT_TYPE");
+        if (expectedEventType == null) {
+            expectedEventType = intent == null || phase == null ? null : expectedMainEventType(intent, phase);
+        }
         if (isEventPrimaryDelayContext(context, expectedEventType)) {
             validateExpectedMainEventType(context, intent, phase, expectedEventType);
             validateDelayThresholdPredicate(context, expectedEventType);
@@ -1621,9 +1624,18 @@ public class AlertVerificationOutcomeValidator {
             String intent,
             String phase,
             String expectedEventType) {
+        boolean present = expectedEventType != null && !expectedEventType.isBlank();
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][EXPECTED_MAIN_EVENT] expectedEventType="
+                + expectedEventType + " present=" + present);
+        if (!present) {
+            System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][EXPECTED_MAIN_EVENT] "
+                    + "skipped because expectedEventType is missing");
+            return;
+        }
         boolean represented = context.conditionLeaves.stream()
                 .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
                 .anyMatch(leaf -> eventLeafContains(leaf, expectedEventType));
+        System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][EXPECTED_MAIN_EVENT] matched=" + represented);
         if (!represented) {
             context.fail("Main event semantic validation failed: MAIN_EVENT_INTENT="
                     + intent + " and MAIN_EVENT_PHASE=" + phase
@@ -1783,6 +1795,9 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private boolean eventLeafContains(ConditionLeaf leaf, String expectedEventType) {
+        if (expectedEventType == null || expectedEventType.isBlank() || leaf == null) {
+            return false;
+        }
         if (expectedEventType.equals(stringValue(leaf.value()))) {
             return true;
         }

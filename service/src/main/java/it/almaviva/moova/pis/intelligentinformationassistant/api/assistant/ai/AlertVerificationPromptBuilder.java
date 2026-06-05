@@ -198,8 +198,17 @@ public class AlertVerificationPromptBuilder {
                 - DELAY_EVENT_TYPE=BOTH plus DELAY_THRESHOLD means eventsType CONTAINS_ANY ["ARRIVAL_DELAY","DEPARTURE_DELAY"] and an OR over arrivalDelay.delay and departureDelay.delay with the threshold.
                 - DELAY_EVENT_TYPE=DEPARTURE_DELAY plus DELAY_THRESHOLD means eventsType CONTAINS DEPARTURE_DELAY and departureDelay.delay with the threshold.
                 - DELAY_EVENT_TYPE=ARRIVAL_DELAY plus DELAY_THRESHOLD means eventsType CONTAINS ARRIVAL_DELAY and arrivalDelay.delay with the threshold.
-                - DELAY_ROLE=PRIMARY_DELAY_EVENT means DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType.
+                - EXPECTED_MAIN_EVENT_TYPE, when present, is authoritative for the current event: use payload.ongroundServiceEvent.eventsType CONTAINS <EXPECTED_MAIN_EVENT_TYPE>.
                 - DELAY_ROLE=ACCESSORY_DELAY_PREDICATE means the delay is only an extra predicate; use EXPECTED_MAIN_EVENT_TYPE for payload.ongroundServiceEvent.eventsType and add the coherent delay predicate.
+                - If DELAY_ROLE=ACCESSORY_DELAY_PREDICATE, do not use ARRIVAL_DELAY or DEPARTURE_DELAY as the current event. Use EXPECTED_MAIN_EVENT_TYPE as the current event and use DELAY_EVENT_TYPE only to choose the coherent delay field.
+                - For accessory delay predicates, DELAY_EVENT_TYPE=ARRIVAL_DELAY means arrivalDelay.delay; DELAY_EVENT_TYPE=DEPARTURE_DELAY means departureDelay.delay; DELAY_EVENT_TYPE=BOTH or GENERIC_DELAY means an OR over arrivalDelay.delay and departureDelay.delay.
+                - DELAY_ROLE=PRIMARY_DELAY_EVENT means DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType.
+                - If DELAY_ROLE=PRIMARY_DELAY_EVENT, DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType: ARRIVAL_DELAY -> eventsType CONTAINS ARRIVAL_DELAY; DEPARTURE_DELAY -> eventsType CONTAINS DEPARTURE_DELAY; BOTH/GENERIC_DELAY -> eventsType CONTAINS_ANY ["ARRIVAL_DELAY","DEPARTURE_DELAY"].
+                - Examples: "service is arriving at X with more than N minutes delay" -> eventsType CONTAINS ARRIVING, current stop X, arrivalDelay.delay threshold.
+                - Examples: "service arrived at X with more than N minutes delay" -> eventsType CONTAINS ARRIVED, current stop X, arrivalDelay.delay threshold.
+                - Examples: "service is departing from X with more than N minutes delay" -> eventsType CONTAINS DEPARTING, current stop X, departureDelay.delay threshold.
+                - Examples: "service departed from X with more than N minutes delay" -> eventsType CONTAINS DEPARTED, current stop X, departureDelay.delay threshold.
+                - Examples: "service has more than N minutes arrival delay" -> eventsType CONTAINS ARRIVAL_DELAY and arrivalDelay.delay threshold.
                 """);
         return section.toString();
     }

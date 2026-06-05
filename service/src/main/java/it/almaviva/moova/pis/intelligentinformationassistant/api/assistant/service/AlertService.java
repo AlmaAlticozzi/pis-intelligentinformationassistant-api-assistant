@@ -1826,10 +1826,10 @@ public class AlertService {
                         .map(this::toPromptNonLocationConstraint)
                         .filter(Objects::nonNull)
                         .toList());
-        boolean accessoryDelay = isOperationalEventWithAccessoryDelay(normalizeText(prompt));
-        if (accessoryDelay) {
-            constraints.removeIf(constraint -> "DELAY_EVENT_TYPE".equalsIgnoreCase(constraint.type())
-                    || "DELAY_DIRECTION".equalsIgnoreCase(constraint.type()));
+        DelayThreshold delayThreshold = delayThreshold(prompt);
+        MainEventDerivation derivation = deriveMainEventSemantics(understanding, constraints, prompt);
+        if (derivation.accessoryDelay()) {
+            constraints.removeIf(constraint -> "DELAY_ROLE".equalsIgnoreCase(constraint.type()));
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "DELAY_ROLE",
                     "ACCESSORY_DELAY_PREDICATE"));
@@ -1837,15 +1837,14 @@ public class AlertService {
         if (understanding.mainEvent() != null && understanding.mainEvent().eventIntent() != null) {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_INTENT",
-                    understanding.mainEvent().eventIntent().name()));
-            DelayThreshold delayThreshold = delayThreshold(prompt);
+                    derivation.intent().name()));
             if (delayThreshold != null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_THRESHOLD",
                         delayThreshold.rawText()));
             }
             String delayEventType = delayEventType(prompt);
-            if (delayEventType != null) {
+            if (delayEventType != null && !derivation.accessoryDelay()) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_ROLE",
                         "PRIMARY_DELAY_EVENT"));
@@ -1855,26 +1854,96 @@ public class AlertService {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
                         delayDirection(delayEventType)));
-            } else if (accessoryDelay) {
+            } else if (derivation.accessoryDelay() && nonLocationConstraintValue(constraints, "DELAY_DIRECTION") == null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
-                        delayDirection(understanding.mainEvent().eventIntent().name())));
+                        delayDirection(derivation.intent().name())));
             }
-            AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
-                    ? new AlertEventWordingClassifier()
-                    : alertEventWordingClassifier;
-            AlertEventPhase phase = classifier.classify(prompt, understanding.mainEvent().eventIntent());
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_PHASE",
-                    phase.name()));
-            String expectedEventType = classifier.expectedEventType(understanding.mainEvent().eventIntent(), phase);
+                    derivation.phase().name()));
+            String expectedEventType = derivation.expectedEventType();
             if (expectedEventType != null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "EXPECTED_MAIN_EVENT_TYPE",
                         expectedEventType));
             }
         }
-        return canonicalizeDelayEventTypeConstraints(constraints);
+        List<AlertVerificationLocationContext.NonLocationConstraint> canonicalized =
+                canonicalizeDelayEventTypeConstraints(constraints);
+        logMainEventDerivation(understanding, canonicalized);
+        return canonicalized;
+    }
+
+    private MainEventDerivation deriveMainEventSemantics(
+            AlertLocationUnderstandingResult understanding,
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
+            String prompt) {
+        AlertLocationMainEventIntent intent = understanding.mainEvent() == null
+                ? AlertLocationMainEventIntent.UNKNOWN
+                : understanding.mainEvent().eventIntent();
+        String delayEventType = normalizedDelayEventType(constraints);
+        boolean promptAccessoryDelay = isOperationalEventWithAccessoryDelay(normalizeText(prompt));
+        boolean semanticAccessoryDelay = hasMainEventLocation(understanding)
+                && ("ARRIVAL_DELAY".equals(delayEventType) || "DEPARTURE_DELAY".equals(delayEventType));
+        boolean accessoryDelay = promptAccessoryDelay
+                || (AlertLocationMainEventIntent.DELAY.equals(intent) && semanticAccessoryDelay);
+        AlertLocationMainEventIntent derivedIntent = intent;
+        if (accessoryDelay && AlertLocationMainEventIntent.DELAY.equals(intent)) {
+            if ("ARRIVAL_DELAY".equals(delayEventType)) {
+                derivedIntent = AlertLocationMainEventIntent.ARRIVAL;
+            } else if ("DEPARTURE_DELAY".equals(delayEventType)) {
+                derivedIntent = AlertLocationMainEventIntent.DEPARTURE;
+            }
+        }
+        AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
+                ? new AlertEventWordingClassifier()
+                : alertEventWordingClassifier;
+        AlertEventPhase phase = classifier.classify(prompt, derivedIntent);
+        String expectedEventType = classifier.expectedEventType(derivedIntent, phase);
+        return new MainEventDerivation(derivedIntent, phase, expectedEventType, accessoryDelay);
+    }
+
+    private boolean hasMainEventLocation(AlertLocationUnderstandingResult understanding) {
+        return understanding.locations().stream()
+                .anyMatch(location -> AlertLocationRole.MAIN_EVENT_LOCATION.equals(location.role())
+                        || AlertLocationRelation.EVENT_LOCATION.equals(location.relationToMainEvent())
+                        || AlertLocationRelation.EVENT_STOP_POINT.equals(location.relationToMainEvent()));
+    }
+
+    private String normalizedDelayEventType(List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+        String value = nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE");
+        return AlertDelayEventTypeNormalizer.normalize(value);
+    }
+
+    private String nonLocationConstraintValue(
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
+            String type) {
+        return constraints.stream()
+                .filter(constraint -> type.equalsIgnoreCase(constraint.type()))
+                .map(AlertVerificationLocationContext.NonLocationConstraint::rawText)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void logMainEventDerivation(
+            AlertLocationUnderstandingResult understanding,
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+        System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_DERIVATION] rawConstraints="
+                + understanding.nonLocationConstraints()
+                + " derived MAIN_EVENT_INTENT=" + nonLocationConstraintValue(constraints, "MAIN_EVENT_INTENT")
+                + " MAIN_EVENT_PHASE=" + nonLocationConstraintValue(constraints, "MAIN_EVENT_PHASE")
+                + " EXPECTED_MAIN_EVENT_TYPE=" + nonLocationConstraintValue(constraints, "EXPECTED_MAIN_EVENT_TYPE")
+                + " DELAY_ROLE=" + nonLocationConstraintValue(constraints, "DELAY_ROLE")
+                + " DELAY_EVENT_TYPE=" + nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE"));
+    }
+
+    private record MainEventDerivation(
+            AlertLocationMainEventIntent intent,
+            AlertEventPhase phase,
+            String expectedEventType,
+            boolean accessoryDelay) {
     }
 
     private AlertVerificationLocationContext.NonLocationConstraint toPromptNonLocationConstraint(

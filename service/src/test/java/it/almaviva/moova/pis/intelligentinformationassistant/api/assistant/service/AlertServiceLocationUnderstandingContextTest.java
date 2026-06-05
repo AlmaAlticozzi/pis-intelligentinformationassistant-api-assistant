@@ -425,7 +425,7 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
-    void removesLlmDelayEventTypeWhenDelayIsAccessoryToCurrentDeparture() {
+    void preservesLlmDelayEventTypeWhenDelayIsAccessoryToCurrentDeparture() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Avvisami quando una corsa e in partenza da X con piu di 15 minuti di ritardo",
                 new AlertLocationUnderstandingResult(
@@ -446,8 +446,7 @@ class AlertServiceLocationUnderstandingContextTest {
                                 "DEPARTURE_DELAY")),
                         List.of()));
 
-        assertThat(context.nonLocationConstraints())
-                .noneSatisfy(constraint -> assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE"));
+        assertConstraint(context, "DELAY_EVENT_TYPE", "DEPARTURE_DELAY");
         assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
         assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
         assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
@@ -475,11 +474,47 @@ class AlertServiceLocationUnderstandingContextTest {
                                 "ARRIVAL_DELAY")),
                         List.of()));
 
-        assertThat(context.nonLocationConstraints())
-                .noneSatisfy(constraint -> assertThat(constraint.type()).isEqualTo("DELAY_EVENT_TYPE"));
+        assertConstraint(context, "DELAY_EVENT_TYPE", "ARRIVAL_DELAY");
         assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
         assertConstraint(context, "DELAY_DIRECTION", "ARRIVAL");
         assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
+    }
+
+    @Test
+    void derivesProgressiveArrivalAccessoryDelayFromLocationUnderstandingSemantics() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa e in arrivo a Rho Fieramilano con piu di 15 minuti di ritardo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(new AlertLocationUnderstandingLocation(
+                                "Rho Fieramilano",
+                                "Rho Fieramilano",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_STOP_POINT,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.90)),
+                        List.of(
+                                new AlertLocationUnderstandingNonLocationConstraint(
+                                        AlertLocationNonLocationConstraintType.DELAY,
+                                        "ritardo"),
+                                new AlertLocationUnderstandingNonLocationConstraint(
+                                        AlertLocationNonLocationConstraintType.DELAY_DIRECTION,
+                                        "in arrivo"),
+                                new AlertLocationUnderstandingNonLocationConstraint(
+                                        AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                        "ritardo in arrivo")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "ARRIVAL");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "ARRIVAL_DELAY");
         assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=900;unit=SECONDS");
     }
 
