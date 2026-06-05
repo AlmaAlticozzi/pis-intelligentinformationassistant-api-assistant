@@ -9,5 +9,6 @@ public enum ScheduledAlertNonLocationConstraintType {
     TEMPORAL,
     COUNT,
     THRESHOLD,
+    UNSUPPORTED_CAPABILITY,
     UNKNOWN
 }

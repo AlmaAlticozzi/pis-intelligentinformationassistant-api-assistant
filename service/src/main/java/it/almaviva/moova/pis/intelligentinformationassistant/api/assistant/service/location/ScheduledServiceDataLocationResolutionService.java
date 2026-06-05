@@ -88,8 +88,23 @@ public class ScheduledServiceDataLocationResolutionService {
         }
 
         List<String> apiStopPoints = List.copyOf(serviceDataApiStopPoints);
-        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][API_QUERY] serviceDataApiStopPoints=" + apiStopPoints);
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][API_QUERY] monitoringScope="
+                + monitoringScope
+                + " requiresAllKnownStopPoints="
+                + requiresAllKnownStopPoints
+                + " serviceDataApiStopPoints="
+                + apiStopPoints);
         System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][API_QUERY] unresolvedRequiredMonitoredStopPoints="
+                + unresolvedRequiredMonitoredTexts);
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][CONTEXT] monitoringScope="
+                + monitoringScope
+                + " monitoredCount="
+                + monitoredLocations.size()
+                + " filterCount="
+                + filterLocations.size()
+                + " serviceDataApiStopPointCount="
+                + apiStopPoints.size()
+                + " unresolvedMonitored="
                 + unresolvedRequiredMonitoredTexts);
 
         return new ScheduledServiceDataLocationContext(

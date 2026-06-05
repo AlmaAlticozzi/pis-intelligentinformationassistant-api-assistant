@@ -49,6 +49,48 @@ class ScheduledServiceDataLocationResolutionServiceTest {
     }
 
     @Test
+    void platformPromptUsesOnlyMonitoredCenisioForApiStopPoints() {
+        List<String> cenisioIds = selectedIds("Cenisio");
+
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Cenisio")));
+
+        assertThat(context.serviceDataApiStopPoints()).containsExactlyElementsOf(cenisioIds);
+        assertThat(context.filterLocations()).isEmpty();
+    }
+
+    @Test
+    void filterLocationsAreNeverAddedToApiStopPoints() {
+        List<String> buonarrotiIds = selectedIds("Buonarroti");
+        List<String> treTorriIds = selectedIds("Tre Torri");
+
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Buonarroti"),
+                filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT)));
+
+        assertThat(context.serviceDataApiStopPoints()).containsExactlyElementsOf(buonarrotiIds);
+        assertThat(context.serviceDataApiStopPoints()).doesNotContainAnyElementsOf(treTorriIds);
+        assertThat(context.filterLocations()).hasSize(1);
+    }
+
+    @Test
+    void duplicateMonitoredStopPointsAreDeduplicatedInApiStopPointsPreservingOrder() {
+        List<String> varedoIds = selectedIds("Varedo");
+        List<String> palazzoloIds = selectedIds("Palazzolo Milanese");
+
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Varedo"),
+                monitored("Varedo"),
+                monitored("Palazzolo Milanese")));
+
+        assertThat(context.serviceDataApiStopPoints())
+                .containsExactlyElementsOf(concat(varedoIds, palazzoloIds));
+    }
+
+    @Test
     void resolvesMultiMonitoredLocationsIntoApiStopPointUnion() {
         ScheduledServiceDataLocationContext context = service.resolve(result(
                 ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,

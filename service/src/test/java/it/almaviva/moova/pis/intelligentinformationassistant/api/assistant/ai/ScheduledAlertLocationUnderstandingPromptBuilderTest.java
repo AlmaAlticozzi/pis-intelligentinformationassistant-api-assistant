@@ -36,13 +36,29 @@ class ScheduledAlertLocationUnderstandingPromptBuilderTest {
 
         assertThat(request.userPrompt())
                 .contains("MONITORED_STOP_POINT")
+                .contains("at/in/for location X")
                 .contains("FILTER_ORIGIN_STOP_POINT")
                 .contains("FILTER_TIMETABLED_ORIGIN_STOP_POINT")
                 .contains("FILTER_DESTINATION_STOP_POINT")
                 .contains("FILTER_ROUTE_STOP_POINT")
                 .contains("FILTER_CANCELLED_CALL_STOP_POINT")
+                .contains("must keep polarity=EXCLUDE")
                 .contains("binario, platform, track, quay, banchina or marciapiede")
                 .contains("PLATFORM_NUMERIC");
+    }
+
+    @Test
+    void promptIncludesBackendScheduledLocationHints() {
+        LlmRequest request = builder.build(
+                "Fammi sapere il numero di corse che partiranno dal binario 7 a Cenisio",
+                "ALRT1",
+                ScheduledAlertLocationUnderstandingHints.fromPrompt(
+                        "Fammi sapere il numero di corse che partiranno dal binario 7 a Cenisio"));
+
+        assertThat(request.userPrompt())
+                .contains("Backend scheduled location hints")
+                .contains("containsPlatformExpression: true")
+                .contains("Platform/binario observations must become nonLocationConstraints");
     }
 
     @Test

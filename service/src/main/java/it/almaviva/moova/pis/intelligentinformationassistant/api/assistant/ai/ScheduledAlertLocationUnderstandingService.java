@@ -16,6 +16,9 @@ public class ScheduledAlertLocationUnderstandingService {
     ScheduledAlertLocationUnderstandingResponseParser parser;
 
     @Inject
+    ScheduledAlertLocationUnderstandingValidator validator;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
 
     public ScheduledAlertLocationUnderstandingService() {
@@ -24,14 +27,18 @@ public class ScheduledAlertLocationUnderstandingService {
     ScheduledAlertLocationUnderstandingService(
             ScheduledAlertLocationUnderstandingPromptBuilder promptBuilder,
             ScheduledAlertLocationUnderstandingResponseParser parser,
+            ScheduledAlertLocationUnderstandingValidator validator,
             Instance<LlmGateway> llmGateway) {
         this.promptBuilder = promptBuilder;
         this.parser = parser;
+        this.validator = validator;
         this.llmGateway = llmGateway;
     }
 
     public ScheduledAlertLocationUnderstandingResult understandLocations(String prompt, String correlationId) {
         System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] prompt=" + prompt);
+        ScheduledAlertLocationUnderstandingHints hints = ScheduledAlertLocationUnderstandingHints.fromPrompt(prompt);
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][HINTS] " + hints);
         if (llmGateway == null || llmGateway.isUnsatisfied()) {
             ScheduledAlertLocationUnderstandingResult result = ScheduledAlertLocationUnderstandingResult.emptyWithWarnings(
                     List.of("No LlmGateway available for ALERT_SCHEDULED_LOCATION_UNDERSTANDING."));
@@ -39,11 +46,14 @@ public class ScheduledAlertLocationUnderstandingService {
             return result;
         }
 
-        LlmRequest request = promptBuilder.build(prompt, correlationId);
+        LlmRequest request = promptBuilder.build(prompt, correlationId, hints);
         LlmResponse response = llmGateway.get().generateText(request);
         String raw = response == null ? null : response.text();
         System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] raw LLM response=" + truncate(raw));
-        ScheduledAlertLocationUnderstandingResult result = parser.parse(raw);
+        ScheduledAlertLocationUnderstandingResult parsed = parser.parse(raw);
+        ScheduledAlertLocationUnderstandingResult result = validator == null
+                ? parsed
+                : validator.validate(parsed, prompt, hints);
         printParsed(result);
         return result;
     }

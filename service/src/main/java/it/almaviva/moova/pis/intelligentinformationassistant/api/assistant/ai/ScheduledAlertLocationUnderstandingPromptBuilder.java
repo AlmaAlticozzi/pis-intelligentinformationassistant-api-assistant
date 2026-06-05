@@ -10,10 +10,16 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
     private static final int DEFAULT_MAX_OUTPUT_TOKENS = 1800;
 
     public LlmRequest build(String prompt, String correlationId) {
+        return build(prompt, correlationId, ScheduledAlertLocationUnderstandingHints.empty());
+    }
+
+    public LlmRequest build(String prompt, String correlationId, ScheduledAlertLocationUnderstandingHints hints) {
+        ScheduledAlertLocationUnderstandingHints safeHints =
+                hints == null ? ScheduledAlertLocationUnderstandingHints.empty() : hints;
         return new LlmRequest(
                 AiUseCase.ALERT_SCHEDULED_LOCATION_UNDERSTANDING,
                 systemPrompt(),
-                userPrompt(prompt),
+                userPrompt(prompt, safeHints),
                 DEFAULT_MODEL,
                 DEFAULT_TEMPERATURE,
                 DEFAULT_MAX_OUTPUT_TOKENS,
@@ -32,10 +38,12 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 """;
     }
 
-    private String userPrompt(String prompt) {
+    private String userPrompt(String prompt, ScheduledAlertLocationUnderstandingHints hints) {
         return """
                 Analyze this scheduled ServiceData Alert prompt before any point resolution:
                 "%s"
+
+                %s
 
                 Context:
                 - We are analyzing a user alert already routed as SERVICE_DATA + SCHEDULED_INTERPRETER.
@@ -51,22 +59,25 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - Meanings such as "at stop X tell me how many journeys", "for location X", "in X are there delayed
                   trains", "between/among X and Y are there N arriving journeys", and "check X and Y" identify monitored
                   stop points.
+                - A location governed by phrases equivalent to "at/in/for location X", when the user asks about current
+                  situation, counts, reports or conditions at that place, is MONITORED_STOP_POINT.
                 - "all locations", "all stop points", "all known locations" and equivalent wording means
                   monitoringScope=ALL_KNOWN_STOP_POINTS and no explicit monitored location is required.
 
                 Filter/control stop points:
                 - FILTER_CURRENT_STOP_POINT is a filter on the current stop point inside returned journeys.
-                - "with origin X" means FILTER_ORIGIN_STOP_POINT unless scheduled/planned/timetabled origin is explicit.
-                - "with scheduled/planned/timetabled origin X" means FILTER_TIMETABLED_ORIGIN_STOP_POINT.
-                - "with destination X" means FILTER_DESTINATION_STOP_POINT unless scheduled/planned/timetabled destination is explicit.
-                - "with scheduled/planned/timetabled destination X" means FILTER_TIMETABLED_DESTINATION_STOP_POINT.
-                - "passes through X", "will call at X" or "route includes X" means FILTER_ROUTE_STOP_POINT.
-                - Explicit transit wording means FILTER_TRANSIT_STOP_POINT.
-                - "cancelled stop X", "suppressed stop X" or equivalent means FILTER_CANCELLED_CALL_STOP_POINT.
-                - "replacement stop X" means FILTER_REPLACEMENT_STOP_POINT.
+                - A location governed by "origin/from where the journey starts" is FILTER_ORIGIN_STOP_POINT, unless
+                  scheduled/planned/timetabled is explicit, then FILTER_TIMETABLED_ORIGIN_STOP_POINT.
+                - A location governed by "destination/to where the journey ends" is FILTER_DESTINATION_STOP_POINT, unless
+                  scheduled/planned/timetabled is explicit, then FILTER_TIMETABLED_DESTINATION_STOP_POINT.
+                - A location governed by "passes through/calls at/via" is FILTER_ROUTE_STOP_POINT.
+                - A location governed by "transits through/non-stopping transit" is FILTER_TRANSIT_STOP_POINT.
+                - A location governed by "cancelled/suppressed/skipped stop" is FILTER_CANCELLED_CALL_STOP_POINT.
+                - A location governed by "replacement stop" is FILTER_REPLACEMENT_STOP_POINT.
                 - Replacement source route start/end means FILTER_REPLACEMENT_SOURCE_START_STOP_POINT or
                   FILTER_REPLACEMENT_SOURCE_END_STOP_POINT.
-                - "not destination X", "excluding X" or equivalent negation uses polarity EXCLUDE with a coherent filter role.
+                - A location governed by exclusion, "not destination X" or equivalent negation must keep polarity=EXCLUDE
+                  with a coherent filter role.
 
                 Future mapping semantics:
                 - FILTER_ORIGIN_STOP_POINT maps conceptually to callStart.stopPoint.
@@ -122,6 +133,7 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - REPLACEMENT_SOURCE_END_FILTER
                 - EXCLUSION_FILTER
                 - UNKNOWN
+                - UNSUPPORTED_CAPABILITY
 
                 Allowed polarity values:
                 - INCLUDE
@@ -176,7 +188,7 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                   ],
                   "warnings": []
                 }
-                """.formatted(escapeForPrompt(prompt));
+                """.formatted(escapeForPrompt(prompt), hints.compactPromptSection());
     }
 
     private String escapeForPrompt(String prompt) {
