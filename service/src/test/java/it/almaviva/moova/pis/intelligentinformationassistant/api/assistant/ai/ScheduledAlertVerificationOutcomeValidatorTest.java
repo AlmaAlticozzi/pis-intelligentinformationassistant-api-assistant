@@ -261,6 +261,74 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsChangedOriginWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CHANGED_ORIGIN")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.CHANGED_ORIGIN));
+    }
+
+    @Test
+    void acceptsChangedDestinationWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CHANGED_DESTINATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.CHANGED_DESTINATION));
+    }
+
+    @Test
+    void acceptsChangedPathWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CHANGED_PATH")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.CHANGED_PATH));
+    }
+
+    @Test
+    void acceptsGenericCancellationWhenAnyCancellationSignalIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        Map.of("any", List.of(
+                                leaf("changes", "CONTAINS", "CANCELLATION"),
+                                leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")))),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION));
+    }
+
+    @Test
+    void acceptsPartialCancellationWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.PARTIAL_CANCELLATION));
+    }
+
+    @Test
+    void acceptsArrivalCancellationWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.ARRIVAL_CANCELLATION));
+    }
+
+    @Test
+    void acceptsDepartureCancellationWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.DEPARTURE_CANCELLATION));
+    }
+
+    @Test
+    void acceptsTotalExclusionWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("exclusion.totalExclusion", "EQUALS", true)),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.TOTAL_EXCLUSION));
+    }
+
+    @Test
+    void acceptsTimeBasedExclusionWhenHintIsCovered() {
+        assertVerifiedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("exclusion.timeBasedExclusion", "EQUALS", true)),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.TIME_BASED_EXCLUSION));
+    }
+
+    @Test
     void acceptsReplacementNestedAnyElement() {
         assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
                 Map.of("anyElement", Map.of(
@@ -322,6 +390,47 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     void rejectsInvalidEnumValue() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("changes", "CONTAINS", "WIFI_AVAILABLE")), "WIFI_AVAILABLE");
+    }
+
+    @Test
+    void rejectsChangedDestinationHintCoveredByWrongChange() {
+        assertRejectedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CHANGED_ORIGIN")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.CHANGED_DESTINATION),
+                "CHANGED_DESTINATION");
+    }
+
+    @Test
+    void rejectsArrivalCancellationHintCoveredByDepartureCancellation() {
+        assertRejectedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.ARRIVAL_CANCELLATION),
+                "ARRIVAL_CANCELLATION");
+    }
+
+    @Test
+    void rejectsTotalExclusionHintCoveredByTimeBasedExclusion() {
+        assertRejectedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("exclusion.timeBasedExclusion", "EQUALS", true)),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.TOTAL_EXCLUSION),
+                "TOTAL_EXCLUSION");
+    }
+
+    @Test
+    void rejectsNegativeCancellationHintWithoutSafeNegativeOperator() {
+        assertRejectedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("changes", "CONTAINS", "CANCELLATION")),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION,
+                        ScheduledAlertChangeConstraint.Polarity.EXCLUDE),
+                "Negative change/cancellation");
+    }
+
+    @Test
+    void rejectsMissingChangeCancellationExclusionConditionForHint() {
+        assertRejectedWithChangeHints(
+                conditionAnyElement("stopPointsJourneyDetails[]", leaf("departureDelay.delay", "GREATER_THAN", 0)),
+                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.PARTIAL_CANCELLATION),
+                "PARTIAL_CANCELLATION");
     }
 
     @Test
@@ -1187,6 +1296,36 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
+    private void assertVerifiedWithChangeHints(Map<String, Object> condition, ScheduledAlertChangeHints changeHints) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                changeHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertRejectedWithChangeHints(
+            Map<String, Object> condition,
+            ScheduledAlertChangeHints changeHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                changeHints);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
     private void assertVerifiedWithContext(
             AlertVerificationOutcome outcome,
             ScheduledServiceDataLocationContext context) {
@@ -1377,6 +1516,21 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 null,
                 null,
                 ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                0.9)), List.of());
+    }
+
+    private ScheduledAlertChangeHints changeHints(ScheduledAlertChangeConstraint.ChangeIntent intent) {
+        return changeHints(intent, ScheduledAlertChangeConstraint.Polarity.INCLUDE);
+    }
+
+    private ScheduledAlertChangeHints changeHints(
+            ScheduledAlertChangeConstraint.ChangeIntent intent,
+            ScheduledAlertChangeConstraint.Polarity polarity) {
+        return new ScheduledAlertChangeHints(true, List.of(new ScheduledAlertChangeConstraint(
+                intent.name(),
+                intent,
+                ScheduledAlertChangeConstraint.Direction.UNSPECIFIED,
+                polarity,
                 0.9)), List.of());
     }
 

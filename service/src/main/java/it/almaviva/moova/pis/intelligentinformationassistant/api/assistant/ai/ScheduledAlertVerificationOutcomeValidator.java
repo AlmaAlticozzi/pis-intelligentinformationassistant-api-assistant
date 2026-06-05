@@ -112,6 +112,16 @@ public class ScheduledAlertVerificationOutcomeValidator {
             AlertRouteUnderstandingResult route,
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints) {
+        return validate(outcome, scheduledLocationContext, route, temporalHints, platformHints, null);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints) {
         if (outcome == null) {
             return fail(null, DEFAULT_REJECTED_REASON);
         }
@@ -135,7 +145,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -148,7 +158,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledServiceDataLocationContext scheduledLocationContext,
             AlertRouteUnderstandingResult route,
             ScheduledAlertTemporalHints temporalHints,
-            ScheduledAlertPlatformHints platformHints) {
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
             return "Verified scheduled outcome must use only SERVICE_DATA as required source.";
         }
@@ -210,6 +221,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String platformFailure = validatePlatformHints(outcome.technicalSpecification(), platformHints);
         if (platformFailure != null) {
             return platformFailure;
+        }
+        String changeFailure = validateChangeHints(outcome.technicalSpecification(), changeHints);
+        if (changeFailure != null) {
+            return changeFailure;
         }
         String unsupportedTemporalFailure = validateUnsupportedTemporalClaims(outcome);
         if (unsupportedTemporalFailure != null) {
@@ -294,6 +309,83 @@ public class ScheduledAlertVerificationOutcomeValidator {
                     .anyMatch(value -> value != null && value.contains("PLATFORM_CHANGED"));
         }
         return false;
+    }
+
+    private String validateChangeHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertChangeHints hints) {
+        if (hints == null || !hints.hasChangeConstraint()) {
+            return null;
+        }
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        for (ScheduledAlertChangeConstraint constraint : hints.constraints()) {
+            if (constraint.polarity() == ScheduledAlertChangeConstraint.Polarity.EXCLUDE) {
+                return "Negative change/cancellation/exclusion constraint is not supported by the Scheduled snapshot catalog without a safe negative enum operator: "
+                        + constraint.rawText() + ".";
+            }
+            if (!isChangeConstraintCovered(constraint, leaves)) {
+                return "Change/cancellation/exclusion constraint was requested but not represented in snapshotEvaluation.condition: "
+                        + constraint.changeIntent() + ".";
+            }
+        }
+        return null;
+    }
+
+    private boolean isChangeConstraintCovered(
+            ScheduledAlertChangeConstraint constraint,
+            List<ConditionLeaf> leaves) {
+        return switch (constraint.changeIntent()) {
+            case CHANGED_ORIGIN -> containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_ORIGIN");
+            case CHANGED_DESTINATION -> containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_DESTINATION");
+            case CHANGED_PATH -> containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_PATH");
+            case EXTRA_JOURNEY -> containsLeaf(leaves, "changes", "CONTAINS", "EXTRA_JOURNEY");
+            case PLATFORM_CHANGED -> containsLeaf(leaves, "changes", "CONTAINS", "PLATFORM_CHANGED");
+            case PARTIAL_CANCELLATION -> containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION");
+            case ARRIVAL_CANCELLATION -> containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION");
+            case DEPARTURE_CANCELLATION -> containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION");
+            case TOTAL_EXCLUSION -> containsLeaf(leaves, "exclusion.totalExclusion", "EQUALS", true);
+            case TIME_BASED_EXCLUSION -> containsLeaf(leaves, "exclusion.timeBasedExclusion", "EQUALS", true);
+            case GENERIC_CANCELLATION -> containsAnyCancellationSignal(leaves);
+            case GENERIC_CHANGE -> containsAnyChangeSignal(leaves);
+            case UNKNOWN -> true;
+        };
+    }
+
+    private boolean containsAnyCancellationSignal(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "changes", "CONTAINS", "CANCELLATION")
+                || containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION")
+                || containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                || containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION");
+    }
+
+    private boolean containsAnyChangeSignal(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_ORIGIN")
+                || containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_DESTINATION")
+                || containsLeaf(leaves, "changes", "CONTAINS", "CHANGED_PATH")
+                || containsLeaf(leaves, "changes", "CONTAINS", "EXTRA_JOURNEY")
+                || containsLeaf(leaves, "changes", "CONTAINS", "PLATFORM_CHANGED");
+    }
+
+    private boolean containsLeaf(
+            List<ConditionLeaf> leaves,
+            String expectedFieldSuffix,
+            String expectedOperator,
+            Object expectedValue) {
+        return leaves.stream().anyMatch(leaf -> {
+            if (leaf.resolvedField() == null || leaf.operator() == null) {
+                return false;
+            }
+            if (!leaf.resolvedField().endsWith(expectedFieldSuffix)) {
+                return false;
+            }
+            if (!expectedOperator.equals(leaf.operator())
+                    && !("CONTAINS".equals(expectedOperator) && "CONTAINS_ANY".equals(leaf.operator()))) {
+                return false;
+            }
+            return leaf.values().stream().anyMatch(value -> expectedValue.equals(value));
+        });
     }
 
     private boolean matchesJourneyTimeHint(

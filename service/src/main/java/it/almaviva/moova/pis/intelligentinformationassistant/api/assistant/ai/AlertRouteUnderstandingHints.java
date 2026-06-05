@@ -13,6 +13,7 @@ public record AlertRouteUnderstandingHints(
         boolean containsAllLocationsExpression,
         boolean containsPlatformExpression,
         boolean containsPlatformChangeExpression,
+        boolean containsChangeCancellationExclusionExpression,
         boolean containsEventOccurrenceExpression,
         boolean containsUnsupportedWeatherExpression,
         boolean containsUnsupportedWifiOrOnboardFeatureExpression,
@@ -33,15 +34,17 @@ public record AlertRouteUnderstandingHints(
     private static final Pattern THRESHOLD = Pattern.compile(
             "\\b(almeno|piu di|piu\\s+di|oltre|maggiore di|meno di|at least|more than|over|less than|fewer than)\\b");
     private static final Pattern SNAPSHOT_STATE = Pattern.compile(
-            "\\b(ci sono|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
+            "\\b(ci sono|c[' ]?e|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
     private static final Pattern POLLING = Pattern.compile(
             "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
     private static final Pattern PLATFORM = Pattern.compile(
             "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
     private static final Pattern PLATFORM_CHANGE = Pattern.compile(
             "\\b(cambio di binario|cambio binario|cambia binario|cambiato il binario|platform change|platform changed|track changed)\\b");
+    private static final Pattern CHANGE_CANCELLATION_EXCLUSION = Pattern.compile(
+            "\\b(cambio origine|origine cambiata|changed origin|origin changed|cambio destinazione|destinazione cambiata|changed destination|destination changed|cambio percorso|percorso cambiato|itinerario cambiato|changed path|route changed|path changed|corsa straordinaria|corsa aggiuntiva|extra journey|cancellata|cancellati|cancellazione|cancelled|cancellation|soppressa|soppressione|partial cancellation|cancellazione parziale|parzialmente cancellata|total exclusion|esclusione totale|time based exclusion|time-based exclusion|esclusione temporale)\\b");
     private static final Pattern EVENT_OCCURRENCE = Pattern.compile(
-            "\\b(quando\\s+(?:una\\s+)?corsa\\s+cambia|quando\\s+viene\\s+cambiato\\s+il\\s+binario|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+changes|when\\s+platform\\s+changes)\\b");
+            "\\b(quando\\s+(?:una\\s+)?corsa\\s+cambia|quando\\s+viene\\s+cambiato\\s+il\\s+binario|quando\\s+(?:una\\s+)?corsa\\s+viene\\s+cancellata|quando\\s+cambia\\s+destinazione\\s+(?:una\\s+)?corsa|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+changes|when\\s+platform\\s+changes|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+is\\s+cancelled)\\b");
     private static final Pattern ALL_LOCATIONS = Pattern.compile(
             "\\b(tutte le localita|tutte le fermate|tutte le stazioni|all locations|all stop points|every stop point|all stops|every station)\\b");
     private static final Pattern WEATHER = Pattern.compile(
@@ -60,6 +63,7 @@ public record AlertRouteUnderstandingHints(
         boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
         boolean platform = PLATFORM.matcher(normalized).find();
         boolean platformChange = PLATFORM_CHANGE.matcher(normalized).find();
+        boolean changeCancellationExclusion = CHANGE_CANCELLATION_EXCLUSION.matcher(normalized).find();
         boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find();
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean threshold = THRESHOLD.matcher(normalized).find();
@@ -77,6 +81,7 @@ public record AlertRouteUnderstandingHints(
                 allLocations,
                 platform,
                 platformChange,
+                changeCancellationExclusion,
                 eventOccurrence,
                 WEATHER.matcher(normalized).find(),
                 WIFI_OR_ONBOARD.matcher(normalized).find(),
@@ -84,7 +89,7 @@ public record AlertRouteUnderstandingHints(
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -104,6 +109,7 @@ public record AlertRouteUnderstandingHints(
                 - containsAllLocationsExpression: %s
                 - containsPlatformExpression: %s
                 - containsPlatformChangeExpression: %s
+                - containsChangeCancellationExclusionExpression: %s
                 - containsEventOccurrenceExpression: %s
                 - containsUnsupportedWeatherExpression: %s
                 - containsUnsupportedWifiOrOnboardFeatureExpression: %s
@@ -122,6 +128,7 @@ public record AlertRouteUnderstandingHints(
                 containsAllLocationsExpression,
                 containsPlatformExpression,
                 containsPlatformChangeExpression,
+                containsChangeCancellationExclusionExpression,
                 containsEventOccurrenceExpression,
                 containsUnsupportedWeatherExpression,
                 containsUnsupportedWifiOrOnboardFeatureExpression,

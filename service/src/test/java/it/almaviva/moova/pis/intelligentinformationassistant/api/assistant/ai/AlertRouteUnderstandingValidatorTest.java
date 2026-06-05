@@ -317,6 +317,63 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesSnapshotChangedDestinationReportToScheduledReport() {
+        String prompt = "Fammi sapere quanti treni a Garibaldi FS hanno subito cambio destinazione";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+    }
+
+    @Test
+    void normalizesSnapshotCancellationBooleanToScheduledInterpreter() {
+        String prompt = "Fammi sapere se a Garibaldi FS ci sono treni cancellati";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_CONDITION);
+    }
+
+    @Test
+    void normalizesSnapshotTotalExclusionToScheduledInterpreter() {
+        String prompt = "Fammi sapere se a Garibaldi FS c'e almeno un treno total exclusion";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+    }
+
+    @Test
+    void keepsSingleCancellationOccurrenceAsEventInterpreter() {
+        String prompt = "Avvisami quando una corsa viene cancellata a Garibaldi FS";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+    }
+
+    @Test
+    void keepsSingleChangedDestinationOccurrenceAsEventInterpreter() {
+        String prompt = "Avvisami quando una corsa cambia destinazione a Garibaldi FS";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+    }
+
+    @Test
     void normalizesUnsafeScheduledPlatformPromptBackToEventInterpreter() {
         String prompt = "Avvisami quando una corsa arriva a Garibaldi sul binario 1";
         AlertRouteUnderstandingResult validated = validator.validate(

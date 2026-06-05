@@ -73,6 +73,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 routeSection(data == null ? null : data.route()),
                 temporalHintsSection(data == null ? null : data.temporalHints()),
                 platformHintsSection(data == null ? null : data.platformHints()),
+                changeHintsSection(data == null ? null : data.changeHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(),
                 highPriorityMvpRulesSection(),
@@ -103,6 +104,17 @@ public class ScheduledAlertVerificationPromptBuilder {
                     Backend-derived platform/binario hints: unavailable.
                     - Still treat platform/binario/track/quay/banchina/marciapiede as non-location constraints.
                     - Never place platform values in serviceDataQuery.stopPoints.
+                    """;
+        }
+        return hints.compactPromptSection();
+    }
+
+    private String changeHintsSection(ScheduledAlertChangeHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived change/cancellation/exclusion hints: unavailable.
+                    - Still map change, cancellation and exclusion wording only with Scheduled snapshot catalog fields.
+                    - Do not use payload.ongroundServiceEvent.*.
                     """;
         }
         return hints.compactPromptSection();
@@ -533,11 +545,23 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - monitored X, cancelled/suppressed stop Y -> nested anyElement nextCancelledCalls[] stopPoint.id=Y.
 
                 Changes, cancellations, exclusions:
-                - Use changes CONTAINS CANCELLATION, PARTIALLY_CANCELLATION, CHANGED_ORIGIN, CHANGED_DESTINATION, CHANGED_PATH, PLATFORM_CHANGED.
-                - Use exclusion.totalExclusion EQUALS true or exclusion.timeBasedExclusion EQUALS true.
-                - Use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
-                - Use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
-                - If the user asks "arrival cancellation but not departure cancellation" and the catalog lacks a NOT_CONTAINS operator, reject rather than inventing an operator.
+                - Use changes CONTAINS CHANGED_ORIGIN for changed origin.
+                - Use changes CONTAINS CHANGED_DESTINATION for changed destination.
+                - Use changes CONTAINS CHANGED_PATH for changed path, route changed, path changed or changed itinerary.
+                - Use changes CONTAINS EXTRA_JOURNEY for extra journey, additional journey or special/extra service.
+                - Use changes CONTAINS PLATFORM_CHANGED for generic platform change.
+                - Use changes CONTAINS CANCELLATION for generic cancellation when a single change signal is sufficient.
+                - Use changes CONTAINS PARTIALLY_CANCELLATION for partial cancellation.
+                - Use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION for arrival cancellation.
+                - Use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION for departure cancellation.
+                - Use exclusion.totalExclusion EQUALS true for total exclusion.
+                - Use exclusion.timeBasedExclusion EQUALS true for time-based exclusion.
+                - Generic cancellation may use an OR over supported cancellation signals:
+                  changes CONTAINS CANCELLATION, changes CONTAINS PARTIALLY_CANCELLATION,
+                  arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
+                - Negative cancellation/change wording must use only catalog-supported negative operators. If enum arrays do not support NOT_CONTAINS, reject rather than inventing NOT_CONTAINS.
+                - Do not use NOT_CONTAINS_NORMALIZED on enum fields.
+                - Do not use payload.ongroundServiceEvent.*.
 
                 Replacement:
                 - "replacement journey/service" -> isReplacementOf NOT_EMPTY if allowed by catalog.

@@ -112,4 +112,14 @@ class AlertRouteUnderstandingHintsTest {
         assertThat(hints.containsSnapshotStateExpression()).isFalse();
         assertThat(hints.containsEventOccurrenceExpression()).isTrue();
     }
+
+    @Test
+    void snapshotCancellationSetsSnapshotAndChangeSignals() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere se a Garibaldi FS ci sono treni cancellati");
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsChangeCancellationExclusionExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+    }
 }

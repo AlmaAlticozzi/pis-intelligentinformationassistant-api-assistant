@@ -111,6 +111,14 @@ public class AlertRouteUnderstandingPromptBuilder {
                   is changed at X", and there is no snapshot/count/report wording, route to EVENT_INTERPRETER.
                 - Snapshot state signals such as "ci sono", "are there", "sono presenti", "presenti", "quanti",
                   "how many" or "number of" win over event-like platform-change wording.
+                - The same snapshot-vs-event distinction applies to changed origin, changed destination, changed path,
+                  extra journey, cancellation, partial cancellation, arrival/departure cancellation, total exclusion and
+                  time-based exclusion.
+                - If the user asks whether there are cancelled/changed/excluded journeys at a monitored location, or asks
+                  how many such journeys exist, route to SCHEDULED_INTERPRETER with SERVICE_DATA_API_SNAPSHOT.
+                - If the user asks for one emitted occurrence such as "notify me when a journey is cancelled at X" or
+                  "when a journey changes destination at X", and there is no snapshot/count/report wording, route to
+                  EVENT_INTERPRETER.
                 - Do not classify a prompt as SCHEDULED_INTERPRETER just because it contains a number.
                 - Numbers used as platform, binario, track, quay, banchina or marciapiede values are ServiceData field
                   constraints and can be evaluated by EVENT_INTERPRETER when the rest of the prompt describes a single

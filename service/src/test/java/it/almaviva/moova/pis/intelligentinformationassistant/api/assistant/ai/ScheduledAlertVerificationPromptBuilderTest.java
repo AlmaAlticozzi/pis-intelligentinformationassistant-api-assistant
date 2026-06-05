@@ -224,8 +224,18 @@ class ScheduledAlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("Platform/binario/track/quay/banchina/marciapiede are not locations")
                 .contains("Platform change uses changes CONTAINS PLATFORM_CHANGED")
+                .contains("Use changes CONTAINS CHANGED_ORIGIN")
+                .contains("Use changes CONTAINS CHANGED_DESTINATION")
+                .contains("Use changes CONTAINS CHANGED_PATH")
+                .contains("Use changes CONTAINS EXTRA_JOURNEY")
                 .contains("Use changes CONTAINS CANCELLATION")
+                .contains("Use changes CONTAINS PARTIALLY_CANCELLATION")
+                .contains("Use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION")
+                .contains("Use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION")
                 .contains("exclusion.totalExclusion EQUALS true")
+                .contains("exclusion.timeBasedExclusion EQUALS true")
+                .contains("Generic cancellation may use an OR over supported cancellation signals")
+                .contains("Do not use payload.ongroundServiceEvent.*")
                 .contains("\"replacement stop X\" -> nested anyElement replacement.stopPointReplacements[] stopPointId.id")
                 .contains("replacementType IN/EQUALS DEPARTURE/ARRIVAL/ARRIVALDEPARTURE");
     }

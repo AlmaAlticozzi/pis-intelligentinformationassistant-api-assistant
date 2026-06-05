@@ -86,6 +86,9 @@ public class AlertRouteUnderstandingValidator {
                 || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression())
                 || (hints.containsSnapshotStateExpression()
                 && hints.containsPlatformChangeExpression()
+                && !hints.containsEventOccurrenceExpression())
+                || (hints.containsSnapshotStateExpression()
+                && hints.containsChangeCancellationExclusionExpression()
                 && !hints.containsEventOccurrenceExpression());
     }
 

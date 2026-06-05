@@ -647,6 +647,116 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesChangedDestinationReport() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("changes", "CONTAINS", "CHANGED_DESTINATION"));
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled changed destination",
+                "Scheduled ServiceData changed destination report test",
+                "Fammi sapere quanti treni a Garibaldi FS hanno subito cambio destinazione",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesGenericCancellationBoolean() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        leaf("changes", "CONTAINS", "CANCELLATION"),
+                        leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
+                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled cancellation",
+                "Scheduled ServiceData cancellation boolean test",
+                "Fammi sapere se a Garibaldi FS ci sono treni cancellati",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesTotalExclusionBoolean() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("exclusion.totalExclusion", "EQUALS", true));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled total exclusion",
+                "Scheduled ServiceData total exclusion boolean test",
+                "Fammi sapere se a Garibaldi FS c'e almeno un treno total exclusion",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void verifiesDepartureCancellationReport() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"));
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled departure cancellation",
+                "Scheduled ServiceData departure cancellation report test",
+                "Fammi sapere quanti treni a Garibaldi FS hanno una cancellazione in partenza",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsCancellationMappedToEventField() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("payload.ongroundServiceEvent.eventsType", "CONTAINS", "CANCELLATION"));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled cancellation event field",
+                "Scheduled ServiceData cancellation event field test",
+                "Fammi sapere se a Garibaldi FS ci sono treni cancellati",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("payload.ongroundServiceEvent");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void rejectsWhenCancellationPromptOmitsCancellationCondition() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureDelay.delay", "GREATER_THAN", 0));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled cancellation omitted",
+                "Scheduled ServiceData cancellation omitted test",
+                "Fammi sapere se a Garibaldi FS ci sono treni cancellati",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("GENERIC_CANCELLATION");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
     void rejectsMalformedInOperatorUsingValueArray() {
         ScheduledServiceDataLocationContext context = originFilterContext();
         Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
@@ -675,6 +785,7 @@ class ScheduledAlertVerificationServiceTest {
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
+        service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -697,6 +808,7 @@ class ScheduledAlertVerificationServiceTest {
         service.outcomeValidator = new ScheduledAlertVerificationOutcomeValidator();
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
+        service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
