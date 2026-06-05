@@ -72,6 +72,81 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesMultiLocationCardinalityEventRouteToScheduledSnapshotCondition() {
+        String prompt = "Fammi sapere quando a Varedo e Palazzolo Milanese ci sono due treni in arrivo";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt, hints);
+
+        assertThat(hints.containsCardinalityThresholdExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsMultiMonitoredLocationExpression()).isTrue();
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_CONDITION);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isTrue();
+        assertThat(validated.requiresServiceDataApi()).isTrue();
+        assertThat(validated.requiresKafkaEvent()).isFalse();
+        assertThat(validated.hasAggregation()).isTrue();
+        assertThat(validated.hasCardinalityThreshold()).isTrue();
+        assertThat(validated.hasReportIntent()).isFalse();
+        assertThat(validated.warnings()).contains(
+                "Route normalized from EVENT_INTERPRETER to SCHEDULED_INTERPRETER because backend hints detected aggregate snapshot/cardinality semantics.");
+    }
+
+    @Test
+    void normalizesSingleLocationCardinalityStateToScheduledSnapshotCondition() {
+        String prompt = "Fammi sapere se a Garibaldi FS ci sono piu di cinque treni in ritardo";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                eventRoute(),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_CONDITION);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.hasAggregation()).isTrue();
+        assertThat(validated.hasCardinalityThreshold()).isTrue();
+    }
+
+    @Test
+    void normalizesCountReportToScheduledSnapshotReport() {
+        String prompt = "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                eventRoute(),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+        assertThat(validated.hasReportIntent()).isTrue();
+    }
+
+    @Test
+    void keepsSingleArrivalPromptAsEventInterpreter() {
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
+                "Avvisami quando una corsa arriva a Garibaldi",
+                AlertRouteUnderstandingHints.fromPrompt("Avvisami quando una corsa arriva a Garibaldi"));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+    }
+
+    @Test
+    void keepsSingleArrivalPlatformPromptAsEventInterpreter() {
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
+                "Avvisami quando una corsa arriva a Garibaldi sul binario 1",
+                AlertRouteUnderstandingHints.fromPrompt("Avvisami quando una corsa arriva a Garibaldi sul binario 1"));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+    }
+
+    @Test
     void rejectsUnsupportedDomainGenericQuestionAndUnsupportedServiceDataField() {
         assertThat(validator.validate(eventRoute(), "Avvisami quando piove").decision())
                 .isEqualTo(AlertRouteDecision.REJECTED);

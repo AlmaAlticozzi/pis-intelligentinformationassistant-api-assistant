@@ -17,11 +17,19 @@ public class AlertRouteUnderstandingValidator {
     }
 
     public AlertRouteUnderstandingResult validate(AlertRouteUnderstandingResult route, String originalPrompt) {
+        return validate(route, originalPrompt, AlertRouteUnderstandingHints.fromPrompt(originalPrompt));
+    }
+
+    public AlertRouteUnderstandingResult validate(
+            AlertRouteUnderstandingResult route,
+            String originalPrompt,
+            AlertRouteUnderstandingHints hints) {
+        AlertRouteUnderstandingHints safeHints = hints == null ? AlertRouteUnderstandingHints.empty() : hints;
         if (route == null) {
             return rejected("Alert route understanding did not produce a result.");
         }
 
-        String defensiveReason = defensiveUnsupportedPromptReason(originalPrompt);
+        String defensiveReason = defensiveUnsupportedPromptReason(originalPrompt, safeHints);
         if (defensiveReason != null) {
             return rejected(defensiveReason);
         }
@@ -55,12 +63,44 @@ public class AlertRouteUnderstandingValidator {
         }
 
         if (route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
+            if (safeHints.stronglyIndicatesAggregateSnapshot()) {
+                return normalizeEventRouteToScheduled(route, domains, primaryDomain, safeHints);
+            }
             return validateEventRoute(route, domains, primaryDomain);
         }
         if (route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
             return validateScheduledRoute(route, domains, primaryDomain);
         }
         return rejected("Routed alert requires EVENT_INTERPRETER or SCHEDULED_INTERPRETER.");
+    }
+
+    private AlertRouteUnderstandingResult normalizeEventRouteToScheduled(
+            AlertRouteUnderstandingResult route,
+            List<String> domains,
+            String primaryDomain,
+            AlertRouteUnderstandingHints hints) {
+        String warning = "Route normalized from EVENT_INTERPRETER to SCHEDULED_INTERPRETER because backend hints detected aggregate snapshot/cardinality semantics.";
+        System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] from=EVENT_INTERPRETER to=SCHEDULED_INTERPRETER reason=aggregate snapshot/cardinality semantics");
+        List<String> warnings = mergeWarning(route.warnings(), warning);
+        boolean report = hints.containsCountOrReportExpression() || route.hasReportIntent();
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                domains,
+                primaryDomain,
+                AlertRouteInterpreterType.SCHEDULED_INTERPRETER,
+                AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT,
+                report ? AlertRouteIntentKind.SNAPSHOT_REPORT : AlertRouteIntentKind.SNAPSHOT_CONDITION,
+                report ? AlertRouteOutputMode.EVERY_RUN_REPORT : AlertRouteOutputMode.ON_MATCH,
+                true,
+                true,
+                false,
+                true,
+                route.hasCardinalityThreshold() || hints.containsCardinalityThresholdExpression(),
+                report,
+                route.confidence(),
+                route.summary(),
+                route.rejectedReason(),
+                warnings);
     }
 
     private AlertRouteUnderstandingResult validateEventRoute(
@@ -181,7 +221,16 @@ public class AlertRouteUnderstandingValidator {
         return List.copyOf(merged);
     }
 
-    private String defensiveUnsupportedPromptReason(String prompt) {
+    private String defensiveUnsupportedPromptReason(String prompt, AlertRouteUnderstandingHints hints) {
+        if (hints.containsUnsupportedWeatherExpression()) {
+            return "Weather alerts are outside the currently supported ServiceData routing domain.";
+        }
+        if (hints.containsGenericQuestionExpression()) {
+            return "Generic Q&A prompts are outside the currently supported ServiceData routing domain.";
+        }
+        if (hints.containsUnsupportedWifiOrOnboardFeatureExpression()) {
+            return "Onboard wifi is not a controlled ServiceData capability for Alert Route Understanding.";
+        }
         String normalized = normalizeText(prompt);
         if (normalized == null) {
             return null;

@@ -1,0 +1,104 @@
+package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
+
+import java.text.Normalizer;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+public record AlertRouteUnderstandingHints(
+        boolean containsPollingExpression,
+        boolean containsCountOrReportExpression,
+        boolean containsCardinalityThresholdExpression,
+        boolean containsMultiMonitoredLocationExpression,
+        boolean containsSnapshotStateExpression,
+        boolean containsUnsupportedWeatherExpression,
+        boolean containsUnsupportedWifiOrOnboardFeatureExpression,
+        boolean containsGenericQuestionExpression
+) {
+
+    private static final Pattern DIGIT_NUMBER = Pattern.compile("\\b\\d+\\b");
+    private static final Pattern SMALL_NUMBER_WORD = Pattern.compile(
+            "\\b(uno|una|due|tre|quattro|cinque|one|two|three|four|five)\\b");
+    private static final Pattern VEHICLE_NOUN = Pattern.compile(
+            "\\b(treni|treno|corse|corsa|servizi|servizio|bus|tram|trains|train|services|service|journeys|journey|buses)\\b");
+    private static final Pattern COUNT_OR_REPORT = Pattern.compile(
+            "\\b(quanti|quante|numero|conteggio|count|how many|total|quantity|report|rapporto|dimmi quante|dimmi quanti)\\b");
+    private static final Pattern THRESHOLD = Pattern.compile(
+            "\\b(almeno|piu di|piu\\s+di|oltre|maggiore di|meno di|at least|more than|over|less than|fewer than)\\b");
+    private static final Pattern SNAPSHOT_STATE = Pattern.compile(
+            "\\b(ci sono|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
+    private static final Pattern POLLING = Pattern.compile(
+            "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
+    private static final Pattern WEATHER = Pattern.compile("\\b(piove|pioggia|meteo|weather|rain)\\b");
+    private static final Pattern WIFI_OR_ONBOARD = Pattern.compile("\\b(wifi|wi-fi|wireless|a bordo|onboard)\\b");
+    private static final Pattern GENERIC_QUESTION = Pattern.compile("\\b(quanto fa|2\\+2|what is|generic question)\\b");
+
+    public static AlertRouteUnderstandingHints fromPrompt(String prompt) {
+        String normalized = normalize(prompt);
+        if (normalized == null) {
+            return empty();
+        }
+        boolean hasVehicleNoun = VEHICLE_NOUN.matcher(normalized).find();
+        boolean hasNumber = DIGIT_NUMBER.matcher(normalized).find() || SMALL_NUMBER_WORD.matcher(normalized).find();
+        boolean countOrReport = COUNT_OR_REPORT.matcher(normalized).find();
+        boolean snapshotState = SNAPSHOT_STATE.matcher(normalized).find();
+        boolean threshold = THRESHOLD.matcher(normalized).find();
+        boolean cardinality = hasVehicleNoun && (hasNumber || threshold || countOrReport);
+        boolean multiLocation = snapshotState
+                && (normalized.contains(" e ") || normalized.contains(" and "))
+                && (normalized.contains(" a ") || normalized.contains(" at "));
+
+        return new AlertRouteUnderstandingHints(
+                POLLING.matcher(normalized).find(),
+                countOrReport,
+                cardinality,
+                multiLocation,
+                snapshotState || countOrReport,
+                WEATHER.matcher(normalized).find(),
+                WIFI_OR_ONBOARD.matcher(normalized).find(),
+                GENERIC_QUESTION.matcher(normalized).find());
+    }
+
+    public static AlertRouteUnderstandingHints empty() {
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false);
+    }
+
+    public boolean stronglyIndicatesAggregateSnapshot() {
+        return (containsCardinalityThresholdExpression && containsSnapshotStateExpression)
+                || (containsMultiMonitoredLocationExpression && containsCardinalityThresholdExpression)
+                || containsCountOrReportExpression;
+    }
+
+    public String compactPromptSection() {
+        return """
+                Backend route hints:
+                - containsPollingExpression: %s
+                - containsCountOrReportExpression: %s
+                - containsCardinalityThresholdExpression: %s
+                - containsMultiMonitoredLocationExpression: %s
+                - containsSnapshotStateExpression: %s
+                - containsUnsupportedWeatherExpression: %s
+                - containsUnsupportedWifiOrOnboardFeatureExpression: %s
+                - containsGenericQuestionExpression: %s
+
+                Treat these as backend observations. They are not a technicalSpecification.
+                If aggregate snapshot/cardinality hints are true, prefer SCHEDULED_INTERPRETER over EVENT_INTERPRETER.
+                """.formatted(
+                containsPollingExpression,
+                containsCountOrReportExpression,
+                containsCardinalityThresholdExpression,
+                containsMultiMonitoredLocationExpression,
+                containsSnapshotStateExpression,
+                containsUnsupportedWeatherExpression,
+                containsUnsupportedWifiOrOnboardFeatureExpression,
+                containsGenericQuestionExpression);
+    }
+
+    private static String normalize(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT);
+    }
+}

@@ -12,11 +12,15 @@ public class AlertRouteUnderstandingPromptBuilder {
     AiConfiguration aiConfiguration;
 
     public LlmRequest build(AlertVerificationPromptData alert) {
+        return build(alert, AlertRouteUnderstandingHints.empty());
+    }
+
+    public LlmRequest build(AlertVerificationPromptData alert, AlertRouteUnderstandingHints hints) {
         AiConfiguration.AlertVerify alertVerifyConfiguration = aiConfiguration.alertVerify();
         return new LlmRequest(
                 AiUseCase.ALERT_ROUTE_UNDERSTANDING,
                 systemPrompt(),
-                userPrompt(alert),
+                userPrompt(alert, hints == null ? AlertRouteUnderstandingHints.empty() : hints),
                 alertVerifyConfiguration.model(),
                 alertVerifyConfiguration.temperature(),
                 Math.min(alertVerifyConfiguration.maxOutputTokens(), 1200),
@@ -35,13 +39,15 @@ public class AlertRouteUnderstandingPromptBuilder {
                 """;
     }
 
-    private String userPrompt(AlertVerificationPromptData alert) {
+    private String userPrompt(AlertVerificationPromptData alert, AlertRouteUnderstandingHints hints) {
         return """
                 Alert prompt:
                 - alertId: %s
                 - originalPrompt: %s
                 - name: %s
                 - description: %s
+
+                %s
 
                 Supported data domain:
                 - SERVICE_DATA is currently the only supported data domain for routing to technical verification.
@@ -69,7 +75,31 @@ public class AlertRouteUnderstandingPromptBuilder {
                   usually involving every X minutes/hours, counts, reports, aggregate conditions, thresholds over
                   multiple journeys, boolean checks over the current situation, multiple monitored stop points evaluated
                   together, or a current/future visibility window over stop point journeys.
+                - EVENT_INTERPRETER is only for a single ServiceData event emitted by Kafka.
+                - A single Kafka ServiceData event represents one current operational event context, not a global snapshot
+                  across multiple monitored stop points.
+                - If the user asks whether there are N journeys, services, trains, buses or trams matching a condition at
+                  one or more stop points, this is an aggregate snapshot condition and must be SCHEDULED_INTERPRETER.
+                - If the user asks for a count, total, number, quantity, "how many", or any cardinality over journeys,
+                  services, trains, buses or trams, this is SCHEDULED_INTERPRETER unless the wording is clearly about
+                  one single event.
+                - If the user mentions multiple monitored stop points to be evaluated together in one condition, this is
+                  SCHEDULED_INTERPRETER.
+                - If the prompt says that at stop point A and stop point B there are N arriving, departing, delayed or
+                  cancelled journeys, classify as SCHEDULED_INTERPRETER.
+                - The phrase "when there are two trains arriving at A and B" means a snapshot/cardinality condition, not
+                  two independent ServiceData Kafka events.
+                - Do not route such prompts to EVENT_INTERPRETER just because ARRIVING or DEPARTING exists as a
+                  ServiceData event type.
+                - The presence of event-like words such as arriving, departing, delayed or cancelled does not automatically
+                  imply EVENT_INTERPRETER when the request also contains aggregation, count, threshold or multiple
+                  monitored stop points.
                 - Do not rely on exact wording or one language. Classify the meaning semantically.
+
+                Compact example:
+                - Input meaning: "Notify me when at stop point A and stop point B there are two arriving journeys"
+                - Expected route: SCHEDULED_INTERPRETER, SERVICE_DATA_API_SNAPSHOT, SNAPSHOT_CONDITION,
+                  hasAggregation=true, hasCardinalityThreshold=true.
 
                 Output rules:
                 - Use decision ROUTED only when the prompt is in SERVICE_DATA and one interpreter can be selected.
@@ -110,7 +140,8 @@ public class AlertRouteUnderstandingPromptBuilder {
                 nullToEmpty(alert.alertId()),
                 nullToEmpty(alert.prompt()),
                 nullToEmpty(alert.name()),
-                nullToEmpty(alert.description()));
+                nullToEmpty(alert.description()),
+                hints.compactPromptSection());
     }
 
     private String nullToEmpty(String value) {

@@ -26,16 +26,18 @@ public class AlertRouteUnderstandingService {
         String prompt = promptData == null ? null : promptData.prompt();
         System.out.println("[IIA][ALERT_ROUTE] start alertId=" + alertId);
         System.out.println("[IIA][ALERT_ROUTE] prompt=" + prompt);
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+        System.out.println("[IIA][ALERT_ROUTE][HINTS] " + hints);
 
         if (llmGateway == null || llmGateway.isUnsatisfied()) {
             AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(
                     "Alert route understanding cannot run because no LLM gateway is available.");
-            AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt);
+            AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt, hints);
             printFinal(validated);
             return validated;
         }
 
-        LlmRequest routeRequest = promptBuilder.build(promptData);
+        LlmRequest routeRequest = promptBuilder.build(promptData, hints);
         try {
             LlmResponse response = llmGateway.get().generateText(routeRequest);
             String rawResponse = response == null ? null : response.text();
@@ -48,7 +50,7 @@ public class AlertRouteUnderstandingService {
                         + " rawLength=" + parseResult.rawLength());
                 AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(
                         "Alert route response could not be parsed: " + parseResult.failureReason());
-                AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt);
+                AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt, hints);
                 System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
                 printFinal(validated);
                 return validated;
@@ -56,7 +58,7 @@ public class AlertRouteUnderstandingService {
 
             AlertRouteUnderstandingResult parsed = parseResult.result().get();
             System.out.println("[IIA][ALERT_ROUTE] parsed route=" + parsed);
-            AlertRouteUnderstandingResult validated = validator.validate(parsed, prompt);
+            AlertRouteUnderstandingResult validated = validator.validate(parsed, prompt, hints);
             System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
             printFinal(validated);
             return validated;
@@ -71,7 +73,10 @@ public class AlertRouteUnderstandingService {
         String reason = "Alert route understanding failed before technical verification: " + message;
         System.out.println("[IIA][ALERT_ROUTE] validation result=ERROR reason=" + reason);
         AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(reason);
-        AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt);
+        AlertRouteUnderstandingResult validated = validator.validate(
+                rejected,
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
         printFinal(validated);
         return validated;
     }
