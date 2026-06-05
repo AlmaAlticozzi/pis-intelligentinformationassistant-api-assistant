@@ -503,6 +503,14 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Inside anyElement, fields are relative to the same stopPointsJourneyDetails[] item.
                 - For child arrays, use nested anyElement for nextCalls[], nextTransitCalls[], nextCancelledCalls[], replacement.stopPointReplacements[].
                 - Do not create sibling conditions that lose correlation.
+                - Complex condition composition: use "all" for constraints that must all be true for the same journey and "any" for alternatives.
+                - Do not use separate stopPointsJourneyDetails[] anyElements for constraints that the user intends to apply to the same journey.
+                - Delay + platform change + excluded destination must be one stopPointsJourneyDetails[] anyElement with all:
+                  delay condition, changes CONTAINS PLATFORM_CHANGED, callEnd.stopPoint.id NOT_IN [destination id].
+                - Delay + origin + journey time filter must be one stopPointsJourneyDetails[] anyElement with all:
+                  callStart.stopPoint.id EQUALS origin id, delay condition, callStart.departureTime LOCAL_TIME_BETWEEN.
+                - Replacement stop + replacement type + delay must keep delay in the outer journey anyElement and stopPointId.id + replacementType in the same replacement.stopPointReplacements[] anyElement.
+                - Suppressed stop + destination exclusion must keep nextCancelledCalls[] stopPoint.id and callEnd.stopPoint.id NOT_IN in the same outer journey anyElement.
 
                 Example same-journey shape:
                 {
@@ -681,6 +689,16 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Verify only if every required user constraint is mappable with ScheduledServiceDataCapabilityCatalog.
                 - If a prompt contains both supported and unsupported constraints, reject it; do not partially accept.
                 - Reject weather, sports, devices, audio messages, CMS content, display/broadcast history, passenger count, wifi, unsupported composition/carriage constraints, predictions, external APIs, and history/state requirements.
+                - Unsupported required constraints must be REJECTED explicitly; do not map unsupported constraints to approximate fields.
+                - "wifi on board" -> REJECTED.
+                - "more than 10 carriages/coaches", "train composition" -> REJECTED.
+                - "crowded trains", passenger count, occupancy or seat availability -> REJECTED.
+                - "weather/rain/snow" -> REJECTED.
+                - "no trains for 30 minutes" or absence over continuous time -> REJECTED because it requires state/history.
+                - Negative filters are allowed only with catalog-supported negative operators:
+                  stop point ids use NOT_IN, name fallback can use NOT_CONTAINS_NORMALIZED, exact normalized text can use NOT_EQUALS_NORMALIZED when supported.
+                - Do not invent NOT_CONTAINS on enum arrays.
+                - If "arrival cancellation but not departure cancellation" requires a negative enum-array operator that is not in the catalog, return REJECTED.
                 - For REJECTED, technicalSpecification must be null, agentBlueprintPreview must be null, rejectedReason must be clear, and requirementCoverage must identify the unmappable requirement.
                 """;
     }

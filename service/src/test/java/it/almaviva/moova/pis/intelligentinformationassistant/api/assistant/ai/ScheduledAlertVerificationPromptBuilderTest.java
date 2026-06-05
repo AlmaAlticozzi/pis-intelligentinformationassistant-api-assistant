@@ -275,6 +275,24 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .doesNotContain("- field: payload.ongroundServiceEvent.eventsType");
     }
 
+    @Test
+    void promptContainsComplexCompositionNegativeFilterAndUnsupportedRules() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Complex condition composition")
+                .contains("same journey")
+                .contains("Do not use separate stopPointsJourneyDetails[] anyElements")
+                .contains("Delay + platform change + excluded destination")
+                .contains("callEnd.stopPoint.id NOT_IN [destination id]")
+                .contains("Negative filters are allowed only with catalog-supported negative operators")
+                .contains("Do not invent NOT_CONTAINS on enum arrays")
+                .contains("\"wifi on board\" -> REJECTED")
+                .contains("\"more than 10 carriages/coaches\", \"train composition\" -> REJECTED")
+                .contains("\"weather/rain/snow\" -> REJECTED")
+                .contains("\"no trains for 30 minutes\" or absence over continuous time -> REJECTED");
+    }
+
     private ScheduledAlertVerificationPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);

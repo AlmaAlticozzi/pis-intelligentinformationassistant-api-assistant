@@ -999,7 +999,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                                 "mappedBy", List.of("trend"))),
                         "allRequiredRequirementsMapped", true));
 
-        assertRejected(outcome, "temporal trend");
+        assertRejected(outcome, "not supported");
     }
 
     @Test
@@ -1322,6 +1322,179 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         Map.of("field", "isReplacementOf", "operator", "NOT_EMPTY")),
                 replacementSourceRouteHints(),
                 "Replacement source route start/end stop points are not supported");
+    }
+
+    @Test
+    void acceptsDelayPlatformChangeAndExcludedDestinationInSameJourneyElement() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        Map.of("any", List.of(
+                                leaf("arrivalDelay.delay", "GREATER_THAN", 0),
+                                leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        leaf("changes", "CONTAINS", "PLATFORM_CHANGED"),
+                        leafValues("callEnd.stopPoint.id", "NOT_IN", List.of(TRE_TORRI)))));
+
+        assertVerified(
+                validOutcome(technicalSpecification(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Buonarroti", BUONARROTI)),
+                        List.of(),
+                        List.of(filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.EXCLUDE,
+                                List.of(TRE_TORRI),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"),
+                                false)),
+                        List.of(BUONARROTI),
+                        false,
+                        List.of()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    @Test
+    void acceptsOriginDelayAndDepartureTimeFilterInSameJourneyElement() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("callStart.stopPoint.id", "EQUALS", GARIBALDI),
+                        leaf("departureDelay.delay", "GREATER_THAN", 600),
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))));
+
+        assertVerified(
+                validOutcome(technicalSpecification(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(PERO), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Pero", PERO)),
+                        List.of(filter("Garibaldi FS", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE,
+                                List.of(GARIBALDI),
+                                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id"),
+                                false)),
+                        List.of(),
+                        List.of(PERO),
+                        false,
+                        List.of()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    @Test
+    void acceptsReplacementStopTypeAndDelayInSameJourneyElement() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("departureDelay.delay", "GREATER_THAN", 0),
+                        Map.of("anyElement", Map.of(
+                                "path", "replacement.stopPointReplacements[]",
+                                "conditions", Map.of("all", List.of(
+                                        leaf("stopPointId.id", "EQUALS", PALAZZOLO),
+                                        leaf("replacementType", "EQUALS", "DEPARTURE"))))))));
+
+        assertVerified(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                replacementStopContext(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                replacementHints(ScheduledAlertReplacementConstraint.ReplacementIntent.REPLACEMENT_STOP_WITH_TYPE,
+                        ScheduledAlertReplacementConstraint.ReplacementType.DEPARTURE));
+    }
+
+    @Test
+    void acceptsSuppressedStopAndExcludedDestinationInSameJourneyElement() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        Map.of("anyElement", Map.of(
+                                "path", "nextCancelledCalls[]",
+                                "conditions", leaf("stopPoint.id", "EQUALS", PALAZZOLO))),
+                        leafValues("callEnd.stopPoint.id", "NOT_IN", List.of(TRE_TORRI)))));
+
+        assertVerified(
+                validOutcome(technicalSpecification(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(GORLA), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Gorla", GORLA)),
+                        List.of(filter("Palazzolo Milanese", ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT,
+                                ScheduledAlertLocationPolarity.INCLUDE,
+                                List.of(PALAZZOLO),
+                                List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id"),
+                                false)),
+                        List.of(filter("Tre Torri", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                                ScheduledAlertLocationPolarity.EXCLUDE,
+                                List.of(TRE_TORRI),
+                                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"),
+                                false)),
+                        List.of(GORLA),
+                        false,
+                        List.of()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    @Test
+    void rejectsSplitJourneyLevelConstraintsAcrossSiblingAnyElements() {
+        Map<String, Object> condition = condition(Map.of("all", List.of(
+                Map.of("anyElement", Map.of(
+                        "path", "stopPointsJourneyDetails[]",
+                        "conditions", leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                Map.of("anyElement", Map.of(
+                        "path", "stopPointsJourneyDetails[]",
+                        "conditions", leaf("changes", "CONTAINS", "PLATFORM_CHANGED"))))));
+
+        assertRejected(validOutcome(technicalSpecification(condition), blueprint()), "same stopPointsJourneyDetails[] anyElement");
+    }
+
+    @Test
+    void rejectsRequirementCoverageMissingRequiredMappedBy() {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "delayed trains",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of())),
+                "allRequiredRequirementsMapped", true);
+
+        assertRejected(validOutcome(technicalSpecification(), blueprint(), coverage), "mappedBy");
+    }
+
+    @Test
+    void rejectsRequirementCoverageWithEventField() {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "arrival event",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of("payload.ongroundServiceEvent.eventsType"))),
+                "allRequiredRequirementsMapped", true);
+
+        assertRejected(validOutcome(technicalSpecification(), blueprint(), coverage), "Event/Kafka field");
+    }
+
+    @Test
+    void rejectsRequirementCoverageMappingUnsupportedWifiToSupportedField() {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "wifi on board",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of("stopPointsJourneyDetails[].transportMode.dsc"))),
+                "allRequiredRequirementsMapped", true);
+
+        assertRejected(validOutcome(technicalSpecification(), blueprint(), coverage), "not supported");
     }
 
     @Test

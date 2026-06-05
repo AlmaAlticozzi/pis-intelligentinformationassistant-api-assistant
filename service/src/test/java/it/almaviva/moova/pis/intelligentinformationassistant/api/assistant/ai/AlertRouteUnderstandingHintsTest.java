@@ -122,4 +122,26 @@ class AlertRouteUnderstandingHintsTest {
         assertThat(hints.containsChangeCancellationExclusionExpression()).isTrue();
         assertThat(hints.containsEventOccurrenceExpression()).isFalse();
     }
+
+    @Test
+    void complexScheduledConditionKeepsSnapshotSignals() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere se il numero di treni in ritardo e che hanno subito un cambio di binario a Buonarroti e maggiore di 5. L'importante e che non hanno come destinazione Tre Torri");
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsPlatformChangeExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+    }
+
+    @Test
+    void unsupportedWifiReportDoesNotLookLikeEventOccurrence() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere il numero di treni con wifi a bordo e in ritardo in partenza maggiore di 10 min a Portello");
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsUnsupportedWifiOrOnboardFeatureExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+    }
 }

@@ -958,6 +958,105 @@ class ScheduledAlertVerificationServiceTest {
         assertThat(outcome.technicalSpecification()).isNull();
     }
 
+    @Test
+    void verifiesComplexDelayPlatformChangeAndExcludedDestination() {
+        ScheduledServiceDataLocationContext context = excludedDestinationContext();
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        Map.of("any", List.of(
+                                leaf("arrivalDelay.delay", "GREATER_THAN", 0),
+                                leaf("departureDelay.delay", "GREATER_THAN", 0))),
+                        leaf("changes", "CONTAINS", "PLATFORM_CHANGED"),
+                        leafValues("callEnd.stopPoint.id", "NOT_IN", List.of(GARIBALDI)))));
+        Map<String, Object> response = validResponse(context, condition);
+        Map<String, Object> snapshotEvaluation = map(map(response.get("technicalSpecification")).get("snapshotEvaluation"));
+        snapshotEvaluation.put("threshold", Map.of("operator", "GREATER_THAN", "value", 5));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Complex scheduled condition",
+                "Scheduled ServiceData complex condition test",
+                "Fammi sapere se il numero di treni in ritardo e che hanno subito un cambio di binario a Buonarroti è maggiore di 5. L'importante è che non hanno come destinazione Tre Torri",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsComplexPromptWhenDestinationExclusionIsOmitted() {
+        ScheduledServiceDataLocationContext context = excludedDestinationContext();
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("departureDelay.delay", "GREATER_THAN", 0),
+                        leaf("changes", "CONTAINS", "PLATFORM_CHANGED"))));
+        TestFixture fixture = fixture(json(validResponse(context, condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Complex scheduled condition missing exclusion",
+                "Scheduled ServiceData complex condition missing exclusion test",
+                "Fammi sapere se il numero di treni in ritardo e che hanno subito un cambio di binario a Buonarroti è maggiore di 5. L'importante è che non hanno come destinazione Tre Torri",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Tre Torri");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void rejectsWifiPromptWhenLlmIgnoresUnsupportedConstraint() {
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), delayCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Unsupported wifi",
+                "Scheduled ServiceData unsupported wifi test",
+                "Fammi sapere il numero di treni con wifi a bordo e in ritardo in partenza maggiore di 10 min a Portello",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("wifi");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void rejectsCarriagesPromptWhenLlmIgnoresUnsupportedConstraint() {
+        TestFixture fixture = fixture(json(validReportResponse(explicitContext(), validCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Unsupported carriages",
+                "Scheduled ServiceData unsupported carriages test",
+                "Fammi sapere il numero di treni con più di 10 carrozze a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("carriages");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void rejectsAbsenceOverDurationPromptWhenLlmReturnsVerified() {
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), validCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Unsupported absence",
+                "Scheduled ServiceData unsupported absence test",
+                "Fammi sapere se per 30 minuti non passa nessun treno a Garibaldi FS",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("absence");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
     private TestFixture fixture(String rawResponse) {
         ScheduledAlertVerificationService service = new ScheduledAlertVerificationService();
         service.promptBuilder = promptBuilder();
@@ -968,6 +1067,7 @@ class ScheduledAlertVerificationServiceTest {
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
+        service.unsupportedConstraintDetector = new ScheduledUnsupportedConstraintDetector();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -993,6 +1093,7 @@ class ScheduledAlertVerificationServiceTest {
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
+        service.unsupportedConstraintDetector = new ScheduledUnsupportedConstraintDetector();
         service.llmGateway = mock(Instance.class);
 
         LlmGateway gateway = mock(LlmGateway.class);
@@ -1491,6 +1592,51 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(GORLA),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext excludedDestinationContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Buonarroti",
+                "Buonarroti",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(PERO),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> excluded = List.of(new ScheduledServiceDataResolvedLocation(
+                "Tre Torri",
+                "Tre Torri",
+                ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                ScheduledAlertLocationPolarity.EXCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GARIBALDI),
+                List.of(),
+                false,
+                false,
+                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                excluded,
+                List.of(PERO),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(PERO),
                         false));
     }
 

@@ -219,6 +219,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (contamination != null) {
             return "Verified scheduled outcome contains Event/Kafka contamination: " + contamination + ".";
         }
+        String coverageFailure = validateRequirementCoverage(outcome.requirementCoverage());
+        if (coverageFailure != null) {
+            return coverageFailure;
+        }
         String technicalFailure = validateTechnicalSpecification(outcome.technicalSpecification());
         if (technicalFailure != null) {
             return technicalFailure;
@@ -230,6 +234,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String conditionFailure = validateScheduledConditions(outcome.technicalSpecification(), outcome.agentBlueprintPreview());
         if (conditionFailure != null) {
             return conditionFailure;
+        }
+        String correlationFailure = validateSameJourneyCorrelation(outcome.technicalSpecification());
+        if (correlationFailure != null) {
+            return correlationFailure;
         }
         String semanticFailure = validateSnapshotEvaluationSemantics(outcome.technicalSpecification(), route);
         if (semanticFailure != null) {
@@ -609,6 +617,129 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return "Scheduled verification cannot support temporal trend, historical comparison or continuous absence requirements in this MVP.";
         }
         return null;
+    }
+
+    private String validateRequirementCoverage(Map<String, Object> coverage) {
+        if (coverage == null || coverage.isEmpty()) {
+            return "Verified scheduled outcome requires requirementCoverage.";
+        }
+        if (!Boolean.TRUE.equals(booleanValue(coverage.get("allRequiredRequirementsMapped")))) {
+            return "Verified scheduled outcome requires requirementCoverage.allRequiredRequirementsMapped=true.";
+        }
+        Object requirementsValue = coverage.get("requirements");
+        if (!(requirementsValue instanceof Collection<?> requirements) || requirements.isEmpty()) {
+            return "Verified scheduled outcome requires non-empty requirementCoverage.requirements.";
+        }
+        ScheduledUnsupportedConstraintDetector unsupportedDetector = new ScheduledUnsupportedConstraintDetector();
+        for (Object item : requirements) {
+            Map<String, Object> requirement = asMap(item);
+            if (requirement == null) {
+                return "Verified scheduled outcome contains an invalid requirementCoverage requirement.";
+            }
+            boolean required = Boolean.TRUE.equals(booleanValue(requirement.get("required")));
+            if (!required) {
+                String text = stringValue(requirement.get("text"));
+                if (!unsupportedDetector.detect(text).isEmpty()) {
+                    return "Unsupported required constraint was marked as not required in requirementCoverage: " + text + ".";
+                }
+                continue;
+            }
+            String text = stringValue(requirement.get("text"));
+            if (!unsupportedDetector.detect(text).isEmpty()) {
+                return "The scheduled alert contains a required constraint that is not supported by the ServiceData scheduled snapshot catalog: "
+                        + text + ".";
+            }
+            if (!Boolean.TRUE.equals(booleanValue(requirement.get("mappable")))) {
+                return "Verified scheduled outcome contains a required requirement that is not mappable: " + text + ".";
+            }
+            List<String> mappedBy = stringList(requirement.get("mappedBy"));
+            if (mappedBy.isEmpty()) {
+                return "Verified scheduled outcome requires mappedBy for every required requirement: " + text + ".";
+            }
+            for (String field : mappedBy) {
+                if (isBlank(field)) {
+                    return "Verified scheduled outcome contains blank mappedBy field.";
+                }
+                if (field.contains("payload.ongroundServiceEvent") || field.contains("ServiceDataV2")) {
+                    return "Verified scheduled outcome requirementCoverage mappedBy contains Event/Kafka field: " + field + ".";
+                }
+                if (!ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+                    return "Verified scheduled outcome requirementCoverage mappedBy field is not in the Scheduled ServiceData catalog: "
+                            + field + ".";
+                }
+            }
+        }
+        return null;
+    }
+
+    private String validateSameJourneyCorrelation(Map<String, Object> technicalSpecification) {
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        if (condition == null) {
+            return null;
+        }
+        Object allValue = condition.get("all");
+        if (!(allValue instanceof Collection<?> all) || all.size() < 2) {
+            return null;
+        }
+        Set<String> unionCategories = new LinkedHashSet<>();
+        java.util.ArrayList<Set<String>> groups = new java.util.ArrayList<>();
+        int stopPointJourneyAnyElements = 0;
+        for (Object item : all) {
+            Map<String, Object> child = asMap(item);
+            Map<String, Object> anyElement = child == null ? null : asMap(child.get("anyElement"));
+            if (anyElement == null || !"stopPointsJourneyDetails[]".equals(stringValue(anyElement.get("path")))) {
+                continue;
+            }
+            stopPointJourneyAnyElements++;
+            Set<String> categories = conditionCategories(collectConditionLeaves(asMap(anyElement.get("conditions")),
+                    "stopPointsJourneyDetails[]"));
+            unionCategories.addAll(categories);
+            groups.add(categories);
+        }
+        boolean hasOneGroupWithAllCategories = groups.stream()
+                .anyMatch(categories -> categories.containsAll(unionCategories));
+        if (stopPointJourneyAnyElements > 1 && unionCategories.size() > 1 && !hasOneGroupWithAllCategories) {
+            return "Journey-level constraints that must apply to the same journey must be correlated inside the same stopPointsJourneyDetails[] anyElement.";
+        }
+        return null;
+    }
+
+    private Set<String> conditionCategories(List<ConditionLeaf> leaves) {
+        Set<String> categories = new LinkedHashSet<>();
+        for (ConditionLeaf leaf : leaves) {
+            String field = leaf.resolvedField();
+            if (isBlank(field)) {
+                continue;
+            }
+            if (field.contains("arrivalDelay") || field.contains("departureDelay")
+                    || field.contains("ARRIVAL_DELAY") || field.contains("DEPARTURE_DELAY")) {
+                categories.add("delay");
+            }
+            if (field.contains("Platform") || "PLATFORM_CHANGED".equals(stringValue(leaf.value()))) {
+                categories.add("platform");
+            }
+            if (field.contains("callStart.stopPoint") || field.contains("callEnd.stopPoint")
+                    || field.contains("nextCalls[].stopPoint") || field.contains("nextTransitCalls[].stopPoint")) {
+                categories.add("location-filter");
+            }
+            if (field.contains("nextCancelledCalls[]")) {
+                categories.add("cancelled-call");
+            }
+            if (field.contains("replacement.stopPointReplacements[]")
+                    || field.contains("externalReplacement.stopPointReplacements[]")
+                    || field.endsWith("isReplacementOf") || field.endsWith("replacement")
+                    || field.endsWith("externalReplacement")) {
+                categories.add("replacement");
+            }
+            if ("LOCAL_TIME_BETWEEN".equals(leaf.operator())) {
+                categories.add("time");
+            }
+            if (field.endsWith("changes") || field.contains("Statuses[].status") || field.contains("exclusion.")) {
+                categories.add("change-cancellation-exclusion");
+            }
+        }
+        return categories;
     }
 
     private String validateTemporalSemantics(

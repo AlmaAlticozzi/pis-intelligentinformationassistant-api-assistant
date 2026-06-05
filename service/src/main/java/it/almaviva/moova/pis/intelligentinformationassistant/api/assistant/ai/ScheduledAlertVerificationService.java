@@ -41,6 +41,9 @@ public class ScheduledAlertVerificationService {
     ScheduledAlertReplacementHintsExtractor replacementHintsExtractor;
 
     @Inject
+    ScheduledUnsupportedConstraintDetector unsupportedConstraintDetector;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
 
     public AlertVerificationOutcome verify(
@@ -117,6 +120,7 @@ public class ScheduledAlertVerificationService {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][REPLACEMENT_HINTS] hasReplacementConstraint="
                 + replacementHints.hasReplacementConstraint()
                 + " constraints=" + replacementHints.constraints());
+        String unsupportedReason = unsupportedConstraintReason(originalPrompt);
 
         LlmRequest request = promptBuilder.build(new ScheduledAlertVerificationPromptData(
                 alertId,
@@ -159,6 +163,15 @@ public class ScheduledAlertVerificationService {
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] decision=" + parsed.decision()
                     + " technicalSpecificationPresent=" + (parsed.technicalSpecification() != null)
                     + " agentBlueprintPreviewPresent=" + (parsed.agentBlueprintPreview() != null));
+            if (parsed.decision() == AlertVerificationDecision.VERIFIED && unsupportedReason != null) {
+                System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][UNSUPPORTED] reason=" + unsupportedReason);
+                return rejected(
+                        alertId,
+                        "Scheduled ServiceData verification rejected an unsupported required constraint.",
+                        unsupportedReason,
+                        parsed.provider(),
+                        parsed.model());
+            }
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision before validation=" + parsed.decision());
             AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] final validator decision="
@@ -217,6 +230,14 @@ public class ScheduledAlertVerificationService {
             extractor = new ScheduledAlertReplacementHintsExtractor();
         }
         return extractor.extract(originalPrompt);
+    }
+
+    private String unsupportedConstraintReason(String originalPrompt) {
+        ScheduledUnsupportedConstraintDetector detector = unsupportedConstraintDetector;
+        if (detector == null) {
+            detector = new ScheduledUnsupportedConstraintDetector();
+        }
+        return detector.rejectionReason(originalPrompt);
     }
 
     private boolean isScheduledServiceDataRoute(AlertRouteUnderstandingResult route) {
