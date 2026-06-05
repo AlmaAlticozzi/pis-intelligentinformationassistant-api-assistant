@@ -5,6 +5,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
  */
 public enum AiUseCase {
     TEXT_IMPROVE,
+    ALERT_ROUTE_UNDERSTANDING,
     ALERT_VERIFY,
     ALERT_LOCATION_UNDERSTANDING,
     AGENT_BLUEPRINT_GENERATE,

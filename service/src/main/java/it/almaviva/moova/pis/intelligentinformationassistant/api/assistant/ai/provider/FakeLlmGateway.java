@@ -17,6 +17,9 @@ public class FakeLlmGateway implements LlmGateway {
     @Override
     public LlmResponse generateText(LlmRequest request) {
         System.out.println("[IIA-AI-TEST] FakeLlmGateway invoked for useCase=" + request.useCase());
+        if (request.useCase() == AiUseCase.ALERT_ROUTE_UNDERSTANDING) {
+            return routeResponse(request.userPrompt());
+        }
         if (request.useCase() == AiUseCase.ALERT_VERIFY && isCancellationPrompt(request.userPrompt())) {
             return new LlmResponse(
                     """
@@ -118,6 +121,79 @@ public class FakeLlmGateway implements LlmGateway {
                 null,
                 null,
                 null);
+    }
+
+    private LlmResponse routeResponse(String userPrompt) {
+        String normalized = userPrompt == null ? "" : userPrompt.toLowerCase();
+        if (normalized.contains("piove") || normalized.contains("meteo") || normalized.contains("quanto fa")
+                || normalized.contains("2+2") || normalized.contains("wifi")) {
+            return new LlmResponse("""
+                    {
+                      "decision":"REJECTED",
+                      "dataDomains":[],
+                      "primaryDataDomain":null,
+                      "interpreterType":"UNKNOWN",
+                      "accessMode":"NONE",
+                      "intentKind":"UNSUPPORTED",
+                      "outputMode":"NONE",
+                      "requiresPolling":false,
+                      "requiresServiceDataApi":false,
+                      "requiresKafkaEvent":false,
+                      "hasAggregation":false,
+                      "hasCardinalityThreshold":false,
+                      "hasReportIntent":false,
+                      "confidence":0.0,
+                      "summary":"The prompt is outside supported ServiceData routing.",
+                      "rejectedReason":"Unsupported alert routing domain.",
+                      "warnings":[]
+                    }
+                    """, "FAKE", "fake-model", null, null, null);
+        }
+        if (normalized.contains("ogni ") || normalized.contains(" quante ") || normalized.contains("almeno ")
+                || normalized.contains("due treni") || normalized.contains("due bus") || normalized.contains("tre bus")) {
+            return new LlmResponse("""
+                    {
+                      "decision":"ROUTED",
+                      "dataDomains":["SERVICE_DATA"],
+                      "primaryDataDomain":"SERVICE_DATA",
+                      "interpreterType":"SCHEDULED_INTERPRETER",
+                      "accessMode":"SERVICE_DATA_API_SNAPSHOT",
+                      "intentKind":"SNAPSHOT_CONDITION",
+                      "outputMode":"ON_MATCH",
+                      "requiresPolling":true,
+                      "requiresServiceDataApi":true,
+                      "requiresKafkaEvent":false,
+                      "hasAggregation":true,
+                      "hasCardinalityThreshold":true,
+                      "hasReportIntent":false,
+                      "confidence":0.82,
+                      "summary":"The alert requires a ServiceData snapshot route.",
+                      "rejectedReason":null,
+                      "warnings":[]
+                    }
+                    """, "FAKE", "fake-model", null, null, null);
+        }
+        return new LlmResponse("""
+                {
+                  "decision":"ROUTED",
+                  "dataDomains":["SERVICE_DATA"],
+                  "primaryDataDomain":"SERVICE_DATA",
+                  "interpreterType":"EVENT_INTERPRETER",
+                  "accessMode":"KAFKA_EVENT",
+                  "intentKind":"EVENT_OCCURRENCE",
+                  "outputMode":"ON_MATCH",
+                  "requiresPolling":false,
+                  "requiresServiceDataApi":false,
+                  "requiresKafkaEvent":true,
+                  "hasAggregation":false,
+                  "hasCardinalityThreshold":false,
+                  "hasReportIntent":false,
+                  "confidence":0.86,
+                  "summary":"The alert can be routed to event-based ServiceData verification.",
+                  "rejectedReason":null,
+                  "warnings":[]
+                }
+                """, "FAKE", "fake-model", null, null, null);
     }
 
     private boolean isCancellationPrompt(String userPrompt) {

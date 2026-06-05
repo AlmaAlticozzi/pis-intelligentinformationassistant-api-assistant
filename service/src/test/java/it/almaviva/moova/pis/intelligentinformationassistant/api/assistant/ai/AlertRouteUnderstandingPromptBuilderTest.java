@@ -1,0 +1,47 @@
+package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
+
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class AlertRouteUnderstandingPromptBuilderTest {
+
+    @Test
+    void buildsDedicatedRouteUnderstandingPromptWithoutTechnicalSpecificationGeneration() {
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT1",
+                "Route test",
+                "Metadata only",
+                "Avvisami quando una corsa parte da Garibaldi"));
+
+        assertThat(request.useCase()).isEqualTo(AiUseCase.ALERT_ROUTE_UNDERSTANDING);
+        assertThat(request.systemPrompt())
+                .contains("preliminary router")
+                .contains("Return only valid raw JSON")
+                .contains("Do not produce a technicalSpecification");
+        assertThat(request.userPrompt())
+                .contains("SERVICE_DATA is currently the only supported data domain")
+                .contains("EVENT_INTERPRETER is for alerts triggered by individual ServiceData/Kafka domain events")
+                .contains("SCHEDULED_INTERPRETER is for alerts that require periodic snapshot queries")
+                .contains("ARRIVING", "DEPARTURE_PLATFORM_CHANGED", "CHANGED_DESTINATION", "RELOAD_JOURNEY")
+                .contains("\"dataDomains\": [\"SERVICE_DATA\"]")
+                .contains("Do not rely on exact wording or one language");
+    }
+
+    private AlertRouteUnderstandingPromptBuilder builder() {
+        AiConfiguration configuration = mock(AiConfiguration.class);
+        AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);
+        when(configuration.alertVerify()).thenReturn(alertVerify);
+        when(alertVerify.model()).thenReturn("test-model");
+        when(alertVerify.temperature()).thenReturn(0.1);
+        when(alertVerify.maxOutputTokens()).thenReturn(5000);
+
+        AlertRouteUnderstandingPromptBuilder builder = new AlertRouteUnderstandingPromptBuilder();
+        builder.aiConfiguration = configuration;
+        return builder;
+    }
+}
