@@ -386,6 +386,11 @@ public class ScheduledAlertVerificationOutcomeValidator {
         Object threshold = snapshotEvaluation == null ? null : snapshotEvaluation.get("threshold");
         boolean thresholdPresent = threshold instanceof Map<?, ?> thresholdMap && !thresholdMap.isEmpty();
         Boolean includeCount = outputPolicy == null ? null : booleanValue(outputPolicy.get("includeCount"));
+        Boolean includeMatchingJourneys = outputPolicy == null ? null : booleanValue(outputPolicy.get("includeMatchingJourneys"));
+
+        if (Boolean.FALSE.equals(includeCount) && Boolean.FALSE.equals(includeMatchingJourneys)) {
+            return "Scheduled outputPolicy must include at least count or matching journeys.";
+        }
 
         if (isReportRoute(route)) {
             if (!"REPORT_COUNT".equals(mode) && !"REPORT_MATCHING_JOURNEYS".equals(mode)) {

@@ -338,6 +338,11 @@ public class ScheduledAlertVerificationPromptBuilder {
                 3. Boolean exists intent:
                 - If the user asks if there is at least one matching journey without asking for count/report:
                   prefer snapshotEvaluation.mode = BOOLEAN_EXISTS when supported.
+                  outputPolicy.emit = ON_MATCH.
+                  outputPolicy.includeMatchingJourneys should be true.
+                  outputPolicy.includeCount should be true when useful, especially for "at least one" checks.
+                  A candidate suggestion must contain enough information to explain why the alert matched.
+                  Forbidden for VERIFIED: {"includeCount": false, "includeMatchingJourneys": false}.
                   outputPolicy.emit must not be EVERY_RUN for this MVP.
 
                 4. Array operator JSON shape:
@@ -400,11 +405,14 @@ public class ScheduledAlertVerificationPromptBuilder {
 
                 8. Monitored stop point ids:
                 - serviceDataQuery.stopPoints must contain monitored stop point ids from ScheduledServiceDataLocationContext.
+                - serviceDataQuery.stopPoints is the authoritative representation of monitored stop points.
                 - Monitored stop point ids are covered by serviceDataQuery.stopPoints.
                 - Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points.
+                - Do not add callEnd.stopPoint.id or callStart.stopPoint.id for the same monitored stop point unless the user explicitly asks for destination/origin semantics and the location context marks that stop as a filter/control location.
                 - Filter/control locations must be represented in snapshotEvaluation.condition.
                 - Monitored locations need condition coverage only if the user asks a distinct field constraint not already represented by the API query scope.
                 - For "arrives at monitored stop X between HH and HH", X is monitored query scope; use serviceDataQuery.stopPoints=[X], then condition arrival time only.
+                - Example: "arrives at Garibaldi FS between 14:00 and 16:00" means serviceDataQuery.stopPoints=[Garibaldi id] plus an arrival time condition; do not add callEnd.stopPoint.id=Garibaldi unless Garibaldi is marked FILTER_DESTINATION_STOP_POINT.
                 - For "has destination X", X is a FILTER_DESTINATION_STOP_POINT and must be condition callEnd.stopPoint.id.
                 - For "origin X", X is a FILTER_ORIGIN_STOP_POINT and must be condition callStart.stopPoint.id.
                 - For a multi-monitored threshold alert such as "Notify me when at stop A and stop B there are two arriving journeys":

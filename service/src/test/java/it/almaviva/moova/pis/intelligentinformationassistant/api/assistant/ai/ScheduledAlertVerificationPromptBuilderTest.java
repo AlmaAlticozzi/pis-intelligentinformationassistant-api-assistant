@@ -84,6 +84,18 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptRequiresInformativeBooleanOutputPolicy() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Boolean exists intent")
+                .contains("outputPolicy.emit = ON_MATCH")
+                .contains("outputPolicy.includeMatchingJourneys should be true")
+                .contains("Forbidden for VERIFIED: {\"includeCount\": false, \"includeMatchingJourneys\": false}")
+                .contains("A candidate suggestion must contain enough information to explain why the alert matched");
+    }
+
+    @Test
     void promptStronglySeparatesReportCountFromConditionalThreshold() {
         LlmRequest reportRequest = builder().build(new ScheduledAlertVerificationPromptData(
                 "ALRT1",
@@ -151,6 +163,8 @@ class ScheduledAlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
                 .contains("Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points")
+                .contains("serviceDataQuery.stopPoints is the authoritative representation of monitored stop points")
+                .contains("Do not add callEnd.stopPoint.id or callStart.stopPoint.id for the same monitored stop point")
                 .contains("serviceDataQuery.stopPoints=[A id, B id]; condition checks arrival status; threshold >= 2")
                 .contains("IN requires \"values\": [...]")
                 .contains("Never use \"value\" with an array for IN, NOT_IN, or CONTAINS_ANY");

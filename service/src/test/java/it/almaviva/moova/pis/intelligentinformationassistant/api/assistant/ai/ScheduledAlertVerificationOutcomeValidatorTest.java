@@ -694,6 +694,24 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsOutputPolicyWithoutCountOrMatchingJourneys() {
+        Map<String, Object> technical = technicalSpecificationWithEvaluation(
+                "BOOLEAN_EXISTS",
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00"))),
+                null,
+                "ON_MATCH",
+                false);
+        technical.put("outputPolicy", Map.of(
+                "emit", "ON_MATCH",
+                "includeCount", false,
+                "includeMatchingJourneys", false));
+
+        assertRejected(validOutcome(technical, blueprint()),
+                "Scheduled outputPolicy must include at least count or matching journeys");
+    }
+
+    @Test
     void rejectsRequestedJourneyTimeFilterWhenConditionOmitsLocalTimeBetween() {
         assertRejected(
                 validOutcome(technicalSpecification(), blueprint()),

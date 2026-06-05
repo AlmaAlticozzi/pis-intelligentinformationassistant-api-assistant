@@ -481,6 +481,34 @@ class ScheduledAlertVerificationServiceTest {
         assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation")))
                 .containsEntry("mode", "BOOLEAN_EXISTS")
                 .containsEntry("threshold", null);
+        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "ON_MATCH")
+                .containsEntry("includeMatchingJourneys", true);
+    }
+
+    @Test
+    void rejectsBooleanOutputPolicyWithoutCountOrMatchingJourneys() {
+        Map<String, Object> response = validBooleanResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00"))));
+        map(response.get("technicalSpecification")).put("outputPolicy", Map.of(
+                "emit", "ON_MATCH",
+                "includeCount", false,
+                "includeMatchingJourneys", false));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Arrival time boolean",
+                "Scheduled ServiceData arrival time boolean test",
+                "Fammi sapere se c'e almeno una corsa che arriva a Garibaldi FS tra le 14:00 e le 16:00",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Scheduled outputPolicy must include at least count or matching journeys");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
     }
 
     @Test
