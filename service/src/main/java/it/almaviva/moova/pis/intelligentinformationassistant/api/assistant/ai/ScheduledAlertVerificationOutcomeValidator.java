@@ -2,12 +2,17 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledServiceDataCapabilityCatalog;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.time.DateTimeException;
+import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @ApplicationScoped
 public class ScheduledAlertVerificationOutcomeValidator {
@@ -26,6 +31,39 @@ public class ScheduledAlertVerificationOutcomeValidator {
     private static final String OUTPUT_TYPE = "CANDIDATE_SUGGESTION";
     private static final String DEFAULT_REJECTED_REASON =
             "Scheduled alert verification rejected the result because it does not satisfy the Scheduled MVP contract.";
+    private static final String CONDITION_TYPE = "SERVICE_DATA_SCHEDULED_FIELD_MATCH";
+    private static final Set<String> ARRAY_PATHS = Set.of(
+            "stopPointsJourneyDetails[]",
+            "stopPointsJourneyDetails[].nextCalls[]",
+            "stopPointsJourneyDetails[].nextTransitCalls[]",
+            "stopPointsJourneyDetails[].nextCancelledCalls[]",
+            "stopPointsJourneyDetails[].replacement.stopPointReplacements[]",
+            "stopPointsJourneyDetails[].externalReplacement.stopPointReplacements[]");
+    private static final Set<String> CHILD_ARRAY_PATHS = Set.of(
+            "nextCalls[]",
+            "nextTransitCalls[]",
+            "nextCancelledCalls[]",
+            "replacement.stopPointReplacements[]",
+            "externalReplacement.stopPointReplacements[]");
+    private static final Set<String> NUMERIC_OPERATORS = Set.of(
+            "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL");
+    private static final Set<String> PLATFORM_SINGLE_VALUE_OPERATORS = Set.of(
+            "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM");
+    private static final Set<String> PLATFORM_VALUES_OPERATORS = Set.of(
+            "IN_PLATFORMS", "NOT_IN_PLATFORMS");
+    private static final Set<String> PLATFORM_FIELD_OPERATORS = Set.of(
+            "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD");
+    private static final Set<String> PLATFORM_NUMERIC_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_GREATER_THAN",
+            "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+            "PLATFORM_NUMBER_LESS_THAN",
+            "PLATFORM_NUMBER_LESS_OR_EQUAL",
+            "PLATFORM_NUMBER_MULTIPLE_OF");
+    private static final Set<String> PLATFORM_VALUELESS_OPERATORS = Set.of(
+            "PLATFORM_NUMBER_EVEN",
+            "PLATFORM_NUMBER_ODD",
+            "PLATFORM_NUMBER_DOUBLE_DIGIT",
+            "PLATFORM_HAS_LETTER_SUFFIX");
     private static final List<String> FORBIDDEN_OUTPUT_MARKERS = List.of(
             "payload.ongroundServiceEvent",
             "ServiceDataV2",
@@ -103,7 +141,15 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (technicalFailure != null) {
             return technicalFailure;
         }
-        return validateAgentBlueprintPreview(outcome.agentBlueprintPreview());
+        String blueprintFailure = validateAgentBlueprintPreview(outcome.agentBlueprintPreview());
+        if (blueprintFailure != null) {
+            return blueprintFailure;
+        }
+        String conditionFailure = validateScheduledConditions(outcome.technicalSpecification(), outcome.agentBlueprintPreview());
+        if (conditionFailure != null) {
+            return conditionFailure;
+        }
+        return null;
     }
 
     private String validateTechnicalSpecification(Map<String, Object> technicalSpecification) {
@@ -150,6 +196,334 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return "technicalSpecification.deduplicationKeyTemplate is required.";
         }
         return null;
+    }
+
+    private String validateScheduledConditions(
+            Map<String, Object> technicalSpecification,
+            Map<String, Object> agentBlueprintPreview) {
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        if (condition == null || condition.isEmpty()) {
+            return catalogFailure("technicalSpecification.snapshotEvaluation.condition is required.");
+        }
+        String failure = validateConditionNode(condition, "", true);
+        if (failure != null) {
+            return failure;
+        }
+
+        Map<String, Object> parameters = asMap(agentBlueprintPreview.get("parameters"));
+        Map<String, Object> blueprintSnapshotEvaluation =
+                parameters == null ? null : asMap(parameters.get("snapshotEvaluation"));
+        Map<String, Object> blueprintCondition =
+                blueprintSnapshotEvaluation == null ? null : asMap(blueprintSnapshotEvaluation.get("condition"));
+        if (blueprintCondition != null) {
+            if (!condition.equals(blueprintCondition)) {
+                return catalogFailure("agentBlueprintPreview.parameters.snapshotEvaluation.condition must equal technicalSpecification.snapshotEvaluation.condition.");
+            }
+            failure = validateConditionNode(blueprintCondition, "", true);
+            if (failure != null) {
+                return failure;
+            }
+        }
+        return null;
+    }
+
+    private String validateConditionNode(Map<String, Object> node, String arrayContext, boolean root) {
+        if (node == null || node.isEmpty()) {
+            return catalogFailure("condition node must be a non-empty object.");
+        }
+        if (root) {
+            if (!CONDITION_TYPE.equals(stringValue(node.get("type")))) {
+                return catalogFailure("snapshotEvaluation.condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.");
+            }
+        } else if (node.containsKey("type")) {
+            return catalogFailure("type is allowed only on the root scheduled condition.");
+        }
+
+        boolean hasLeaf = node.containsKey("field") || node.containsKey("operator") || node.containsKey("otherField");
+        boolean hasAll = node.containsKey("all");
+        boolean hasAny = node.containsKey("any");
+        boolean hasAnyElement = node.containsKey("anyElement");
+        int formCount = (hasLeaf ? 1 : 0) + (hasAll ? 1 : 0) + (hasAny ? 1 : 0) + (hasAnyElement ? 1 : 0);
+        if (formCount == 0) {
+            return catalogFailure("condition node must contain leaf, all, any or anyElement.");
+        }
+        if (formCount > 1) {
+            return catalogFailure("condition node mixes incompatible forms.");
+        }
+        if (hasLeaf) {
+            return validateLeaf(node, arrayContext);
+        }
+        if (hasAll) {
+            return validateChildrenArray(node.get("all"), arrayContext, "all");
+        }
+        if (hasAny) {
+            return validateChildrenArray(node.get("any"), arrayContext, "any");
+        }
+        return validateAnyElement(node.get("anyElement"), arrayContext);
+    }
+
+    private String validateChildrenArray(Object value, String arrayContext, String property) {
+        if (!(value instanceof Collection<?> collection) || collection.isEmpty()) {
+            return catalogFailure(property + " must be a non-empty array.");
+        }
+        int index = 0;
+        for (Object item : collection) {
+            Map<String, Object> child = asMap(item);
+            if (child == null) {
+                return catalogFailure(property + "[" + index + "] must be an object.");
+            }
+            String failure = validateConditionNode(child, arrayContext, false);
+            if (failure != null) {
+                return failure;
+            }
+            index++;
+        }
+        return null;
+    }
+
+    private String validateAnyElement(Object value, String arrayContext) {
+        Map<String, Object> anyElement = asMap(value);
+        if (anyElement == null) {
+            return catalogFailure("anyElement must be an object.");
+        }
+        String rawPath = stringValue(anyElement.get("path"));
+        if (isBlank(rawPath)) {
+            return catalogFailure("anyElement.path is required.");
+        }
+        String resolvedPath = resolveArrayPath(arrayContext, rawPath);
+        if (resolvedPath == null) {
+            return catalogFailure("anyElement.path is not allowed: " + rawPath);
+        }
+        Map<String, Object> conditions = asMap(anyElement.get("conditions"));
+        if (conditions == null || conditions.isEmpty()) {
+            return catalogFailure("anyElement.conditions is required.");
+        }
+        return validateConditionNode(conditions, resolvedPath, false);
+    }
+
+    private String resolveArrayPath(String arrayContext, String rawPath) {
+        String path = rawPath.trim();
+        if (ARRAY_PATHS.contains(path)) {
+            if (arrayContext == null || arrayContext.isBlank()) {
+                return path;
+            }
+            if (path.startsWith(arrayContext + ".")) {
+                return path;
+            }
+            return null;
+        }
+        if ("stopPointsJourneyDetails[]".equals(path) && (arrayContext == null || arrayContext.isBlank())) {
+            return path;
+        }
+        if ("stopPointsJourneyDetails[]".equals(arrayContext) && CHILD_ARRAY_PATHS.contains(path)) {
+            return arrayContext + "." + path;
+        }
+        return null;
+    }
+
+    private String validateLeaf(Map<String, Object> node, String arrayContext) {
+        String field = stringValue(node.get("field"));
+        String operator = stringValue(node.get("operator"));
+        if (isBlank(field)) {
+            return catalogFailure("condition leaf field is required.");
+        }
+        if (isBlank(operator)) {
+            return catalogFailure("condition leaf operator is required.");
+        }
+        String resolvedField = resolveField(arrayContext, field);
+        if (resolvedField == null) {
+            return catalogFailure("field is not allowed by ScheduledServiceDataCapabilityCatalog: " + field);
+        }
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CATALOG] validating field="
+                + field + " resolvedField=" + resolvedField + " operator=" + operator);
+        ScheduledServiceDataCapabilityCatalog.FieldCapability capability =
+                ScheduledServiceDataCapabilityCatalog.findField(resolvedField).orElse(null);
+        if (capability == null) {
+            return catalogFailure("field is not allowed by ScheduledServiceDataCapabilityCatalog: " + resolvedField);
+        }
+        if (!capability.supportsOperator(operator)) {
+            return catalogFailure("operator " + operator + " is not allowed for field " + resolvedField + ".");
+        }
+        String shapeFailure = validateOperatorShape(node, operator, capability, resolvedField, arrayContext);
+        if (shapeFailure != null) {
+            return shapeFailure;
+        }
+        return validateEnumValues(node, operator, capability, resolvedField);
+    }
+
+    private String resolveField(String arrayContext, String field) {
+        String trimmed = field.trim();
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(trimmed)) {
+            return trimmed;
+        }
+        if (arrayContext == null || arrayContext.isBlank()) {
+            return null;
+        }
+        String candidate = arrayContext + "." + trimmed;
+        return ScheduledServiceDataCapabilityCatalog.isAllowedField(candidate) ? candidate : null;
+    }
+
+    private String validateOperatorShape(
+            Map<String, Object> node,
+            String operator,
+            ScheduledServiceDataCapabilityCatalog.FieldCapability capability,
+            String resolvedField,
+            String arrayContext) {
+        if ("IN".equals(operator) || "NOT_IN".equals(operator) || "CONTAINS_ANY".equals(operator)) {
+            if (!hasNonEmptyValues(node)) {
+                return catalogFailure("operator " + operator + " requires a non-empty values array.");
+            }
+            if (node.containsKey("value")) {
+                return catalogFailure("operator " + operator + " requires values, not value.");
+            }
+            return null;
+        }
+        if ("CONTAINS".equals(operator)
+                || "EQUALS".equals(operator)
+                || "EQUALS_NORMALIZED".equals(operator)
+                || "CONTAINS_NORMALIZED".equals(operator)
+                || "NOT_EQUALS_NORMALIZED".equals(operator)
+                || "NOT_CONTAINS_NORMALIZED".equals(operator)) {
+            if (!node.containsKey("value") || node.get("value") == null) {
+                return catalogFailure("operator " + operator + " requires value.");
+            }
+        }
+        if (NUMERIC_OPERATORS.contains(operator)) {
+            if (!(node.get("value") instanceof Number)) {
+                return catalogFailure("numeric operator " + operator + " requires numeric value.");
+            }
+        }
+        if (capability.type() == ScheduledServiceDataCapabilityCatalog.FieldType.BOOLEAN
+                && "EQUALS".equals(operator)
+                && !(node.get("value") instanceof Boolean)) {
+            return catalogFailure("boolean field " + resolvedField + " requires boolean value.");
+        }
+        if ("LOCAL_TIME_BETWEEN".equals(operator)) {
+            return validateLocalTimeBetween(node.get("value"));
+        }
+        if ("LOCAL_DAY_OF_WEEK_IN".equals(operator) || "LOCAL_DAY_OF_WEEK_NOT_IN".equals(operator)) {
+            return validateLocalDayOfWeek(node.get("value"));
+        }
+        if (PLATFORM_SINGLE_VALUE_OPERATORS.contains(operator)) {
+            if (isBlank(stringValue(node.get("value")))) {
+                return catalogFailure("platform operator " + operator + " requires non-empty string value.");
+            }
+        }
+        if (PLATFORM_VALUES_OPERATORS.contains(operator) && !hasNonEmptyValues(node)) {
+            return catalogFailure("platform operator " + operator + " requires non-empty values array.");
+        }
+        if (PLATFORM_FIELD_OPERATORS.contains(operator)) {
+            String otherField = stringValue(node.get("otherField"));
+            if (isBlank(otherField)) {
+                return catalogFailure("platform field operator " + operator + " requires otherField.");
+            }
+            String resolvedOtherField = resolveField(arrayContext, otherField);
+            ScheduledServiceDataCapabilityCatalog.FieldCapability otherCapability = resolvedOtherField == null
+                    ? null
+                    : ScheduledServiceDataCapabilityCatalog.findField(resolvedOtherField).orElse(null);
+            if (otherCapability == null
+                    || otherCapability.type() != ScheduledServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+                return catalogFailure("otherField for " + operator + " must resolve to a platform field.");
+            }
+        }
+        if (PLATFORM_NUMERIC_OPERATORS.contains(operator)) {
+            if (!(node.get("value") instanceof Number number)) {
+                return catalogFailure("platform numeric operator " + operator + " requires numeric value.");
+            }
+            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0.0) {
+                return catalogFailure("PLATFORM_NUMBER_MULTIPLE_OF requires value greater than 0.");
+            }
+        }
+        if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
+            Map<String, Object> value = asMap(node.get("value"));
+            if (value == null || !(value.get("min") instanceof Number min) || !(value.get("max") instanceof Number max)) {
+                return catalogFailure("PLATFORM_NUMBER_BETWEEN requires numeric min and max.");
+            }
+            if (min.doubleValue() > max.doubleValue()) {
+                return catalogFailure("PLATFORM_NUMBER_BETWEEN requires min less than or equal to max.");
+            }
+        }
+        if (PLATFORM_VALUELESS_OPERATORS.contains(operator)
+                && (node.containsKey("value") || node.containsKey("values"))) {
+            return catalogFailure("platform valueless operator " + operator + " must not contain value or values.");
+        }
+        return null;
+    }
+
+    private String validateLocalTimeBetween(Object value) {
+        Map<String, Object> map = asMap(value);
+        if (map == null) {
+            return catalogFailure("LOCAL_TIME_BETWEEN value must be an object.");
+        }
+        String start = stringValue(map.get("start"));
+        String end = stringValue(map.get("end"));
+        String timezone = stringValue(map.get("timezone"));
+        if (isBlank(start) || isBlank(end) || isBlank(timezone)) {
+            return catalogFailure("LOCAL_TIME_BETWEEN requires value.start, value.end and value.timezone.");
+        }
+        try {
+            LocalTime.parse(start);
+            LocalTime.parse(end);
+        } catch (DateTimeException ex) {
+            return catalogFailure("LOCAL_TIME_BETWEEN start/end must use HH:mm:ss.");
+        }
+        return null;
+    }
+
+    private String validateLocalDayOfWeek(Object value) {
+        Map<String, Object> map = asMap(value);
+        if (map == null) {
+            return catalogFailure("LOCAL_DAY_OF_WEEK value must be an object.");
+        }
+        if (isBlank(stringValue(map.get("timezone")))) {
+            return catalogFailure("LOCAL_DAY_OF_WEEK requires value.timezone.");
+        }
+        Object days = map.get("days");
+        if (!(days instanceof Collection<?> collection) || collection.isEmpty()) {
+            return catalogFailure("LOCAL_DAY_OF_WEEK requires non-empty value.days.");
+        }
+        for (Object day : collection) {
+            try {
+                DayOfWeek.valueOf(String.valueOf(day).trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                return catalogFailure("LOCAL_DAY_OF_WEEK contains invalid day: " + day);
+            }
+        }
+        return null;
+    }
+
+    private String validateEnumValues(
+            Map<String, Object> node,
+            String operator,
+            ScheduledServiceDataCapabilityCatalog.FieldCapability capability,
+            String resolvedField) {
+        if (!capability.isEnumLike() || capability.enumValues().isEmpty()) {
+            return null;
+        }
+        if ("EQUALS".equals(operator) || "CONTAINS".equals(operator)) {
+            String value = stringValue(node.get("value"));
+            if (!capability.enumValues().contains(value)) {
+                return catalogFailure("enum value " + value + " is not allowed for field " + resolvedField + ".");
+            }
+        }
+        if ("IN".equals(operator) || "CONTAINS_ANY".equals(operator)) {
+            for (String value : stringList(node.get("values"))) {
+                if (!capability.enumValues().contains(value)) {
+                    return catalogFailure("enum value " + value + " is not allowed for field " + resolvedField + ".");
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean hasNonEmptyValues(Map<String, Object> node) {
+        return node.get("values") instanceof Collection<?> values && !values.isEmpty();
+    }
+
+    private String catalogFailure(String reason) {
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CATALOG] validation failed reason=" + reason);
+        return reason;
     }
 
     private String validateAgentBlueprintPreview(Map<String, Object> preview) {
