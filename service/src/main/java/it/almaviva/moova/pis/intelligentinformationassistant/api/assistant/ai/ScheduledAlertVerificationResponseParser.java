@@ -8,6 +8,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -57,6 +58,12 @@ public class ScheduledAlertVerificationResponseParser {
             if (structuralFailure != null) {
                 return new ParseResult(Optional.empty(), structuralFailure, rawLength);
             }
+            String dslShapeFailure = decision == AlertVerificationDecision.VERIFIED
+                    ? validateParserDslShape(technicalSpecification, agentBlueprintPreview)
+                    : null;
+            if (dslShapeFailure != null) {
+                return new ParseResult(Optional.empty(), dslShapeFailure, rawLength);
+            }
 
             return new ParseResult(Optional.of(new AlertVerificationOutcome(
                     decision,
@@ -101,13 +108,86 @@ public class ScheduledAlertVerificationResponseParser {
             uppercase(technicalSpecification, "accessMode");
             uppercase(technicalSpecification, "triggerType");
             uppercase(technicalSpecification, "evaluationMode");
+            normalizeLocalTimeBetweenLeaves(technicalSpecification);
         }
         if (agentBlueprintPreview != null) {
             uppercase(agentBlueprintPreview, "triggerType");
             uppercase(agentBlueprintPreview, "evaluationMode");
             uppercaseList(agentBlueprintPreview, "requiredSources");
             uppercaseList(agentBlueprintPreview, "targetTypes");
+            normalizeLocalTimeBetweenLeaves(agentBlueprintPreview);
         }
+    }
+
+    private void normalizeLocalTimeBetweenLeaves(Object value) {
+        if (value instanceof Map<?, ?> rawMap) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            if ("LOCAL_TIME_BETWEEN".equals(asString(map.get("operator")))) {
+                normalizeLocalTimeBetweenLeaf(map);
+            }
+            for (Object child : map.values()) {
+                normalizeLocalTimeBetweenLeaves(child);
+            }
+            return;
+        }
+        if (value instanceof Collection<?> collection) {
+            for (Object child : collection) {
+                normalizeLocalTimeBetweenLeaves(child);
+            }
+        }
+    }
+
+    private void normalizeLocalTimeBetweenLeaf(Map<String, Object> leaf) {
+        if (!leaf.containsKey("value")) {
+            Map<String, Object> value = normalizedTimeValue(
+                    leaf.get("start"),
+                    leaf.get("end"),
+                    leaf.get("startLocalTime"),
+                    leaf.get("endLocalTime"),
+                    leaf.get("timezone"));
+            if (value != null) {
+                leaf.put("value", value);
+                leaf.remove("start");
+                leaf.remove("end");
+                leaf.remove("startLocalTime");
+                leaf.remove("endLocalTime");
+                leaf.remove("timezone");
+            }
+            return;
+        }
+        Map<String, Object> value = asMap(leaf.get("value"));
+        if (value == null || value.containsKey("start") || value.containsKey("end")) {
+            return;
+        }
+        Map<String, Object> normalizedValue = normalizedTimeValue(
+                null,
+                null,
+                value.get("startLocalTime"),
+                value.get("endLocalTime"),
+                value.get("timezone"));
+        if (normalizedValue != null) {
+            leaf.put("value", normalizedValue);
+        }
+    }
+
+    private Map<String, Object> normalizedTimeValue(
+            Object start,
+            Object end,
+            Object startLocalTime,
+            Object endLocalTime,
+            Object timezone) {
+        String normalizedStart = firstString(start, startLocalTime);
+        String normalizedEnd = firstString(end, endLocalTime);
+        String normalizedTimezone = asString(timezone);
+        if (isBlank(normalizedStart) || isBlank(normalizedEnd) || isBlank(normalizedTimezone)) {
+            return null;
+        }
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("start", normalizedStart);
+        value.put("end", normalizedEnd);
+        value.put("timezone", normalizedTimezone);
+        return value;
     }
 
     private String validateScheduledEnvelope(
@@ -157,6 +237,53 @@ public class ScheduledAlertVerificationResponseParser {
         }
         if (!OUTPUT_MODEL.equals(firstString(payload.get("outputModel"), technicalSpecification.get("outputModel")))) {
             return "VERIFIED scheduled verification response requires AgentOutput.CANDIDATE_SUGGESTION outputModel.";
+        }
+        return null;
+    }
+
+    private String validateParserDslShape(Object... roots) {
+        for (Object root : roots) {
+            String failure = validateParserDslShape(root);
+            if (failure != null) {
+                return failure;
+            }
+        }
+        return null;
+    }
+
+    private String validateParserDslShape(Object value) {
+        if (value instanceof Map<?, ?> rawMap) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            Object anyElement = map.get("anyElement");
+            Map<String, Object> anyElementMap = asMap(anyElement);
+            if (anyElementMap != null && anyElementMap.get("conditions") instanceof Collection<?>) {
+                return "anyElement.conditions must be an object, not a direct array.";
+            }
+            if ("LOCAL_TIME_BETWEEN".equals(asString(map.get("operator")))) {
+                Map<String, Object> timeValue = asMap(map.get("value"));
+                if (timeValue == null
+                        || isBlank(asString(timeValue.get("start")))
+                        || isBlank(asString(timeValue.get("end")))
+                        || isBlank(asString(timeValue.get("timezone")))) {
+                    return "LOCAL_TIME_BETWEEN requires value.start, value.end and value.timezone.";
+                }
+            }
+            for (Object child : map.values()) {
+                String failure = validateParserDslShape(child);
+                if (failure != null) {
+                    return failure;
+                }
+            }
+            return null;
+        }
+        if (value instanceof Collection<?> collection) {
+            for (Object child : collection) {
+                String failure = validateParserDslShape(child);
+                if (failure != null) {
+                    return failure;
+                }
+            }
         }
         return null;
     }

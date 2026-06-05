@@ -754,6 +754,17 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsAbsoluteFieldInsideStopPointsJourneyDetailsAnyElement() {
+        assertRejected(validOutcome(
+                        technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                                leaf("stopPointsJourneyDetails[].callStart.departureTime",
+                                        "LOCAL_TIME_BETWEEN",
+                                        timeValue("10:00:00", "12:00:00")))),
+                        blueprint()),
+                "field is not allowed");
+    }
+
+    @Test
     void rejectsUnsupportedTemporalTrendClaims() {
         AlertVerificationOutcome outcome = validOutcome(
                 technicalSpecification(),

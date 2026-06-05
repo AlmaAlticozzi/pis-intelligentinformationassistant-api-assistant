@@ -646,6 +646,11 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private String resolveField(String arrayContext, String field) {
         String trimmed = field.trim();
+        if (arrayContext != null && !arrayContext.isBlank()
+                && (trimmed.startsWith("stopPointsJourneyDetails[]")
+                || trimmed.startsWith(arrayContext + "."))) {
+            return null;
+        }
         if (ScheduledServiceDataCapabilityCatalog.isAllowedField(trimmed)) {
             return trimmed;
         }

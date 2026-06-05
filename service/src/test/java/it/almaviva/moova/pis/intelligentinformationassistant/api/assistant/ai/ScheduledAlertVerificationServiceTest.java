@@ -414,6 +414,76 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesOldLocalTimeBetweenInternalHintShapeAfterParserNormalization() {
+        Map<String, Object> oldShapeLeaf = new LinkedHashMap<>();
+        oldShapeLeaf.put("field", "callStart.departureTime");
+        oldShapeLeaf.put("operator", "LOCAL_TIME_BETWEEN");
+        oldShapeLeaf.put("startLocalTime", "10:00:00");
+        oldShapeLeaf.put("endLocalTime", "12:00:00");
+        oldShapeLeaf.put("timezone", "Europe/Rome");
+        Map<String, Object> response = validReportResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]", oldShapeLeaf));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Departure time report",
+                "Scheduled ServiceData departure time report test",
+                "Fammi sapere quante corse partono da Garibaldi FS tra le 10:00 e le 12:00",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        Map<String, Object> leaf = nestedAnyElementConditions(outcome);
+        assertThat(map(leaf.get("value")))
+                .containsEntry("start", "10:00:00")
+                .containsEntry("end", "12:00:00")
+                .containsEntry("timezone", "Europe/Rome");
+    }
+
+    @Test
+    void rejectsAnyElementConditionsDirectArrayFromLlm() {
+        Map<String, Object> response = validReportResponse(explicitContext(),
+                conditionAnyElementWithRawConditions("stopPointsJourneyDetails[]", List.of(
+                        leaf("callStart.departureTime", "LOCAL_TIME_BETWEEN", timeValue("10:00:00", "12:00:00")))));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Departure time report",
+                "Scheduled ServiceData departure time report test",
+                "Fammi sapere quante corse partono da Garibaldi FS tra le 10:00 e le 12:00",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("anyElement.conditions must be an object");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void verifiesArrivalBooleanBetweenTimeWithCorrectShape() {
+        Map<String, Object> response = validBooleanResponse(explicitContext(),
+                conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("callEnd.arrivalTime", "LOCAL_TIME_BETWEEN", timeValue("14:00:00", "16:00:00"))));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Arrival time boolean",
+                "Scheduled ServiceData arrival time boolean test",
+                "Fammi sapere se c'e almeno una corsa che arriva a Garibaldi FS tra le 14:00 e le 16:00",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .containsEntry("mode", "BOOLEAN_EXISTS")
+                .containsEntry("threshold", null);
+    }
+
+    @Test
     void verifiesFrequencyLookaheadAndJourneyTimeTogether() {
         Map<String, Object> response = validReportResponse(explicitContext(),
                 conditionAnyElement("stopPointsJourneyDetails[]",
@@ -604,6 +674,23 @@ class ScheduledAlertVerificationServiceTest {
                 blueprint(context, "REPORT_COUNT", "EVERY_RUN"));
     }
 
+    private Map<String, Object> validBooleanResponse(
+            ScheduledServiceDataLocationContext context,
+            Map<String, Object> condition) {
+        Map<String, Object> technicalSpecification = technicalSpecification(
+                context,
+                "BOOLEAN_EXISTS",
+                condition,
+                null,
+                "ON_MATCH");
+        return response(
+                "VERIFIED",
+                "The scheduled boolean alert can be verified.",
+                null,
+                technicalSpecification,
+                blueprint(context, "BOOLEAN_EXISTS", "ON_MATCH"));
+    }
+
     private Map<String, Object> rejectedResponse(String reason) {
         return response("REJECTED", "The scheduled alert cannot be verified.", reason, null, null);
     }
@@ -751,6 +838,12 @@ class ScheduledAlertVerificationServiceTest {
                 "conditions", conditions)));
     }
 
+    private Map<String, Object> conditionAnyElementWithRawConditions(String path, Object conditions) {
+        return condition(Map.of("anyElement", Map.of(
+                "path", path,
+                "conditions", conditions)));
+    }
+
     private Map<String, Object> condition(Map<String, Object> body) {
         Map<String, Object> condition = new LinkedHashMap<>();
         condition.put("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
@@ -770,6 +863,14 @@ class ScheduledAlertVerificationServiceTest {
                 "field", field,
                 "operator", operator,
                 "values", values);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> nestedAnyElementConditions(AlertVerificationOutcome outcome) {
+        Map<String, Object> snapshotEvaluation = map(outcome.technicalSpecification().get("snapshotEvaluation"));
+        Map<String, Object> condition = map(snapshotEvaluation.get("condition"));
+        Map<String, Object> anyElement = map(condition.get("anyElement"));
+        return (Map<String, Object>) anyElement.get("conditions");
     }
 
     private ScheduledServiceDataLocationContext explicitContext() {

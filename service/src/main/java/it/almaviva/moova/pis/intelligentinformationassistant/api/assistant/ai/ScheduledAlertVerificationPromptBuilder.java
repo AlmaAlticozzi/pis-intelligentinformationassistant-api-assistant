@@ -347,12 +347,66 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Never use "value" with an array for IN, NOT_IN, or CONTAINS_ANY.
                 - EQUALS and CONTAINS use a single "value".
 
-                5. Monitored stop point ids:
+                5. LOCAL_TIME_BETWEEN JSON SHAPE - STRICT:
+                The only valid leaf shape is:
+                {
+                  "field": "<relative-or-root-time-field>",
+                  "operator": "LOCAL_TIME_BETWEEN",
+                  "value": {
+                    "start": "HH:mm:ss",
+                    "end": "HH:mm:ss",
+                    "timezone": "Europe/Rome"
+                  }
+                }
+                Forbidden LOCAL_TIME_BETWEEN shapes:
+                - Do not put start/end/timezone directly on the leaf.
+                - Do not use startLocalTime or endLocalTime in output JSON.
+                - startLocalTime/endLocalTime are backend internal hint names only; output JSON must use value.start and value.end.
+                - Do not use value.startLocalTime or value.endLocalTime.
+                - Do not omit value.
+
+                6. anyElement JSON SHAPE - STRICT:
+                Valid:
+                {
+                  "anyElement": {
+                    "path": "stopPointsJourneyDetails[]",
+                    "conditions": {
+                      "all": [
+                        { "...leaf...": "..." }
+                      ]
+                    }
+                  }
+                }
+                Or:
+                {
+                  "anyElement": {
+                    "path": "stopPointsJourneyDetails[]",
+                    "conditions": {
+                      "any": [
+                        { "...leaf...": "..." }
+                      ]
+                    }
+                  }
+                }
+                Forbidden anyElement shapes:
+                - conditions must not be an array directly.
+                - conditions must be an object containing all, any, field/operator, or nested anyElement according to DSL.
+                - Do not output "conditions": [ ... ].
+
+                7. Relative fields inside anyElement:
+                - Inside anyElement path stopPointsJourneyDetails[], use relative fields such as callStart.departureTime, callEnd.arrivalTime, timetabledCallStart.departureTime, timetabledCallEnd.arrivalTime, and passingType.
+                - Do not prefix fields with stopPointsJourneyDetails[] inside that anyElement.
+                - Use absolute catalog fields only outside anyElement when allowed.
+
+                8. Monitored stop point ids:
                 - serviceDataQuery.stopPoints must contain monitored stop point ids from ScheduledServiceDataLocationContext.
                 - Monitored stop point ids are covered by serviceDataQuery.stopPoints.
                 - Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points.
                 - Filter/control locations must be represented in snapshotEvaluation.condition.
                 - Monitored locations need condition coverage only if the user asks a distinct field constraint not already represented by the API query scope.
+                - For "arrives at monitored stop X between HH and HH", X is monitored query scope; use serviceDataQuery.stopPoints=[X], then condition arrival time only.
+                - For "has destination X", X is a FILTER_DESTINATION_STOP_POINT and must be condition callEnd.stopPoint.id.
+                - For "origin X", X is a FILTER_ORIGIN_STOP_POINT and must be condition callStart.stopPoint.id.
                 - For a multi-monitored threshold alert such as "Notify me when at stop A and stop B there are two arriving journeys":
                   serviceDataQuery.stopPoints=[A id, B id]; condition checks arrival status; threshold >= 2; no required stopPoint.id IN condition.
                 """;

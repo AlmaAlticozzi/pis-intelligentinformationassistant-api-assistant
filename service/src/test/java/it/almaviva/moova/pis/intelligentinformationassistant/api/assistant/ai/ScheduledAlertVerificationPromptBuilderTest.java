@@ -325,6 +325,56 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("endLocalTime=20:00:00");
     }
 
+    @Test
+    void promptContainsStrictLocalTimeBetweenShape() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("LOCAL_TIME_BETWEEN JSON SHAPE - STRICT")
+                .contains("\"operator\": \"LOCAL_TIME_BETWEEN\"")
+                .contains("\"value\": {")
+                .contains("\"start\": \"HH:mm:ss\"")
+                .contains("\"end\": \"HH:mm:ss\"")
+                .contains("\"timezone\": \"Europe/Rome\"")
+                .contains("startLocalTime/endLocalTime are backend internal hint names only")
+                .contains("Do not use value.startLocalTime or value.endLocalTime");
+    }
+
+    @Test
+    void promptContainsStrictAnyElementConditionsShape() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("anyElement JSON SHAPE - STRICT")
+                .contains("\"conditions\": {")
+                .contains("\"all\": [")
+                .contains("\"any\": [")
+                .contains("conditions must not be an array directly")
+                .contains("Do not output \"conditions\": [ ... ]");
+    }
+
+    @Test
+    void promptRequiresRelativeFieldsInsideStopPointsJourneyDetailsAnyElement() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Inside anyElement path stopPointsJourneyDetails[], use relative fields")
+                .contains("callStart.departureTime")
+                .contains("callEnd.arrivalTime")
+                .contains("Do not prefix fields with stopPointsJourneyDetails[] inside that anyElement");
+    }
+
+    @Test
+    void promptDiscouragesRepeatingMonitoredStopPointAsCondition() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
+                .contains("For \"arrives at monitored stop X between HH and HH\", X is monitored query scope")
+                .contains("then condition arrival time only")
+                .contains("For \"has destination X\", X is a FILTER_DESTINATION_STOP_POINT");
+    }
+
     private AlertRouteUnderstandingResult route() {
         return route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT);
     }

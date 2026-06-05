@@ -4,6 +4,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ScheduledAlertVerificationResponseParserTest {
@@ -110,6 +112,88 @@ class ScheduledAlertVerificationResponseParserTest {
         assertThat(result.failureReason()).contains("rejectedReason");
     }
 
+    @Test
+    void normalizesLocalTimeBetweenTopLevelInternalHintKeys() {
+        AlertVerificationOutcome outcome = parser.parse(responseWithCondition("""
+                {
+                  "field": "callStart.departureTime",
+                  "operator": "LOCAL_TIME_BETWEEN",
+                  "startLocalTime": "10:00:00",
+                  "endLocalTime": "12:00:00",
+                  "timezone": "Europe/Rome"
+                }
+                """), "test-provider", "test-model").orElseThrow();
+
+        assertNormalizedTimeValue(outcome, "10:00:00", "12:00:00");
+    }
+
+    @Test
+    void normalizesLocalTimeBetweenValueInternalHintKeys() {
+        AlertVerificationOutcome outcome = parser.parse(responseWithCondition("""
+                {
+                  "field": "callStart.departureTime",
+                  "operator": "LOCAL_TIME_BETWEEN",
+                  "value": {
+                    "startLocalTime": "18:00:00",
+                    "endLocalTime": "20:00:00",
+                    "timezone": "Europe/Rome"
+                  }
+                }
+                """), "test-provider", "test-model").orElseThrow();
+
+        assertNormalizedTimeValue(outcome, "18:00:00", "20:00:00");
+    }
+
+    @Test
+    void normalizesLocalTimeBetweenTopLevelStartEndKeys() {
+        AlertVerificationOutcome outcome = parser.parse(responseWithCondition("""
+                {
+                  "field": "callStart.departureTime",
+                  "operator": "LOCAL_TIME_BETWEEN",
+                  "start": "18:30:00",
+                  "end": "23:59:59",
+                  "timezone": "Europe/Rome"
+                }
+                """), "test-provider", "test-model").orElseThrow();
+
+        assertNormalizedTimeValue(outcome, "18:30:00", "23:59:59");
+    }
+
+    @Test
+    void rejectsLocalTimeBetweenMissingTimezoneAfterNormalizationAttempt() {
+        ScheduledAlertVerificationResponseParser.ParseResult result = parser.parseDetailed(responseWithCondition("""
+                {
+                  "field": "callStart.departureTime",
+                  "operator": "LOCAL_TIME_BETWEEN",
+                  "startLocalTime": "10:00:00",
+                  "endLocalTime": "12:00:00"
+                }
+                """), "test-provider", "test-model");
+
+        assertThat(result.outcome()).isEmpty();
+        assertThat(result.failureReason()).contains("LOCAL_TIME_BETWEEN requires value.start");
+    }
+
+    @Test
+    void rejectsAnyElementConditionsDirectArray() {
+        ScheduledAlertVerificationResponseParser.ParseResult result = parser.parseDetailed(responseWithAnyElementConditions("""
+                [
+                  {
+                    "field": "callStart.departureTime",
+                    "operator": "LOCAL_TIME_BETWEEN",
+                    "value": {
+                      "start": "18:30:00",
+                      "end": "23:59:59",
+                      "timezone": "Europe/Rome"
+                    }
+                  }
+                ]
+                """), "test-provider", "test-model");
+
+        assertThat(result.outcome()).isEmpty();
+        assertThat(result.failureReason()).contains("anyElement.conditions must be an object");
+    }
+
     private void assertParseFailure(String response, String expectedReasonFragment) {
         ScheduledAlertVerificationResponseParser.ParseResult result =
                 parser.parseDetailed(response, "test-provider", "test-model");
@@ -117,6 +201,36 @@ class ScheduledAlertVerificationResponseParserTest {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] failure=" + result.failureReason());
         assertThat(result.outcome()).isEmpty();
         assertThat(result.failureReason()).contains(expectedReasonFragment);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertNormalizedTimeValue(AlertVerificationOutcome outcome, String start, String end) {
+        Map<String, Object> snapshotEvaluation = (Map<String, Object>) outcome.technicalSpecification().get("snapshotEvaluation");
+        Map<String, Object> condition = (Map<String, Object>) snapshotEvaluation.get("condition");
+        Map<String, Object> anyElement = (Map<String, Object>) condition.get("anyElement");
+        Map<String, Object> conditions = (Map<String, Object>) anyElement.get("conditions");
+        Map<String, Object> value = (Map<String, Object>) conditions.get("value");
+        assertThat(value)
+                .containsEntry("start", start)
+                .containsEntry("end", end)
+                .containsEntry("timezone", "Europe/Rome");
+        assertThat(conditions).doesNotContainKeys("startLocalTime", "endLocalTime", "start", "end", "timezone");
+    }
+
+    private String responseWithCondition(String conditionLeaf) {
+        return responseWithAnyElementConditions(conditionLeaf);
+    }
+
+    private String responseWithAnyElementConditions(String conditionsJson) {
+        return verifiedResponse().replace("""
+                          "conditions": {
+                            "field": "arrivalStatuses[].status",
+                            "operator": "CONTAINS",
+                            "value": "ARRIVING"
+                          }
+                """, """
+                          "conditions": %s
+                """.formatted(conditionsJson.stripIndent().trim()));
     }
 
     private String verifiedResponse() {
