@@ -14,6 +14,13 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteOutputMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationMention;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationPolarity;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationRelation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertMonitoringScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
@@ -36,6 +43,11 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationResolverService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataApiQueryContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationResolutionService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationResolutionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataResolvedLocation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.SimpleAlertLocationMentionExtractor;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
@@ -84,13 +96,31 @@ class AlertServiceTest {
     }
 
     @Test
-    void verifyScheduledRoutePersistsRejectedWithoutCallingAlertVerify() {
+    void verifyScheduledRouteResolvesLocationsThenPersistsNotImplementedRejectedWithoutCallingAlertVerify() {
         AlertService service = verificationService(false);
         service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
         service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
         service.locationUnderstandingEnabled = true;
         AlertVerificationRequest request = new AlertVerificationRequest();
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                scheduledMention("Garibaldi FS", ScheduledAlertLocationRole.MONITORED_STOP_POINT, true));
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                List.of(resolvedScheduledLocation("Garibaldi FS", ScheduledAlertLocationRole.MONITORED_STOP_POINT, List.of("GARIBALDI_ID"))),
+                List.of(),
+                List.of("GARIBALDI_ID"),
+                false,
+                false,
+                List.of(),
+                List.of());
         when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
 
         service.verifyAlert("ALRT1", request);
 
@@ -98,8 +128,7 @@ class AlertServiceTest {
         verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
                 org.mockito.ArgumentMatchers.eq(request), outcome.capture());
         assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(outcome.getValue().summary()).isEqualTo(
-                "The alert was recognized as a SERVICE_DATA scheduled snapshot alert.");
+        assertThat(outcome.getValue().summary()).contains("monitored stop points were resolved");
         assertThat(outcome.getValue().rejectedReason()).isEqualTo(
                 "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.");
         assertThat(outcome.getValue().confidence()).isEqualTo(0.95);
@@ -113,8 +142,162 @@ class AlertServiceTest {
                 "ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT",
                 "ROUTE_INTENT_KIND=SNAPSHOT_CONDITION",
                 "ROUTE_OUTPUT_MODE=ON_MATCH",
+                "SCHEDULED_MONITORING_SCOPE=EXPLICIT_STOP_POINTS",
+                "SCHEDULED_SERVICE_DATA_API_STOP_POINTS=[GARIBALDI_ID]",
                 "SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
         assertThat(outcome.getValue().safetyChecks()).contains("SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+        verify(service.scheduledAlertLocationUnderstandingService).understandLocations("Prompt", "ALRT1");
+        verify(service.scheduledServiceDataLocationResolutionService).resolve(scheduledUnderstanding);
+    }
+
+    @Test
+    void verifyScheduledRouteRejectsWhenMonitoredStopPointCannotBeResolved() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                scheduledMention("Fermata Inventata", ScheduledAlertLocationRole.MONITORED_STOP_POINT, true));
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                List.of(unresolvedScheduledLocation("Fermata Inventata", ScheduledAlertLocationRole.MONITORED_STOP_POINT, false)),
+                List.of(),
+                List.of(),
+                false,
+                true,
+                List.of("Fermata Inventata"),
+                List.of("Monitored stop point 'Fermata Inventata' could not be resolved to a ServiceData stop point id."));
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason()).contains("could not be resolved");
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
+    void verifyScheduledRouteRejectsWhenScheduledLocationUnderstandingFails() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenThrow(new IllegalStateException("provider returned non-json"));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason())
+                .contains("Scheduled location understanding failed")
+                .contains("provider returned non-json");
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+        verify(service.scheduledServiceDataLocationResolutionService, never()).resolve(any());
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
+    void verifyScheduledRouteRejectsWhenNoMonitoredStopPointAndUnspecifiedScope() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.UNSPECIFIED);
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.UNSPECIFIED,
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                false,
+                List.of(),
+                List.of());
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason())
+                .contains("requires at least one monitored stop point or an explicit all-locations scope");
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
+    void verifyScheduledRouteAllKnownStopPointsContinuesToNotImplementedRejected() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS);
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS,
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false,
+                List.of(),
+                List.of("All known stop points scope requested; ids will be materialized by runtime or later verification phase."));
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason()).contains("SCHEDULED_INTERPRETER technical verification is not implemented yet");
+        assertThat(outcome.getValue().warnings()).contains(
+                "SCHEDULED_MONITORING_SCOPE=ALL_KNOWN_STOP_POINTS",
+                "SCHEDULED_SERVICE_DATA_API_STOP_POINTS=ALL_KNOWN_STOP_POINTS",
+                "All known stop points scope requested; scheduled technical verification is not implemented yet.");
         verify(service.alertVerificationPromptBuilder, never()).build(any());
         verify(service.llmGateway, never()).get();
         verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
@@ -124,6 +307,7 @@ class AlertServiceTest {
     void verifyEventRouteContinuesIntoExistingAlertVerifyFlow() {
         AlertService service = verificationService(false);
         service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
         when(service.alertRouteUnderstandingService.understand(any())).thenReturn(eventRoute());
         when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse("""
                 {
@@ -142,6 +326,7 @@ class AlertServiceTest {
         verify(service.alertVerificationPromptBuilder).build(any());
         verify(service.llmGateway.get()).generateText(llmRequest.capture());
         assertThat(llmRequest.getValue().useCase()).isEqualTo(AiUseCase.ALERT_VERIFY);
+        verify(service.scheduledAlertLocationUnderstandingService, never()).understandLocations(any(), any());
     }
 
     @Test
@@ -1015,6 +1200,98 @@ class AlertServiceTest {
                 "Scheduled ServiceData snapshot route.",
                 null,
                 List.of());
+    }
+
+    private ScheduledAlertLocationUnderstandingResult scheduledUnderstanding(
+            ScheduledAlertMonitoringScope scope,
+            ScheduledAlertLocationMention... mentions) {
+        return new ScheduledAlertLocationUnderstandingResult(
+                mentions.length > 0,
+                "it",
+                scope,
+                List.of(mentions),
+                List.of(),
+                List.of());
+    }
+
+    private ScheduledAlertLocationMention scheduledMention(
+            String rawText,
+            ScheduledAlertLocationRole role,
+            boolean requiredForApiQuery) {
+        return new ScheduledAlertLocationMention(
+                rawText,
+                rawText,
+                role,
+                requiredForApiQuery
+                        ? ScheduledAlertLocationRelation.SERVICE_DATA_API_QUERY_STOP_POINT
+                        : ScheduledAlertLocationRelation.UNKNOWN,
+                requiredForApiQuery,
+                true,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                "G1",
+                0.95);
+    }
+
+    private ScheduledServiceDataLocationContext scheduledContext(
+            ScheduledAlertMonitoringScope scope,
+            List<ScheduledServiceDataResolvedLocation> monitoredLocations,
+            List<ScheduledServiceDataResolvedLocation> filterLocations,
+            List<String> serviceDataApiStopPoints,
+            boolean requiresAllKnownStopPoints,
+            boolean hasUnresolvedRequiredMonitoredLocations,
+            List<String> unresolvedRequiredMonitoredLocationTexts,
+            List<String> warnings) {
+        return new ScheduledServiceDataLocationContext(
+                scope,
+                monitoredLocations,
+                filterLocations,
+                List.of(),
+                serviceDataApiStopPoints,
+                requiresAllKnownStopPoints,
+                hasUnresolvedRequiredMonitoredLocations,
+                unresolvedRequiredMonitoredLocationTexts,
+                warnings,
+                new ScheduledServiceDataApiQueryContext(scope, serviceDataApiStopPoints, requiresAllKnownStopPoints));
+    }
+
+    private ScheduledServiceDataResolvedLocation resolvedScheduledLocation(
+            String rawText,
+            ScheduledAlertLocationRole role,
+            List<String> selectedPointIds) {
+        return new ScheduledServiceDataResolvedLocation(
+                rawText,
+                rawText,
+                role,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                role == ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                selectedPointIds,
+                List.of(),
+                false,
+                false,
+                role == ScheduledAlertLocationRole.MONITORED_STOP_POINT ? List.of("body.stopPoints[]") : List.of(),
+                "");
+    }
+
+    private ScheduledServiceDataResolvedLocation unresolvedScheduledLocation(
+            String rawText,
+            ScheduledAlertLocationRole role,
+            boolean fallbackAllowed) {
+        return new ScheduledServiceDataResolvedLocation(
+                rawText,
+                rawText,
+                role,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                role == ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.UNRESOLVED,
+                List.of(),
+                List.of(),
+                fallbackAllowed,
+                fallbackAllowed,
+                role == ScheduledAlertLocationRole.MONITORED_STOP_POINT ? List.of("body.stopPoints[]") : List.of(),
+                "");
     }
 
     private LlmRequest llmRequest() {

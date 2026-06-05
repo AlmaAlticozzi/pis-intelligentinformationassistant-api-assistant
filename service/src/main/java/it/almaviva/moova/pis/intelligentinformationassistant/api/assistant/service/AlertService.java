@@ -16,6 +16,9 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertMonitoringScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertDelayEventTypeNormalizer;
@@ -52,6 +55,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationSemanticRole;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.AlertLocationTargetFieldMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PointCandidate;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationResolutionService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.SimpleAlertLocationMentionExtractor;
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
 import io.quarkus.hibernate.orm.runtime.tenant.TenantResolver;
@@ -110,6 +115,12 @@ public class AlertService {
 
     @Inject
     AlertLocationUnderstandingService alertLocationUnderstandingService;
+
+    @Inject
+    ScheduledAlertLocationUnderstandingService scheduledAlertLocationUnderstandingService;
+
+    @Inject
+    ScheduledServiceDataLocationResolutionService scheduledServiceDataLocationResolutionService;
 
     @Inject
     AlertLocationTargetFieldMapper alertLocationTargetFieldMapper;
@@ -485,11 +496,7 @@ public class AlertService {
             return routedRejection;
         }
         if (route != null && route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
-            AlertVerificationOutcome scheduledRejection = scheduledInterpreterNotImplementedOutcome(
-                    alertId,
-                    route,
-                    aiConfiguration.provider(),
-                    aiConfiguration.alertVerify().model());
+            AlertVerificationOutcome scheduledRejection = verifyScheduledRouteOutcome(alertId, promptData, route);
             System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> reject scheduled not implemented yet");
             return scheduledRejection;
         }
@@ -2533,20 +2540,136 @@ public class AlertService {
                         "No Suggestion created."));
     }
 
+    private AlertVerificationOutcome verifyScheduledRouteOutcome(
+            String alertId,
+            AlertVerificationPromptData promptData,
+            AlertRouteUnderstandingResult route) {
+        String provider = aiConfiguration.provider();
+        String model = aiConfiguration.alertVerify().model();
+        try {
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] start alertId=" + alertId);
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] prompt=" + promptData.prompt());
+            if (scheduledAlertLocationUnderstandingService == null) {
+                return scheduledLocationValidationRejectedOutcome(
+                        route,
+                        provider,
+                        model,
+                        "Scheduled location understanding failed: service unavailable.",
+                        List.of());
+            }
+            ScheduledAlertLocationUnderstandingResult understanding =
+                    scheduledAlertLocationUnderstandingService.understandLocations(promptData.prompt(), alertId);
+            if (understanding == null) {
+                return scheduledLocationValidationRejectedOutcome(
+                        route,
+                        provider,
+                        model,
+                        "Scheduled location understanding failed: no result.",
+                        List.of());
+            }
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] parsed result=" + understanding);
+            if (scheduledServiceDataLocationResolutionService == null) {
+                return scheduledLocationValidationRejectedOutcome(
+                        route,
+                        provider,
+                        model,
+                        "Scheduled location understanding failed: location resolution service unavailable.",
+                        understanding.warnings());
+            }
+            ScheduledServiceDataLocationContext locationContext =
+                    scheduledServiceDataLocationResolutionService.resolve(understanding);
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][API_QUERY] monitoringScope="
+                    + locationContext.monitoringScope()
+                    + " serviceDataApiStopPoints="
+                    + locationContext.serviceDataApiStopPoints());
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][VALIDATION] context=" + locationContext);
+
+            if (locationContext.hasUnresolvedRequiredMonitoredLocations()) {
+                String reason = "Scheduled ServiceData alert requires monitored stop point ids, but the following monitored locations could not be resolved: "
+                        + String.join(", ", locationContext.unresolvedRequiredMonitoredLocationTexts())
+                        + ".";
+                System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][VALIDATION] rejected reason=" + reason);
+                return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, locationContext.warnings());
+            }
+            if (locationContext.monitoringScope() == ScheduledAlertMonitoringScope.UNSPECIFIED
+                    && locationContext.monitoredLocations().isEmpty()) {
+                String reason = "Scheduled ServiceData alert requires at least one monitored stop point or an explicit all-locations scope.";
+                System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][VALIDATION] rejected reason=" + reason);
+                return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, locationContext.warnings());
+            }
+
+            return scheduledInterpreterNotImplementedOutcome(alertId, route, provider, model, locationContext);
+        } catch (RuntimeException exception) {
+            String reason = "Scheduled location understanding failed: " + shortTechnicalMessage(exception);
+            System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][VALIDATION] rejected reason=" + reason);
+            return scheduledLocationValidationRejectedOutcome(route, provider, model, reason, List.of());
+        }
+    }
+
+    private AlertVerificationOutcome scheduledLocationValidationRejectedOutcome(
+            AlertRouteUnderstandingResult route,
+            String provider,
+            String model,
+            String reason,
+            List<String> contextWarnings) {
+        List<String> warnings = new ArrayList<>(route == null || route.warnings() == null ? List.of() : route.warnings());
+        if (contextWarnings != null) {
+            warnings.addAll(contextWarnings);
+        }
+        warnings.add(reason);
+        warnings.add("ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
+        warnings.add("ROUTE_DATA_DOMAINS=SERVICE_DATA");
+        warnings.add("ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+        return new AlertVerificationOutcome(
+                AlertVerificationDecision.REJECTED,
+                "Scheduled ServiceData location validation failed.",
+                reason,
+                route == null || route.confidence() == null ? 0.0 : route.confidence(),
+                provider,
+                model,
+                "alert-scheduled-location-understanding-v1",
+                List.of("SERVICE_DATA"),
+                "SCHEDULED_INTERPRETER",
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                null,
+                null,
+                Map.of(
+                        "requirements", List.of(),
+                        "allRequiredRequirementsMapped", false),
+                List.copyOf(warnings),
+                List.of(
+                        "No executable code generated.",
+                        "No scheduled technicalSpecification generated.",
+                        "No Agent Definition created.",
+                        "No Suggestion created."));
+    }
+
     private AlertVerificationOutcome scheduledInterpreterNotImplementedOutcome(
             String alertId,
             AlertRouteUnderstandingResult route,
             String provider,
-            String model) {
-        String summary = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert.";
+            String model,
+            ScheduledServiceDataLocationContext locationContext) {
+        String summary = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert and its monitored stop points were resolved.";
         String reason = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.";
         List<String> warnings = new ArrayList<>(route.warnings() == null ? List.of() : route.warnings());
+        warnings.addAll(locationContext.warnings());
         warnings.add(reason);
         warnings.add("ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
         warnings.add("ROUTE_DATA_DOMAINS=SERVICE_DATA");
         warnings.add("ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
         warnings.add("ROUTE_INTENT_KIND=" + route.intentKind());
         warnings.add("ROUTE_OUTPUT_MODE=" + route.outputMode());
+        warnings.add("SCHEDULED_MONITORING_SCOPE=" + locationContext.monitoringScope());
+        warnings.add("SCHEDULED_SERVICE_DATA_API_STOP_POINTS=" + scheduledStopPointsMarker(locationContext));
+        if (locationContext.requiresAllKnownStopPoints()) {
+            warnings.add("All known stop points scope requested; scheduled technical verification is not implemented yet.");
+        }
         warnings.add("SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED");
         System.out.println("[IIA][ALERT_ROUTE] ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
         System.out.println("[IIA][ALERT_ROUTE] ROUTE_DATA_DOMAINS=SERVICE_DATA");
@@ -2582,6 +2705,10 @@ public class AlertService {
                                 "accessMode", String.valueOf(route.accessMode()),
                                 "intentKind", String.valueOf(route.intentKind()),
                                 "outputMode", String.valueOf(route.outputMode())),
+                        "scheduledLocation", Map.of(
+                                "monitoringScope", String.valueOf(locationContext.monitoringScope()),
+                                "serviceDataApiStopPoints", locationContext.serviceDataApiStopPoints(),
+                                "requiresAllKnownStopPoints", locationContext.requiresAllKnownStopPoints()),
                         "allRequiredRequirementsMapped", false),
                 List.copyOf(warnings),
                 List.of(
@@ -2589,7 +2716,16 @@ public class AlertService {
                         "No scheduled technicalSpecification generated.",
                         "No Agent Definition created.",
                         "No Suggestion created.",
+                        "SCHEDULED_MONITORING_SCOPE=" + locationContext.monitoringScope(),
+                        "SCHEDULED_SERVICE_DATA_API_STOP_POINTS=" + scheduledStopPointsMarker(locationContext),
                         "SCHEDULED_TECHNICAL_VERIFICATION_NOT_IMPLEMENTED"));
+    }
+
+    private String scheduledStopPointsMarker(ScheduledServiceDataLocationContext locationContext) {
+        if (locationContext.requiresAllKnownStopPoints()) {
+            return "ALL_KNOWN_STOP_POINTS";
+        }
+        return locationContext.serviceDataApiStopPoints().toString();
     }
 
     private AlertVerificationOutcome technicalErrorOutcome(String warning, LlmRequest promptRequest) {

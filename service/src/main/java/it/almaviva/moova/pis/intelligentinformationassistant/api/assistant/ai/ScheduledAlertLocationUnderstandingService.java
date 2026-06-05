@@ -42,14 +42,14 @@ public class ScheduledAlertLocationUnderstandingService {
         LlmRequest request = promptBuilder.build(prompt, correlationId);
         LlmResponse response = llmGateway.get().generateText(request);
         String raw = response == null ? null : response.text();
-        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] rawResponse=" + truncate(raw));
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] raw LLM response=" + truncate(raw));
         ScheduledAlertLocationUnderstandingResult result = parser.parse(raw);
         printParsed(result);
         return result;
     }
 
     private void printParsed(ScheduledAlertLocationUnderstandingResult result) {
-        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] parsedResult=" + result);
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] parsed result=" + result);
         for (ScheduledAlertLocationMention location : result.locations()) {
             System.out.println("[IIA][ALERT_SCHEDULED_LOCATION] location rawText="
                     + location.rawText()
