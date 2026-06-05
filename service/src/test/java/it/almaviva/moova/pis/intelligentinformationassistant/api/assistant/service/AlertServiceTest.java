@@ -6,6 +6,14 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ai
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteAccessMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteDecision;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteIntentKind;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteInterpreterType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteOutputMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
@@ -50,6 +58,79 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class AlertServiceTest {
+
+    @Test
+    void verifyRouteRejectedPersistsRejectedBeforeTechnicalVerification() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.locationUnderstandingEnabled = true;
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.alertRouteUnderstandingService.understand(any()))
+                .thenReturn(AlertRouteUnderstandingResult.rejected("Weather alerts are outside supported domains."));
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason()).contains("Weather alerts");
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+        verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
+    void verifyScheduledRoutePersistsRejectedWithoutCallingAlertVerify() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.getValue().rejectedReason()).isEqualTo(
+                "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.");
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+        assertThat(outcome.getValue().warnings()).contains(
+                "ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER",
+                "ROUTE_DATA_DOMAINS=SERVICE_DATA",
+                "ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+        verify(service.llmGateway, never()).get();
+    }
+
+    @Test
+    void verifyEventRouteContinuesIntoExistingAlertVerifyFlow() {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(eventRoute());
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse("""
+                {
+                  "decision":"REJECTED",
+                  "summary":"Unsupported.",
+                  "rejectedReason":"Unsupported.",
+                  "confidence":0.0,
+                  "warnings":[],
+                  "safetyChecks":[]
+                }
+                """, "OPENAI", "gpt-4.1-mini", null, null, null));
+
+        service.verifyAlert("ALRT1", new AlertVerificationRequest());
+
+        ArgumentCaptor<LlmRequest> llmRequest = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(service.alertVerificationPromptBuilder).build(any());
+        verify(service.llmGateway.get()).generateText(llmRequest.capture());
+        assertThat(llmRequest.getValue().useCase()).isEqualTo(AiUseCase.ALERT_VERIFY);
+    }
 
     @Test
     void verifyParserFailureDoesNotUseMockWhenFallbackIsDisabled() {
@@ -880,6 +961,48 @@ class AlertServiceTest {
                 AlertVerificationDecision.REJECTED, "Rejected.", "Rejected.", 0.0, provider, "mock-model",
                 "alert-verify-mvp-v1", List.of(), null, null, null, null, null, List.of(), List.of(),
                 null, null, null, List.of(), List.of());
+    }
+
+    private AlertRouteUnderstandingResult eventRoute() {
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                List.of("SERVICE_DATA"),
+                "SERVICE_DATA",
+                AlertRouteInterpreterType.EVENT_INTERPRETER,
+                AlertRouteAccessMode.KAFKA_EVENT,
+                AlertRouteIntentKind.EVENT_OCCURRENCE,
+                AlertRouteOutputMode.ON_MATCH,
+                false,
+                false,
+                true,
+                false,
+                false,
+                false,
+                0.86,
+                "Event ServiceData route.",
+                null,
+                List.of());
+    }
+
+    private AlertRouteUnderstandingResult scheduledRoute() {
+        return new AlertRouteUnderstandingResult(
+                AlertRouteDecision.ROUTED,
+                List.of("SERVICE_DATA"),
+                "SERVICE_DATA",
+                AlertRouteInterpreterType.SCHEDULED_INTERPRETER,
+                AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT,
+                AlertRouteIntentKind.SNAPSHOT_CONDITION,
+                AlertRouteOutputMode.ON_MATCH,
+                true,
+                true,
+                false,
+                true,
+                true,
+                false,
+                0.82,
+                "Scheduled ServiceData snapshot route.",
+                null,
+                List.of());
     }
 
     private LlmRequest llmRequest() {

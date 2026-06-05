@@ -14,10 +14,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteInterpreterType;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingPromptBuilder;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResult;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingValidator;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertDelayEventTypeNormalizer;
@@ -102,13 +100,7 @@ public class AlertService {
     AlertVerificationOutcomeValidator alertVerificationOutcomeValidator;
 
     @Inject
-    AlertRouteUnderstandingPromptBuilder alertRouteUnderstandingPromptBuilder;
-
-    @Inject
-    AlertRouteUnderstandingResponseParser alertRouteUnderstandingResponseParser;
-
-    @Inject
-    AlertRouteUnderstandingValidator alertRouteUnderstandingValidator;
+    AlertRouteUnderstandingService alertRouteUnderstandingService;
 
     @Inject
     SimpleAlertLocationMentionExtractor alertLocationMentionExtractor;
@@ -484,11 +476,12 @@ public class AlertService {
     }
 
     AlertVerificationOutcome verifyAlertOutcome(String alertId, AlertVerificationPromptData promptData) {
-        AlertRouteUnderstandingResult route = resolveAlertRoute(alertId, promptData);
+        AlertRouteUnderstandingResult route = alertRouteUnderstandingService == null
+                ? null
+                : alertRouteUnderstandingService.understand(promptData);
         if (route != null && route.decision() != AlertRouteDecision.ROUTED) {
             AlertVerificationOutcome routedRejection = routeRejectedOutcome(route, aiConfiguration.provider(), aiConfiguration.alertVerify().model());
-            System.out.println("[IIA][ALERT_ROUTE] final decision=" + route.decision()
-                    + " verificationDecision=" + routedRejection.decision());
+            System.out.println("[IIA][ALERT_VERIFY] route REJECTED -> reject before technical verification");
             return routedRejection;
         }
         if (route != null && route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
@@ -496,10 +489,11 @@ public class AlertService {
                     route,
                     aiConfiguration.provider(),
                     aiConfiguration.alertVerify().model());
-            System.out.println("[IIA][ALERT_ROUTE] final decision=" + route.decision()
-                    + " interpreterType=" + route.interpreterType()
-                    + " verificationDecision=" + scheduledRejection.decision());
+            System.out.println("[IIA][ALERT_VERIFY] route SCHEDULED_INTERPRETER -> reject scheduled not implemented yet");
             return scheduledRejection;
+        }
+        if (route != null && route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
+            System.out.println("[IIA][ALERT_VERIFY] route EVENT_INTERPRETER -> continue existing event verify");
         }
         AlertVerificationPromptData enrichedPromptData = withLocationResolutionContext(alertId, promptData);
         LlmRequest promptRequest = alertVerificationPromptBuilder.build(enrichedPromptData);
@@ -531,57 +525,6 @@ public class AlertService {
         }
         outcome = applyLocationConfidenceAdjustment(outcome, enrichedPromptData.locationResolutionContext());
         return outcome;
-    }
-
-    private AlertRouteUnderstandingResult resolveAlertRoute(String alertId, AlertVerificationPromptData promptData) {
-        if (alertRouteUnderstandingPromptBuilder == null
-                || alertRouteUnderstandingResponseParser == null
-                || alertRouteUnderstandingValidator == null
-                || llmGateway == null
-                || llmGateway.isUnsatisfied()) {
-            System.out.println("[IIA][ALERT_ROUTE] route understanding unavailable; preserving existing Alert Verify flow alertId=" + alertId);
-            return null;
-        }
-        System.out.println("[IIA][ALERT_ROUTE] original prompt=" + (promptData == null ? null : promptData.prompt()));
-        LlmRequest routeRequest = alertRouteUnderstandingPromptBuilder.build(promptData);
-        try {
-            System.out.println("[IIA][ALERT_ROUTE] Calling LlmGateway with useCase=ALERT_ROUTE_UNDERSTANDING alertId=" + alertId);
-            LlmResponse response = llmGateway.get().generateText(routeRequest);
-            String rawResponse = response == null ? null : response.text();
-            System.out.println("[IIA][ALERT_ROUTE] raw LLM response=" + truncate(rawResponse, 2000));
-            AlertRouteUnderstandingResponseParser.ParseResult parseResult =
-                    alertRouteUnderstandingResponseParser.parseDetailed(rawResponse);
-            if (parseResult.result().isEmpty()) {
-                System.out.println("[IIA][ALERT_ROUTE] parsed route=<empty> reason=" + parseResult.failureReason()
-                        + " rawLength=" + parseResult.rawLength());
-                AlertRouteUnderstandingResult rejected =
-                        AlertRouteUnderstandingResult.rejected("Alert route response could not be parsed: "
-                                + parseResult.failureReason());
-                AlertRouteUnderstandingResult validated = alertRouteUnderstandingValidator.validate(rejected, promptData.prompt());
-                System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
-                System.out.println("[IIA][ALERT_ROUTE] final decision=" + validated.decision());
-                return validated;
-            }
-            AlertRouteUnderstandingResult parsed = parseResult.result().get();
-            System.out.println("[IIA][ALERT_ROUTE] parsed route=" + parsed);
-            AlertRouteUnderstandingResult validated = alertRouteUnderstandingValidator.validate(parsed, promptData.prompt());
-            System.out.println("[IIA][ALERT_ROUTE] validation result=" + validated);
-            System.out.println("[IIA][ALERT_ROUTE] final decision=" + validated.decision());
-            return validated;
-        } catch (ProcessingException ex) {
-            return routeError(shortTechnicalMessage(ex), promptData);
-        } catch (RuntimeException ex) {
-            return routeError(shortTechnicalMessage(ex), promptData);
-        }
-    }
-
-    private AlertRouteUnderstandingResult routeError(String message, AlertVerificationPromptData promptData) {
-        String reason = "Alert route understanding failed before technical verification: " + message;
-        System.out.println("[IIA][ALERT_ROUTE] validation result=ERROR reason=" + reason);
-        AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(reason);
-        AlertRouteUnderstandingResult validated = alertRouteUnderstandingValidator.validate(rejected, promptData.prompt());
-        System.out.println("[IIA][ALERT_ROUTE] final decision=" + validated.decision());
-        return validated;
     }
 
     private AlertVerificationOutcome validateOutcomeWithLocationContext(
@@ -2593,9 +2536,15 @@ public class AlertService {
             AlertRouteUnderstandingResult route,
             String provider,
             String model) {
-        String reason = "Alert Route Understanding selected SCHEDULED_INTERPRETER, but scheduled technical verification is not implemented yet.";
+        String reason = "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.";
         List<String> warnings = new ArrayList<>(route.warnings() == null ? List.of() : route.warnings());
         warnings.add(reason);
+        warnings.add("ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
+        warnings.add("ROUTE_DATA_DOMAINS=SERVICE_DATA");
+        warnings.add("ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
+        System.out.println("[IIA][ALERT_ROUTE] ROUTE_INTERPRETER_TYPE=SCHEDULED_INTERPRETER");
+        System.out.println("[IIA][ALERT_ROUTE] ROUTE_DATA_DOMAINS=SERVICE_DATA");
+        System.out.println("[IIA][ALERT_ROUTE] ROUTE_ACCESS_MODE=SERVICE_DATA_API_SNAPSHOT");
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.REJECTED,
                 "The alert was routed to scheduled ServiceData snapshot verification.",
@@ -2674,13 +2623,6 @@ public class AlertService {
             message = throwable.getClass().getSimpleName();
         }
         return message.length() > 500 ? message.substring(0, 500) : message;
-    }
-
-    private String truncate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value;
-        }
-        return value.substring(0, maxLength) + "...[truncated length=" + value.length() + "]";
     }
 
     private void logTechnicalVerificationError(String shortMessage) {
