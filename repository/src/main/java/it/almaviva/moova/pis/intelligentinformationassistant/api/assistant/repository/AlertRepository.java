@@ -250,6 +250,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
                 "VERIFYING"));
+        alert.setFlgTechnicalspecificationedited(false);
         alert.setDtUpdatedat(now);
         flush();
 
@@ -273,7 +274,10 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setJsnInterpretedeventnames(outcome.interpretedEventNames());
         alert.setJsnVerificationwarnings(outcome.warnings());
         alert.setJsnSafetychecks(outcome.safetyChecks());
+        alert.setFlgTechnicalspecificationedited(false);
         alert.setDtUpdatedat(now);
+        System.out.println("[IIA][ALERT_VERIFY][TECH_SPEC_EDITED_RESET] alertId=" + alertId
+                + " outcome=" + outcome.decision());
 
         replaceInterpretedTargetTypes(alert, outcome.interpretedTargetTypes());
         persistAlertVersionHistorySnapshot(
@@ -298,6 +302,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
     }
 
     void applyVerifiedInterpreterMetadata(Alert alert, AlertVerificationOutcome outcome) {
+        alert.setFlgTechnicalspecificationedited(false);
         if (outcome.decision() != AlertVerificationDecision.VERIFIED) {
             alert.setSglInterpretertype(null);
             alert.setDscInputmodel(null);
@@ -342,6 +347,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDscImplementationsummary(null);
         alert.setDscInputmodel(null);
         alert.setDscOutputmodel(null);
+        alert.setFlgTechnicalspecificationedited(false);
     }
 
     public boolean existsActiveAlertWithNormalizedName(String name) {
@@ -372,6 +378,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         Alert alert = maybeAlert.get();
         alert.setDscName(request.getName().trim());
         alert.setDscDescription(trimToNull(request.getDescription()));
+        System.out.println("[IIA][ALERT_UPDATE][TECH_SPEC_EDITED_PRESERVE] alertId=" + alertId
+                + " promptChanged=false edited=" + Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
         alert.setDtUpdatedat(OffsetDateTime.now());
         flush();
         return Optional.of(toAlertDetail(alert));
@@ -405,6 +413,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 "PENDING"));
         alert.setFlgEnabled(false);
         clearVerificationArtifacts(alert);
+        alert.setFlgTechnicalspecificationedited(false);
+        System.out.println("[IIA][ALERT_UPDATE][TECH_SPEC_EDITED_RESET] alertId=" + alertId
+                + " promptChanged=true");
         replaceInterpretedTargetTypes(alert, List.of());
         alert.setDtUpdatedat(now);
         persistAlertVersionHistorySnapshot(alert, null, null, now);
@@ -429,6 +440,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         alert.setDscPrompt(request.getPrompt().trim());
         alert.setNumVersion(1);
         alert.setFlgEnabled(false);
+        alert.setFlgTechnicalspecificationedited(false);
         alert.setNumExecutioncount(0L);
         alert.setSglStatus(entityManager.getReference(
                 it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus.class,
@@ -441,6 +453,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
 
         persist(alert);
         flush();
+        System.out.println("[IIA][ALERT_CREATE][TECH_SPEC_EDITED_INIT] alertId=" + alert.getCodAlert()
+                + " edited=false");
         return toAlertDetailForVerification(alert);
     }
 
@@ -540,6 +554,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                         "allRequiredRequirementsMapped", false),
                 List.of(warning),
                 toStringList(alert.getJsnSafetychecks())));
+        System.out.println("[IIA][ALERT_VERIFY][TECH_SPEC_EDITED_RESET] alertId=" + alertId
+                + " outcome=" + AlertVerificationDecision.ERROR);
         flush();
         return Optional.of(toAlertDetailForVerification(alert));
     }
@@ -745,6 +761,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         history.setJsnAgentblueprintpreview(agentBlueprintPreview);
         history.setCodCreatedby(alert.getCodCreatedby());
         history.setFlgTechnicalspecificationedited(Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
+        System.out.println("[IIA][ALERT_HISTORY][TECH_SPEC_EDITED] alertId=" + alert.getCodAlert()
+                + " version=" + alert.getNumVersion()
+                + " edited=" + Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
 
         if (isNewSnapshot) {
             entityManager.persist(history);

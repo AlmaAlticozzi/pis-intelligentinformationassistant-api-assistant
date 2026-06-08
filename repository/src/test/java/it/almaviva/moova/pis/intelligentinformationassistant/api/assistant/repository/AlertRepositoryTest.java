@@ -25,6 +25,7 @@ class AlertRepositoryTest {
     void rejectedImmediateVerificationDoesNotExposeInterpreterContract() throws Exception {
         AlertRepository repository = new AlertRepository();
         Alert alert = alertWithExistingInterpreterMetadata();
+        alert.setFlgTechnicalspecificationedited(true);
 
         repository.applyVerifiedInterpreterMetadata(alert, rejectedOutcome());
 
@@ -37,6 +38,7 @@ class AlertRepositoryTest {
         assertThat(alert.getCodCoderef()).isNull();
         assertThat(alert.getJsnTechnicalspecification()).isNull();
         assertThat(alert.getJsnAgentblueprintpreview()).isNull();
+        assertThat(alert.getFlgTechnicalspecificationedited()).isFalse();
         assertThat(toAlertInterpreter(repository, alert)).isNull();
     }
 
@@ -54,6 +56,7 @@ class AlertRepositoryTest {
                 .thenReturn(interpreterType);
 
         Alert alert = new Alert();
+        alert.setFlgTechnicalspecificationedited(true);
         repository.applyVerifiedInterpreterMetadata(alert, verifiedOutcome());
 
         AlertInterpreter interpreter = toAlertInterpreter(repository, alert);
@@ -63,12 +66,14 @@ class AlertRepositoryTest {
                 .isEqualTo(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType.EVENT_INTERPRETER);
         assertThat(interpreter.getInputModel()).isEqualTo("ServiceDataV2");
         assertThat(interpreter.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(alert.getFlgTechnicalspecificationedited()).isFalse();
     }
 
     @Test
     void clearVerificationArtifactsRemovesPromptDerivedData() {
         AlertRepository repository = new AlertRepository();
         Alert alert = alertWithExistingInterpreterMetadata();
+        alert.setFlgTechnicalspecificationedited(true);
         alert.setDscVerificationsummary("Verified.");
         alert.setDscRejectedreason("Old reason");
         alert.setNumVerificationconfidence(BigDecimal.valueOf(0.8));
@@ -103,6 +108,7 @@ class AlertRepositoryTest {
         assertThat(alert.getDscImplementationsummary()).isNull();
         assertThat(alert.getDscInputmodel()).isNull();
         assertThat(alert.getDscOutputmodel()).isNull();
+        assertThat(alert.getFlgTechnicalspecificationedited()).isFalse();
     }
 
     @Test
