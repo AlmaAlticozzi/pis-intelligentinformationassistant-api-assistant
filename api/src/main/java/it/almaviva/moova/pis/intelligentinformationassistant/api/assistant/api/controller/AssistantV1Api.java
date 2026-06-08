@@ -9,6 +9,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertTechnicalSpecificationRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertUpdateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.utility.TextImproveUseCase;
 
@@ -488,6 +489,17 @@ public class AssistantV1Api implements IAssistantV1Api {
         };
     }
 
+    private WebApplicationException alertTechnicalSpecificationRejected(AlertTechnicalSpecificationRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> conflict(AssistantApiErrors.alertTechnicalSpecificationGetDeletedAlert());
+            case NOT_VERIFIED -> conflict(AssistantApiErrors.alertTechnicalSpecificationGetNotVerified());
+            case INVALID_TECHNICAL_SPECIFICATION -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationGetInvalidSpecification())
+                            .build());
+        };
+    }
+
     @POST
     @Path("/suggestions/{suggestionId}/reject")
     @Consumes({ "application/json" })
@@ -604,7 +616,22 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertTechnicalSpecificationResponse getAlertTechnicalSpecification(String alertId) {
-        return null;
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForTechnicalSpecificationGet(alertId);
+            return alertService.getAlertTechnicalSpecification(validatedAlertId)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationGetNotFound())
+                            .build()));
+        } catch (AlertTechnicalSpecificationRejectedException ex) {
+            throw alertTechnicalSpecificationRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][ALERT_TECH_SPEC_GET] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertTechnicalSpecificationGetUnexpectedError())
+                    .build());
+        }
     }
 
 }

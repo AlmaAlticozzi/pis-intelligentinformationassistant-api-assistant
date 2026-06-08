@@ -1,6 +1,8 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
@@ -33,16 +35,20 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Ll
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
@@ -195,6 +201,91 @@ public class AlertService {
     public Optional<AlertDetail> getAlert(String alertId) {
         System.out.println("[IIA][ALERT_GET] alertId=" + alertId);
         return alertRepository.getAlert(alertId);
+    }
+
+    public Optional<AlertTechnicalSpecificationResponse> getAlertTechnicalSpecification(String alertId) {
+        System.out.println("[IIA][ALERT_TECH_SPEC_GET][START] alertId=" + alertId);
+        Optional<Alert> maybeAlert = alertRepository.findAlertForTechnicalSpecification(alertId);
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        String status = alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus();
+        String verificationStatus = alert.getSglVerificationstatus() == null
+                ? null
+                : alert.getSglVerificationstatus().getSglVerificationstatus();
+        boolean deleted = alert.getDtDeletedat() != null || AlertStatus.DELETED.toString().equals(status);
+        System.out.println("[IIA][ALERT_TECH_SPEC_GET][LOADED] alertId=" + alertId
+                + " status=" + status
+                + " verificationStatus=" + verificationStatus
+                + " deleted=" + deleted);
+
+        if (deleted) {
+            throw new AlertTechnicalSpecificationRejectedException(
+                    AlertTechnicalSpecificationRejectedException.Reason.DELETED);
+        }
+        if (!AlertStatus.VERIFIED.toString().equals(status)
+                || !AlertVerificationStatus.VERIFIED.toString().equals(verificationStatus)) {
+            throw new AlertTechnicalSpecificationRejectedException(
+                    AlertTechnicalSpecificationRejectedException.Reason.NOT_VERIFIED);
+        }
+
+        Map<String, Object> technicalSpecification = technicalSpecificationAsMap(alert.getJsnTechnicalspecification());
+        String interpreterType = alert.getSglInterpretertype() == null
+                ? null
+                : alert.getSglInterpretertype().getSglInterpretertype();
+        boolean edited = Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited());
+        System.out.println("[IIA][ALERT_TECH_SPEC_GET][OK] alertId=" + alertId
+                + " interpreterType=" + interpreterType
+                + " edited=" + edited);
+
+        AlertTechnicalSpecificationResponse response = new AlertTechnicalSpecificationResponse()
+                .alert(new AlertReference()
+                        .id(alert.getCodAlert())
+                        .name(alert.getDscName()))
+                .status(AlertStatus.fromString(status))
+                .verificationStatus(AlertVerificationStatus.fromString(verificationStatus))
+                .technicalSpecificationEdited(edited)
+                .technicalSpecification(technicalSpecification)
+                .warnings(List.of());
+
+        if (interpreterType != null) {
+            response.interpreterType(AlertInterpreterType.fromString(interpreterType));
+        }
+        response.inputModel(alert.getDscInputmodel());
+        response.outputModel(alert.getDscOutputmodel());
+
+        return Optional.of(response);
+    }
+
+    private Map<String, Object> technicalSpecificationAsMap(Object rawTechnicalSpecification) {
+        if (rawTechnicalSpecification == null) {
+            throw invalidTechnicalSpecification();
+        }
+
+        Object parsed = rawTechnicalSpecification;
+        if (rawTechnicalSpecification instanceof String text) {
+            if (text.isBlank()) {
+                throw invalidTechnicalSpecification();
+            }
+            try {
+                parsed = OBJECT_MAPPER.readValue(text, Object.class);
+            } catch (JsonProcessingException ex) {
+                throw invalidTechnicalSpecification();
+            }
+        }
+
+        if (!(parsed instanceof Map<?, ?> map) || map.isEmpty()) {
+            throw invalidTechnicalSpecification();
+        }
+        return OBJECT_MAPPER.convertValue(map, new TypeReference<Map<String, Object>>() {
+        });
+    }
+
+    private AlertTechnicalSpecificationRejectedException invalidTechnicalSpecification() {
+        return new AlertTechnicalSpecificationRejectedException(
+                AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
     }
 
     public Optional<AgentGenerationPreviewResponse> previewAgentGenerationForAlert(

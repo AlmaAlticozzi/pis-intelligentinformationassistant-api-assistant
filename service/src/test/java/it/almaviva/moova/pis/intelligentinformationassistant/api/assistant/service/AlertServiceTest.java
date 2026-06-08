@@ -31,12 +31,14 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationPreviewResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
@@ -1193,6 +1195,57 @@ class AlertServiceTest {
     }
 
     @Test
+    void getAlertTechnicalSpecificationReturnsPersistedSpecification() {
+        AlertService service = verificationService(false);
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA", "schemaVersion", "v1"));
+        alert.setFlgTechnicalspecificationedited(true);
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+
+        AlertTechnicalSpecificationResponse response = service.getAlertTechnicalSpecification("ALRT1").orElseThrow();
+
+        assertThat(response.getAlert().getId()).isEqualTo("ALRT1");
+        assertThat(response.getAlert().getName()).isEqualTo("Verified alert");
+        assertThat(response.getStatus()).isEqualTo(AlertStatus.VERIFIED);
+        assertThat(response.getVerificationStatus()).isEqualTo(AlertVerificationStatus.VERIFIED);
+        assertThat(response.getInterpreterType())
+                .isEqualTo(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType.EVENT_INTERPRETER);
+        assertThat(response.getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(response.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(response.getTechnicalSpecificationEdited()).isTrue();
+        assertThat(response.getTechnicalSpecification()).containsEntry("source", "SERVICE_DATA");
+        assertThat(response.getWarnings()).isEmpty();
+        assertThat(response.getAgentBlueprintPreviewRegenerated()).isNull();
+    }
+
+    @Test
+    void getAlertTechnicalSpecificationRejectsBlankSpecification() {
+        AlertService service = verificationService(false);
+        Alert alert = verifiedTechnicalSpecificationAlert(" ");
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+
+        assertThatThrownBy(() -> service.getAlertTechnicalSpecification("ALRT1"))
+                .isInstanceOf(AlertTechnicalSpecificationRejectedException.class)
+                .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
+                .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
+    }
+
+    @Test
+    void getAlertTechnicalSpecificationRejectsDeletedAlert() {
+        AlertService service = verificationService(false);
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA"));
+        alert.setDtDeletedat(java.time.OffsetDateTime.parse("2026-06-08T10:00:00Z"));
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+
+        assertThatThrownBy(() -> service.getAlertTechnicalSpecification("ALRT1"))
+                .isInstanceOf(AlertTechnicalSpecificationRejectedException.class)
+                .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
+                .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.DELETED);
+    }
+
+    @Test
     void previewWithLlmDisabledKeepsDeterministicPath() {
         AlertRepository repository = mock(AlertRepository.class);
         AgentGenerationPreviewMapper mapper = mock(AgentGenerationPreviewMapper.class);
@@ -1405,6 +1458,32 @@ class AlertServiceTest {
         service.fallbackOnInvalidLlm = fallbackEnabled;
         service.scheduledVerifyEnabled = false;
         return service;
+    }
+
+    private Alert verifiedTechnicalSpecificationAlert(Object technicalSpecification) {
+        Alert alert = new Alert();
+        alert.setCodAlert("ALRT1");
+        alert.setDscName("Verified alert");
+        alert.setJsnTechnicalspecification(technicalSpecification);
+        alert.setDscInputmodel("ServiceDataV2");
+        alert.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
+
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus status =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertStatus();
+        status.setSglStatus("VERIFIED");
+        alert.setSglStatus(status);
+
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus verificationStatus =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertVerificationStatus();
+        verificationStatus.setSglVerificationstatus("VERIFIED");
+        alert.setSglVerificationstatus(verificationStatus);
+
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType interpreterType =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType();
+        interpreterType.setSglInterpretertype("EVENT_INTERPRETER");
+        alert.setSglInterpretertype(interpreterType);
+
+        return alert;
     }
 
     private AlertVerificationOutcome rejectedVerificationOutcome(String provider) {

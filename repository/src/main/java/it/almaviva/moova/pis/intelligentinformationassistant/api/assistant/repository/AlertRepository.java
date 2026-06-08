@@ -175,6 +175,10 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 """, alertId) > 0;
     }
 
+    public Optional<Alert> findAlertForTechnicalSpecification(String alertId) {
+        return find("codAlert = ?1", alertId).firstResultOptional();
+    }
+
     public boolean softDeleteAlert(String alertId) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {

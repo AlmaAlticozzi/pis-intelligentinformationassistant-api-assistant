@@ -444,6 +444,51 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while generating the Agent preview.");
     }
 
+    public static Error alertTechnicalSpecificationGetBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-TSP-GET-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertTechnicalSpecificationGetAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-TSP-GET-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertTechnicalSpecificationGetNotFound() {
+        return new Error()
+                .code("IIA-ALT-TSP-GET-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertTechnicalSpecificationGetDeletedAlert() {
+        return conflict("IIA-ALT-TSP-GET-409-001", "Alert deleted", "The alert has been deleted and its technical specification cannot be exposed.");
+    }
+
+    public static Error alertTechnicalSpecificationGetNotVerified() {
+        return conflict("IIA-ALT-TSP-GET-409-002", "Alert not verified", "Only a verified alert can expose its technical specification.");
+    }
+
+    public static Error alertTechnicalSpecificationGetInvalidSpecification() {
+        return new Error()
+                .code("IIA-ALT-TSP-GET-422-001")
+                .title("Technical specification unavailable")
+                .detail("The verified alert does not contain a valid persisted technical specification object.")
+                .source("technicalSpecification");
+    }
+
+    public static Error alertTechnicalSpecificationGetUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-TSP-GET-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while reading the alert technical specification.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
