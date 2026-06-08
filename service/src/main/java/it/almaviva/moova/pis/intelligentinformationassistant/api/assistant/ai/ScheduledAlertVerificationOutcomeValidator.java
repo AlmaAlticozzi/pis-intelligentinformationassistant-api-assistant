@@ -321,21 +321,77 @@ public class ScheduledAlertVerificationOutcomeValidator {
         Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
         Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
         List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
-        boolean covered = leaves.stream().anyMatch(this::isPlatformLeaf);
-        if (!covered) {
-            return "Platform constraint was requested but not represented in snapshotEvaluation.condition.";
+        for (ScheduledAlertPlatformConstraint constraint : hints.constraints()) {
+            boolean represented = isPlatformConstraintRepresented(constraint, leaves);
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] platform required=true represented="
+                    + represented);
+            if (!represented) {
+                return "Required platform constraint from backend hints is not represented in snapshotEvaluation.condition.";
+            }
         }
         return null;
     }
 
-    private boolean isPlatformLeaf(ConditionLeaf leaf) {
+    private boolean isPlatformConstraintRepresented(
+            ScheduledAlertPlatformConstraint constraint,
+            List<ConditionLeaf> leaves) {
+        if (constraint == null || constraint.platformIntent() == ScheduledAlertPlatformConstraint.PlatformIntent.UNKNOWN) {
+            return leaves.stream().anyMatch(this::isAnyPlatformLeaf);
+        }
+        if (constraint.platformIntent() == ScheduledAlertPlatformConstraint.PlatformIntent.CHANGED) {
+            return leaves.stream().anyMatch(this::isAnyPlatformLeaf);
+        }
+        if (constraint.platformIntent() == ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS) {
+            String expectedValue = stringValue(constraint.platformValue());
+            return leaves.stream().anyMatch(leaf -> isPlatformEqualsLeaf(leaf, expectedValue, constraint.direction()));
+        }
+        return leaves.stream().anyMatch(this::isAnyPlatformLeaf);
+    }
+
+    private boolean isPlatformEqualsLeaf(
+            ConditionLeaf leaf,
+            String expectedValue,
+            ScheduledAlertPlatformConstraint.Direction direction) {
+        if (!isPlatformFieldLeaf(leaf) || !"EQUAL_PLATFORM".equals(leaf.operator())) {
+            return false;
+        }
+        if (!matchesPlatformDirection(leaf.resolvedField(), direction)) {
+            return false;
+        }
+        if (isBlank(expectedValue)) {
+            return true;
+        }
+        return leaf.values().stream().map(this::stringValue).anyMatch(expectedValue::equals);
+    }
+
+    private boolean matchesPlatformDirection(String resolvedField, ScheduledAlertPlatformConstraint.Direction direction) {
+        if (direction == null || direction == ScheduledAlertPlatformConstraint.Direction.UNSPECIFIED) {
+            return true;
+        }
+        String field = resolvedField == null ? "" : resolvedField.toLowerCase(Locale.ROOT);
+        return switch (direction) {
+            case DEPARTURE -> field.contains("departure");
+            case ARRIVAL -> field.contains("arrival");
+            case UNSPECIFIED -> true;
+        };
+    }
+
+    private boolean isAnyPlatformLeaf(ConditionLeaf leaf) {
+        return isPlatformFieldLeaf(leaf) || isPlatformChangedSignalLeaf(leaf);
+    }
+
+    private boolean isPlatformFieldLeaf(ConditionLeaf leaf) {
         if (leaf == null || leaf.resolvedField() == null || leaf.operator() == null) {
             return false;
         }
         ScheduledServiceDataCapabilityCatalog.FieldCapability capability =
                 ScheduledServiceDataCapabilityCatalog.findField(leaf.resolvedField()).orElse(null);
-        if (capability != null && capability.type() == ScheduledServiceDataCapabilityCatalog.FieldType.PLATFORM) {
-            return true;
+        return capability != null && capability.type() == ScheduledServiceDataCapabilityCatalog.FieldType.PLATFORM;
+    }
+
+    private boolean isPlatformChangedSignalLeaf(ConditionLeaf leaf) {
+        if (leaf == null || leaf.resolvedField() == null || leaf.operator() == null) {
+            return false;
         }
         if (leaf.resolvedField().endsWith("changes")
                 && "CONTAINS".equals(leaf.operator())
@@ -366,7 +422,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 return "Negative change/cancellation/exclusion constraint is not supported by the Scheduled snapshot catalog without a safe negative enum operator: "
                         + constraint.rawText() + ".";
             }
-            if (!isChangeConstraintCovered(constraint, leaves)) {
+            boolean represented = isChangeConstraintCovered(constraint, leaves);
+            if (isCancellationConstraint(constraint)) {
+                System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] cancellation required=true represented="
+                        + represented);
+            }
+            if (!represented) {
                 return "Change/cancellation/exclusion constraint was requested but not represented in snapshotEvaluation.condition: "
                         + constraint.changeIntent() + ".";
             }
@@ -388,10 +449,32 @@ public class ScheduledAlertVerificationOutcomeValidator {
             case DEPARTURE_CANCELLATION -> containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION");
             case TOTAL_EXCLUSION -> containsLeaf(leaves, "exclusion.totalExclusion", "EQUALS", true);
             case TIME_BASED_EXCLUSION -> containsLeaf(leaves, "exclusion.timeBasedExclusion", "EQUALS", true);
-            case GENERIC_CANCELLATION -> containsAnyCancellationSignal(leaves);
+            case GENERIC_CANCELLATION -> containsGenericCancellationSignal(leaves, constraint.direction());
             case GENERIC_CHANGE -> containsAnyChangeSignal(leaves);
             case UNKNOWN -> true;
         };
+    }
+
+    private boolean isCancellationConstraint(ScheduledAlertChangeConstraint constraint) {
+        if (constraint == null || constraint.changeIntent() == null) {
+            return false;
+        }
+        return switch (constraint.changeIntent()) {
+            case GENERIC_CANCELLATION, PARTIAL_CANCELLATION, ARRIVAL_CANCELLATION, DEPARTURE_CANCELLATION -> true;
+            default -> false;
+        };
+    }
+
+    private boolean containsGenericCancellationSignal(
+            List<ConditionLeaf> leaves,
+            ScheduledAlertChangeConstraint.Direction direction) {
+        if (direction == ScheduledAlertChangeConstraint.Direction.ARRIVAL) {
+            return containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION");
+        }
+        if (direction == ScheduledAlertChangeConstraint.Direction.DEPARTURE) {
+            return containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION");
+        }
+        return containsAnyCancellationSignal(leaves);
     }
 
     private boolean containsAnyCancellationSignal(List<ConditionLeaf> leaves) {
@@ -660,7 +743,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 if (isBlank(field)) {
                     return "Verified scheduled outcome contains blank mappedBy field.";
                 }
-                String classification = classifyRequirementCoverageField(field);
+                RequirementCoverageFieldKind classification = classifyRequirementCoverageField(field);
                 System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] mappedBy="
                         + field + " classifiedAs=" + classification);
                 if (field.contains("payload.ongroundServiceEvent") || field.contains("ServiceDataV2")) {
@@ -670,8 +753,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
                     return "Verified scheduled outcome requirementCoverage mappedBy field is not in the Scheduled ServiceData catalog: "
                             + field + ".";
                 }
-                if ("QUERY_FIELD".equals(classification)) {
+                if (classification == RequirementCoverageFieldKind.QUERY_FIELD) {
                     System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] queryCoverage accepted field="
+                            + field);
+                }
+                if (classification == RequirementCoverageFieldKind.TECHNICAL_SPEC_FIELD) {
+                    System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] technicalSpecCoverage accepted field="
                             + field);
                 }
             }
@@ -679,14 +766,24 @@ public class ScheduledAlertVerificationOutcomeValidator {
         return null;
     }
 
-    private String classifyRequirementCoverageField(String field) {
+    private RequirementCoverageFieldKind classifyRequirementCoverageField(String field) {
         if (ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(field)) {
-            return "QUERY_FIELD";
+            return RequirementCoverageFieldKind.QUERY_FIELD;
         }
         if (ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
-            return "EVALUATION_FIELD";
+            return RequirementCoverageFieldKind.EVALUATION_FIELD;
         }
-        return "UNKNOWN";
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedTechnicalSpecCoverageField(field)) {
+            return RequirementCoverageFieldKind.TECHNICAL_SPEC_FIELD;
+        }
+        return RequirementCoverageFieldKind.UNKNOWN;
+    }
+
+    private enum RequirementCoverageFieldKind {
+        QUERY_FIELD,
+        EVALUATION_FIELD,
+        TECHNICAL_SPEC_FIELD,
+        UNKNOWN
     }
 
     private String validateSameJourneyCorrelation(Map<String, Object> technicalSpecification) {
@@ -864,6 +961,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
         }
 
         if (isReportRoute(route)) {
+            boolean represented = ("REPORT_COUNT".equals(mode) || "REPORT_MATCHING_JOURNEYS".equals(mode))
+                    && "EVERY_RUN".equals(emit)
+                    && !thresholdPresent
+                    && (!"REPORT_COUNT".equals(mode) || Boolean.TRUE.equals(includeCount));
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] report required=true represented="
+                    + represented);
             if (!"REPORT_COUNT".equals(mode) && !"REPORT_MATCHING_JOURNEYS".equals(mode)) {
                 return "SNAPSHOT_REPORT route requires REPORT_COUNT or REPORT_MATCHING_JOURNEYS, not " + mode + ".";
             }

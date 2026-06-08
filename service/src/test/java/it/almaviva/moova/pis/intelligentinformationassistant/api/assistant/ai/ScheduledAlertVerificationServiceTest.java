@@ -33,6 +33,7 @@ class ScheduledAlertVerificationServiceTest {
     private static final String VAREDO = "TNPNTS00000000000101";
     private static final String PALAZZOLO = "TNPNTS00000000000102";
     private static final String MILANO_CENTRALE = "TNPNTS00000000000024";
+    private static final String SAN_SIRO_STADIO = "TNPNTS00000000000019";
     private static final String INVENTED = "TNPNTS99999999999999";
 
     @Test
@@ -249,6 +250,69 @@ class ScheduledAlertVerificationServiceTest {
                 .contains("arrivalStatuses[].status")
                 .contains("ARRIVAL_CANCELLATION")
                 .doesNotContain("stopPointsJourneyDetails[].stopPoint.id");
+        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "EVERY_RUN")
+                .containsEntry("includeCount", true);
+        assertThat(outcome.technicalSpecification()).isNotNull();
+        assertThat(outcome.agentBlueprintPreview()).isNotNull();
+    }
+
+    @Test
+    void verifiesSanSiroTypoGenericCancellationPlatformReportWithTechnicalSpecCoverage() {
+        ScheduledServiceDataLocationContext context = sanSiroStadioContext();
+        Map<String, Object> condition = condition(Map.of("all", List.of(
+                leaf("changes", "CONTAINS", "CANCELLATION"),
+                leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", "5"))));
+        Map<String, Object> response = validReportResponse(context, condition);
+        response.put("requirementCoverage", Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "monitored stop point San Siro Stadio",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("serviceDataQuery.stopPoints")),
+                        Map.of(
+                                "text", "count report",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of(
+                                        "snapshotEvaluation.mode",
+                                        "outputPolicy.emit",
+                                        "outputPolicy.includeCount")),
+                        Map.of(
+                                "text", "generic cancellation",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("stopPointsJourneyDetails[].changes")),
+                        Map.of(
+                                "text", "platform 5",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc"))),
+                "allRequiredRequirementsMapped", true));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Test casuale Scheduled 6",
+                "test casuale scheduled post elaborazione",
+                "Fammi sapere quanti treni a San Siro Staeio hanno una cancellazione e sono sul binario 5",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of(SAN_SIRO_STADIO));
+        Map<String, Object> snapshotEvaluation = map(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshotEvaluation)
+                .containsEntry("mode", "REPORT_COUNT")
+                .containsEntry("threshold", null);
+        assertThat(String.valueOf(snapshotEvaluation.get("condition")))
+                .contains("changes")
+                .contains("CANCELLATION")
+                .contains("timetabledDeparturePlatform.dsc")
+                .contains("EQUAL_PLATFORM")
+                .contains("5");
         assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
                 .containsEntry("emit", "EVERY_RUN")
                 .containsEntry("includeCount", true);
@@ -644,7 +708,7 @@ class ScheduledAlertVerificationServiceTest {
                 explicitContext());
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(outcome.rejectedReason()).contains("Platform constraint was requested");
+        assertThat(outcome.rejectedReason()).contains("Required platform constraint from backend hints");
         assertThat(outcome.technicalSpecification()).isNull();
     }
 
@@ -1580,6 +1644,37 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(MILANO_CENTRALE),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext sanSiroStadioContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "San Siro Staeio",
+                "SAN SIRO STADIO",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(SAN_SIRO_STADIO),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]", "serviceDataQuery.stopPoints"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                List.of(),
+                List.of(SAN_SIRO_STADIO),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(SAN_SIRO_STADIO),
                         false));
     }
 

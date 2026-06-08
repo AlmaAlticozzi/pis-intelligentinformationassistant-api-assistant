@@ -48,9 +48,41 @@ class ScheduledServiceDataCapabilityCatalogTest {
         assertThat(List.of(
                 "serviceDataQuery.stopPoints",
                 "serviceDataQuery.stopPoints[]",
-                "body.stopPoints[]"))
+                "body.stopPoints[]",
+                "serviceDataQuery.timeWindow",
+                "serviceDataQuery.timeWindow.lookaheadMinutes",
+                "serviceDataQuery.timeWindow.startMode",
+                "serviceDataQuery.timeWindow.endMode",
+                "serviceDataQuery.timeWindow.defaulted",
+                "serviceDataQuery.timeWindow.rawText"))
                 .allSatisfy(field -> {
                     assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(field))
+                            .as(field)
+                            .isTrue();
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(field))
+                            .as(field)
+                            .isTrue();
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedField(field))
+                            .as(field)
+                            .isFalse();
+                });
+    }
+
+    @Test
+    void catalogContainsTechnicalSpecCoverageFieldsOnlyForRequirementCoverage() {
+        assertThat(List.of(
+                "snapshotEvaluation.mode",
+                "snapshotEvaluation.threshold",
+                "snapshotEvaluation.threshold.operator",
+                "snapshotEvaluation.threshold.value",
+                "outputPolicy.emit",
+                "outputPolicy.includeCount",
+                "outputPolicy.includeMatchingJourneys",
+                "schedule.frequencySeconds",
+                "schedule.defaulted",
+                "schedule.rawText"))
+                .allSatisfy(field -> {
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedTechnicalSpecCoverageField(field))
                             .as(field)
                             .isTrue();
                     assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(field))

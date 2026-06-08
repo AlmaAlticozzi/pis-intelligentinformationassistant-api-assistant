@@ -14,7 +14,25 @@ public final class ScheduledServiceDataCapabilityCatalog {
     private static final Set<String> QUERY_COVERAGE_FIELDS = Set.of(
             "serviceDataQuery.stopPoints",
             "serviceDataQuery.stopPoints[]",
-            "body.stopPoints[]");
+            "body.stopPoints[]",
+            "serviceDataQuery.timeWindow",
+            "serviceDataQuery.timeWindow.lookaheadMinutes",
+            "serviceDataQuery.timeWindow.startMode",
+            "serviceDataQuery.timeWindow.endMode",
+            "serviceDataQuery.timeWindow.defaulted",
+            "serviceDataQuery.timeWindow.rawText");
+
+    private static final Set<String> TECHNICAL_SPEC_COVERAGE_FIELDS = Set.of(
+            "snapshotEvaluation.mode",
+            "snapshotEvaluation.threshold",
+            "snapshotEvaluation.threshold.operator",
+            "snapshotEvaluation.threshold.value",
+            "outputPolicy.emit",
+            "outputPolicy.includeCount",
+            "outputPolicy.includeMatchingJourneys",
+            "schedule.frequencySeconds",
+            "schedule.defaulted",
+            "schedule.rawText");
 
     private static final List<String> STOP_POINT_ID_FIELDS = List.of(
             "stopPoint.id",
@@ -253,8 +271,18 @@ public final class ScheduledServiceDataCapabilityCatalog {
         return field != null && QUERY_COVERAGE_FIELDS.contains(field.trim());
     }
 
+    public static Set<String> technicalSpecCoverageFields() {
+        return TECHNICAL_SPEC_COVERAGE_FIELDS;
+    }
+
+    public static boolean isAllowedTechnicalSpecCoverageField(String field) {
+        return field != null && TECHNICAL_SPEC_COVERAGE_FIELDS.contains(field.trim());
+    }
+
     public static boolean isAllowedRequirementCoverageField(String field) {
-        return isAllowedQueryCoverageField(field) || isAllowedField(field);
+        return isAllowedQueryCoverageField(field)
+                || isAllowedTechnicalSpecCoverageField(field)
+                || isAllowedField(field);
     }
 
     public static boolean isAllowedOperator(String field, String operator) {
@@ -280,6 +308,8 @@ public final class ScheduledServiceDataCapabilityCatalog {
                 .append("Fields are relative to the StopPointJourneyV2 snapshot response and the input model ServiceDataStopPointJourneysV2.\n")
                 .append("Query coverage fields may be used only in requirementCoverage.mappedBy, not in snapshotEvaluation.condition: ")
                 .append(QUERY_COVERAGE_FIELDS).append(".\n")
+                .append("Technical specification coverage fields may be used only in requirementCoverage.mappedBy, not in snapshotEvaluation.condition: ")
+                .append(TECHNICAL_SPEC_COVERAGE_FIELDS).append(".\n")
                 .append("Do not use Kafka event field roots or event-message envelopes.\n")
                 .append("Use stopPointsJourneyDetails[] anyElement to correlate constraints on the same journey.\n")
                 .append("Use nested anyElement for nextCalls[], nextTransitCalls[], nextCancelledCalls[], and replacement.stopPointReplacements[].\n");

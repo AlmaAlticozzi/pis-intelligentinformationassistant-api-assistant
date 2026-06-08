@@ -6,6 +6,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import jakarta.ws.rs.ProcessingException;
 
 import java.util.List;
@@ -39,6 +40,9 @@ public class ScheduledAlertVerificationService {
 
     @Inject
     ScheduledAlertReplacementHintsExtractor replacementHintsExtractor;
+
+    @ConfigProperty(name = "iia.alert-scheduled-verification.prompt-size-warning-threshold", defaultValue = "25000")
+    int promptSizeWarningThreshold = 25000;
 
     @Inject
     ScheduledUnsupportedConstraintDetector unsupportedConstraintDetector;
@@ -136,11 +140,18 @@ public class ScheduledAlertVerificationService {
                 replacementHints));
         int systemPromptLength = promptLength(request.systemPrompt());
         int userPromptLength = promptLength(request.userPrompt());
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT] promptLength="
-                + systemPromptLength + "+" + userPromptLength
-                + " total=" + (systemPromptLength + userPromptLength)
-                + " catalogLength=unknown"
+        int totalPromptLength = systemPromptLength + userPromptLength;
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT] systemLength="
+                + systemPromptLength
+                + " userLength=" + userPromptLength
+                + " total=" + totalPromptLength
+                + " catalogMode=DYNAMIC"
+                + " relevantCapabilities=" + relevantCapabilities(platformHints, changeHints, cancelledCallHints, replacementHints)
                 + " locationContext=" + locationContextSummary(locationContext));
+        if (totalPromptLength > promptSizeWarningThreshold) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT][WARN] total prompt length exceeds configured warning threshold: "
+                    + totalPromptLength + " > " + promptSizeWarningThreshold);
+        }
 
         try {
             LlmResponse response = llmGateway.get().generateText(request);
@@ -338,6 +349,29 @@ public class ScheduledAlertVerificationService {
 
     private int serviceDataStopPointCount(ScheduledServiceDataLocationContext context) {
         return context == null || context.serviceDataApiStopPoints() == null ? 0 : context.serviceDataApiStopPoints().size();
+    }
+
+    private List<String> relevantCapabilities(
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
+        java.util.ArrayList<String> capabilities = new java.util.ArrayList<>();
+        capabilities.add("QUERY");
+        capabilities.add("REPORT_OUTPUT");
+        if (changeHints != null && changeHints.hasChangeConstraint()) {
+            capabilities.add("CANCELLATION");
+        }
+        if (platformHints != null && platformHints.hasPlatformConstraint()) {
+            capabilities.add("PLATFORM");
+        }
+        if (cancelledCallHints != null && cancelledCallHints.hasCancelledCallConstraint()) {
+            capabilities.add("CANCELLED_CALL");
+        }
+        if (replacementHints != null && replacementHints.hasReplacementConstraint()) {
+            capabilities.add("REPLACEMENT");
+        }
+        return capabilities;
     }
 
     private String compactStopPoints(ScheduledServiceDataLocationContext context) {

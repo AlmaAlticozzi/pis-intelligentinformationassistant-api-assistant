@@ -504,7 +504,30 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         null,
                         ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
                         0.9)), List.of()),
-                "Platform constraint was requested");
+                "Required platform constraint from backend hints");
+    }
+
+    @Test
+    void acceptsWhenPlatformHintIsCoveredByEqualPlatformCondition() {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", "5"))), blueprint()),
+                null,
+                null,
+                null,
+                new ScheduledAlertPlatformHints(true, List.of(new ScheduledAlertPlatformConstraint(
+                        "binario 5",
+                        ScheduledAlertPlatformConstraint.Direction.DEPARTURE,
+                        ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS,
+                        "5",
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                        0.9)), List.of()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
@@ -1506,6 +1529,63 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsRequirementCoverageMappedBySnapshotEvaluationMode() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("count report", List.of("snapshotEvaluation.mode"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsRequirementCoverageMappedByOutputPolicyFields() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("every run count output", List.of(
+                        "outputPolicy.emit",
+                        "outputPolicy.includeCount",
+                        "outputPolicy.includeMatchingJourneys"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsRequirementCoverageMappedByScheduleFrequencySeconds() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("polling frequency", List.of("schedule.frequencySeconds"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsRequirementCoverageMappedByTimeWindowDefaulted() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("default lookahead", List.of("serviceDataQuery.timeWindow.defaulted"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsRequirementCoverageMappedByFakeTechnicalSpecFields() {
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("fake snapshot field", List.of("snapshotEvaluation.fakeField"))), "snapshotEvaluation.fakeField");
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("fake output field", List.of("outputPolicy.fakeFlag"))), "outputPolicy.fakeFlag");
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("fake query field", List.of("serviceDataQuery.fakeField"))), "serviceDataQuery.fakeField");
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("fake time window field", List.of("serviceDataQuery.timeWindow.fakeField"))), "serviceDataQuery.timeWindow.fakeField");
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("fake schedule field", List.of("schedule.fakeField"))), "schedule.fakeField");
+    }
+
+    @Test
+    void rejectsTechnicalSpecFieldInsideSnapshotEvaluationCondition() {
+        assertRejectedForCondition(condition(Map.of(
+                "field", "snapshotEvaluation.mode",
+                "operator", "EQUALS",
+                "value", "REPORT_COUNT")), "snapshotEvaluation.mode");
+    }
+
+    @Test
     void rejectsRequirementCoverageMappedByStopPointsJourneyDetailsStopPointId() {
         Map<String, Object> coverage = Map.of(
                 "requirements", List.of(Map.of(
@@ -2455,6 +2535,16 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         "required", true,
                         "mappable", true,
                         "mappedBy", List.of("stopPointsJourneyDetails[].arrivalStatuses[].status"))),
+                "allRequiredRequirementsMapped", true);
+    }
+
+    private Map<String, Object> coverageMappedBy(String text, List<String> mappedBy) {
+        return Map.of(
+                "requirements", List.of(Map.of(
+                        "text", text,
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", mappedBy)),
                 "allRequiredRequirementsMapped", true);
     }
 

@@ -10,7 +10,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @ApplicationScoped
 public class ScheduledAlertVerificationPromptBuilder {
@@ -68,6 +71,9 @@ public class ScheduledAlertVerificationPromptBuilder {
     }
 
     private String userPrompt(ScheduledAlertVerificationPromptData data) {
+        if (useCompactDynamicPrompt(data)) {
+            return compactDynamicUserPrompt(data);
+        }
         return String.join("\n\n",
                 alertInputSection(data),
                 routeSection(data == null ? null : data.route()),
@@ -77,7 +83,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 cancelledCallHintsSection(data == null ? null : data.cancelledCallHints()),
                 replacementHintsSection(data == null ? null : data.replacementHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
-                scheduledCapabilityCatalogSection(),
+                scheduledCapabilityCatalogSection(data),
                 highPriorityMvpRulesSection(),
                 semanticRulesSection(),
                 locationMappingRulesSection(),
@@ -86,6 +92,106 @@ public class ScheduledAlertVerificationPromptBuilder {
                 timeRulesSection(),
                 rejectionRulesSection(),
                 responseSkeletonSection());
+    }
+
+    private boolean useCompactDynamicPrompt(ScheduledAlertVerificationPromptData data) {
+        return data != null
+                && data.platformHints() != null
+                && data.platformHints().hasPlatformConstraint()
+                && data.changeHints() != null
+                && data.changeHints().hasChangeConstraint();
+    }
+
+    private String compactDynamicUserPrompt(ScheduledAlertVerificationPromptData data) {
+        return String.join("\n\n",
+                alertInputSection(data),
+                routeSection(data == null ? null : data.route()),
+                compactBackendDetectedConstraintsSection(data),
+                temporalHintsSection(data == null ? null : data.temporalHints()),
+                platformHintsSection(data == null ? null : data.platformHints()),
+                changeHintsSection(data == null ? null : data.changeHints()),
+                scheduledLocationContextSection(data == null ? null : data.locationContext()),
+                scheduledCapabilityCatalogSection(data),
+                compactScheduledRulesSection(),
+                compactResponseShapeSection());
+    }
+
+    private String compactBackendDetectedConstraintsSection(ScheduledAlertVerificationPromptData data) {
+        StringBuilder section = new StringBuilder("""
+                Backend detected required constraints:
+                All backend detected required constraints must be represented in snapshotEvaluation.condition, except monitored stop points, which are represented in serviceDataQuery.stopPoints.
+                """);
+        ScheduledServiceDataLocationContext context = data == null ? null : data.locationContext();
+        if (context != null) {
+            section.append("- monitored stop: serviceDataQuery.stopPoints=")
+                    .append(context.serviceDataApiStopPoints()).append('\n');
+        }
+        if (data != null && data.platformHints() != null && data.platformHints().hasPlatformConstraint()) {
+            section.append("- platform constraints: ").append(data.platformHints().constraints()).append('\n');
+        }
+        if (data != null && data.changeHints() != null && data.changeHints().hasChangeConstraint()) {
+            section.append("- change/cancellation constraints: ").append(data.changeHints().constraints()).append('\n');
+        }
+        return section.toString();
+    }
+
+    private String compactScheduledRulesSection() {
+        return """
+                Compact Scheduled verification rules:
+                - Return only valid raw JSON.
+                - VERIFIED requires technicalSpecification and agentBlueprintPreview; REJECTED requires both null and clear rejectedReason.
+                - source SERVICE_DATA, interpreterType SCHEDULED_INTERPRETER, accessMode SERVICE_DATA_API_SNAPSHOT, triggerType SCHEDULE.
+                - inputModel ServiceDataStopPointJourneysV2, evaluationMode SCHEDULED_SNAPSHOT_MATCH.
+                - Report/count route: snapshotEvaluation.mode REPORT_COUNT, outputPolicy.emit EVERY_RUN, outputPolicy.includeCount true, threshold null.
+                - Conditional threshold route: snapshotEvaluation.mode COUNT_MATCHING_JOURNEYS, outputPolicy.emit ON_MATCH, threshold required.
+                - serviceDataQuery.stopPoints must be exactly the resolved monitored stop points from context.
+                - requirementCoverage.mappedBy may use serviceDataQuery.*, stopPointsJourneyDetails[].*, snapshotEvaluation.*, outputPolicy.*, schedule.*.
+                - Query/control fields such as snapshotEvaluation.mode and outputPolicy.emit are not ServiceData fields and must not be used in snapshotEvaluation.condition.
+                - condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
+                - Use one anyElement path stopPointsJourneyDetails[] to correlate constraints on the same journey.
+                - Inside stopPointsJourneyDetails[] anyElement use relative fields, not prefixed fields.
+                - Do not invent ids, fields, operators or enum values.
+                - Do not use payload.*, ServiceDataV2, EVENT_INTERPRETER, Kafka/event fields, runtime calls, Agent Definition, Agent Run or Suggestion.
+                """;
+    }
+
+    private String compactResponseShapeSection() {
+        return """
+                Minimal JSON shape:
+                {
+                  "decision": "VERIFIED|REJECTED",
+                  "summary": "...",
+                  "rejectedReason": null,
+                  "confidence": 0.0,
+                  "requiredSources": ["SERVICE_DATA"],
+                  "interpreterType": "SCHEDULED_INTERPRETER",
+                  "accessMode": "SERVICE_DATA_API_SNAPSHOT",
+                  "triggerType": "SCHEDULE",
+                  "evaluationMode": "SCHEDULED_SNAPSHOT_MATCH",
+                  "inputModel": "ServiceDataStopPointJourneysV2",
+                  "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
+                  "targetTypes": ["SERVICE_DATA_JOURNEY_AGGREGATE"],
+                  "requirementCoverage": {"requirements": [], "allRequiredRequirementsMapped": true},
+                  "technicalSpecification": {
+                    "schemaVersion": "iia.alert.technical-specification/v2",
+                    "source": "SERVICE_DATA",
+                    "interpreterType": "SCHEDULED_INTERPRETER",
+                    "accessMode": "SERVICE_DATA_API_SNAPSHOT",
+                    "inputModel": "ServiceDataStopPointJourneysV2",
+                    "outputModel": "AgentOutput.CANDIDATE_SUGGESTION",
+                    "triggerType": "SCHEDULE",
+                    "evaluationMode": "SCHEDULED_SNAPSHOT_MATCH",
+                    "schedule": {"frequencySeconds": 600, "defaulted": true, "rawText": null},
+                    "serviceDataQuery": {"operation": "POST /v2/stoppointjourneys", "monitoringScope": "EXPLICIT_STOP_POINTS", "stopPoints": [], "requiresAllKnownStopPoints": false, "timeWindow": {"startMode": "NOW_TRUNCATED_TO_MINUTE", "endMode": "NOW_PLUS_DEFAULT_LOOKAHEAD", "lookaheadMinutes": 480, "defaulted": true, "rawText": null}},
+                    "snapshotEvaluation": {"mode": "REPORT_COUNT", "journeyPath": "stopPointsJourneyDetails[]", "condition": {}, "threshold": null},
+                    "outputPolicy": {"emit": "EVERY_RUN", "includeCount": true, "includeMatchingJourneys": true},
+                    "deduplicationKeyTemplate": "SERVICE_DATA_SCHEDULED:${alertId}:${queryWindowStart}:${conditionHash}"
+                  },
+                  "agentBlueprintPreview": {"schemaVersion": "iia.agent.blueprint/v1", "agentName": "ScheduledServiceDataSnapshotAlertAgent", "triggerType": "SCHEDULE", "requiredSources": ["SERVICE_DATA"], "evaluationMode": "SCHEDULED_SNAPSHOT_MATCH", "targetTypes": ["SERVICE_DATA_JOURNEY_AGGREGATE"], "parameters": {"serviceDataQuery": {}, "snapshotEvaluation": {}, "outputPolicy": {}}, "stateRequirements": {"requiresState": false}, "output": {"type": "CANDIDATE_SUGGESTION"}},
+                  "warnings": [],
+                  "safetyChecks": ["No executable code generated.", "No Agent Definition created.", "No Agent Run created.", "No Suggestion created."]
+                }
+                """;
     }
 
     private String temporalHintsSection(ScheduledAlertTemporalHints hints) {
@@ -328,15 +434,161 @@ public class ScheduledAlertVerificationPromptBuilder {
         }
     }
 
-    private String scheduledCapabilityCatalogSection() {
-        return """
-                ScheduledServiceDataCapabilityCatalog:
-                Only fields/operators in this catalog may be used.
-                The model must reject if a required user constraint cannot be mapped.
-                Use requirementCoverage to explain mapping.
+    private String scheduledCapabilityCatalogSection(ScheduledAlertVerificationPromptData data) {
+        Set<String> capabilities = relevantCapabilities(data);
+        List<String> fields = relevantScheduledFields(data, capabilities);
+        StringBuilder section = new StringBuilder("""
+                Relevant Scheduled ServiceData fields:
+                Only these relevant fields/operators should be used for this prompt. Reject required constraints outside the Scheduled catalog.
+                requirementCoverage.mappedBy may also use query/control fields listed here.
+                Query/control coverage fields:
+                - serviceDataQuery.stopPoints, serviceDataQuery.stopPoints[], body.stopPoints[]
+                - serviceDataQuery.timeWindow, serviceDataQuery.timeWindow.lookaheadMinutes, serviceDataQuery.timeWindow.startMode, serviceDataQuery.timeWindow.endMode, serviceDataQuery.timeWindow.defaulted, serviceDataQuery.timeWindow.rawText
+                - snapshotEvaluation.mode, snapshotEvaluation.threshold, snapshotEvaluation.threshold.operator, snapshotEvaluation.threshold.value
+                - outputPolicy.emit, outputPolicy.includeCount, outputPolicy.includeMatchingJourneys
+                - schedule.frequencySeconds, schedule.defaulted, schedule.rawText
 
-                %s
-                """.formatted(ScheduledServiceDataCapabilityCatalog.compactPromptCatalog());
+                Relevant capabilities: %s
+                Fields:
+                """.formatted(capabilities));
+        for (String field : fields) {
+            ScheduledServiceDataCapabilityCatalog.FieldCapability capability =
+                    ScheduledServiceDataCapabilityCatalog.findField(field).orElse(null);
+            if (capability == null) {
+                continue;
+            }
+            section.append("- ").append(field)
+                    .append(" operators=").append(capability.operators());
+            if (!capability.enumValues().isEmpty()) {
+                section.append(" values=").append(capability.enumValues());
+            }
+            section.append('\n');
+        }
+        section.append("""
+
+                DSL reminders:
+                - Evaluate journeys at journeyPath stopPointsJourneyDetails[].
+                - Put constraints on the same journey inside one anyElement path stopPointsJourneyDetails[].
+                - Inside that anyElement use relative fields, e.g. changes, arrivalStatuses[].status, timetabledDeparturePlatform.dsc.
+                - Query/control fields are valid only in requirementCoverage.mappedBy, never inside snapshotEvaluation.condition.
+                """);
+        if (capabilities.contains("CANCELLATION") && capabilities.contains("PLATFORM")) {
+            section.append("""
+
+                    Cancellation + platform:
+                    If backend hints include both cancellation and platform, snapshotEvaluation.condition must combine them with ALL over the same stopPointsJourneyDetails[] element:
+                    - one ANY branch for cancellation signals
+                    - one ANY branch for platform signals
+                    Do not place only cancellation and omit platform.
+                    Preferred shape:
+                    {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[
+                      {"any":[
+                        {"field":"changes","operator":"CONTAINS","value":"CANCELLATION"},
+                        {"field":"arrivalStatuses[].status","operator":"CONTAINS","value":"ARRIVAL_CANCELLATION"},
+                        {"field":"departureStatuses[].status","operator":"CONTAINS","value":"DEPARTURE_CANCELLATION"}]},
+                      {"any":[
+                        {"field":"timetabledDeparturePlatform.dsc","operator":"EQUAL_PLATFORM","value":"5"},
+                        {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"5"},
+                        {"field":"actualDeparturePlatform.platform.dsc","operator":"EQUAL_PLATFORM","value":"5"},
+                        {"field":"actualArrivalPlatform.platform.dsc","operator":"EQUAL_PLATFORM","value":"5"}]}
+                    ]}}}
+                    """);
+        }
+        return section.toString();
+    }
+
+    private Set<String> relevantCapabilities(ScheduledAlertVerificationPromptData data) {
+        Set<String> capabilities = new LinkedHashSet<>();
+        capabilities.add("REPORT_OUTPUT");
+        capabilities.add("QUERY");
+        if (data == null) {
+            return capabilities;
+        }
+        if (data.changeHints() != null && data.changeHints().hasChangeConstraint()) {
+            capabilities.add("CANCELLATION");
+        }
+        if (data.platformHints() != null && data.platformHints().hasPlatformConstraint()) {
+            capabilities.add("PLATFORM");
+        }
+        if (data.cancelledCallHints() != null && data.cancelledCallHints().hasCancelledCallConstraint()) {
+            capabilities.add("CANCELLED_CALL");
+        }
+        if (data.replacementHints() != null && data.replacementHints().hasReplacementConstraint()) {
+            capabilities.add("REPLACEMENT");
+        }
+        if (data.temporalHints() != null && data.temporalHints().hasJourneyTimeFilter()) {
+            capabilities.add("JOURNEY_TIME");
+        }
+        ScheduledServiceDataLocationContext context = data.locationContext();
+        if (context != null) {
+            context.filterLocations().stream()
+                    .flatMap(location -> location.targetFieldHints().stream())
+                    .forEach(field -> {
+                        if (field.contains("callStart") || field.contains("callEnd")) {
+                            capabilities.add("ORIGIN_DESTINATION");
+                        }
+                        if (field.contains("nextCalls") || field.contains("nextTransitCalls")) {
+                            capabilities.add("ROUTE_CALL");
+                        }
+                    });
+        }
+        return capabilities;
+    }
+
+    private List<String> relevantScheduledFields(ScheduledAlertVerificationPromptData data, Set<String> capabilities) {
+        LinkedHashSet<String> fields = new LinkedHashSet<>();
+        fields.add("stopPointsJourneyDetails[].vehicleJourneyName");
+        if (capabilities.contains("CANCELLATION")) {
+            fields.add("stopPointsJourneyDetails[].changes");
+            fields.add("stopPointsJourneyDetails[].arrivalStatuses[].status");
+            fields.add("stopPointsJourneyDetails[].departureStatuses[].status");
+            fields.add("stopPointsJourneyDetails[].exclusion.totalExclusion");
+            fields.add("stopPointsJourneyDetails[].exclusion.timeBasedExclusion");
+        }
+        if (capabilities.contains("PLATFORM")) {
+            fields.add("stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc");
+            fields.add("stopPointsJourneyDetails[].timetabledArrivalPlatform.dsc");
+            fields.add("stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc");
+            fields.add("stopPointsJourneyDetails[].actualArrivalPlatform.platform.dsc");
+        }
+        if (capabilities.contains("JOURNEY_TIME")) {
+            fields.add("stopPointsJourneyDetails[].callStart.departureTime");
+            fields.add("stopPointsJourneyDetails[].callEnd.arrivalTime");
+            fields.add("stopPointsJourneyDetails[].timetabledCallStart.departureTime");
+            fields.add("stopPointsJourneyDetails[].timetabledCallEnd.arrivalTime");
+        }
+        if (capabilities.contains("ORIGIN_DESTINATION")) {
+            fields.add("stopPointsJourneyDetails[].callStart.stopPoint.id");
+            fields.add("stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id");
+            fields.add("stopPointsJourneyDetails[].callEnd.stopPoint.id");
+            fields.add("stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id");
+        }
+        if (capabilities.contains("ROUTE_CALL")) {
+            fields.add("stopPointsJourneyDetails[].nextCalls[].stopPoint.id");
+            fields.add("stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id");
+        }
+        if (capabilities.contains("CANCELLED_CALL")) {
+            fields.add("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+            fields.add("stopPointsJourneyDetails[].nextCancelledCalls");
+        }
+        if (capabilities.contains("REPLACEMENT")) {
+            fields.add("stopPointsJourneyDetails[].isReplacementOf");
+            fields.add("stopPointsJourneyDetails[].replacement");
+            fields.add("stopPointsJourneyDetails[].externalReplacement");
+            fields.add("stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id");
+            fields.add("stopPointsJourneyDetails[].replacement.stopPointReplacements[].replacementType");
+        }
+        if (data != null && data.locationContext() != null) {
+            data.locationContext().filterLocations().stream()
+                    .flatMap(location -> location.targetFieldHints().stream())
+                    .filter(ScheduledServiceDataCapabilityCatalog::isAllowedField)
+                    .forEach(fields::add);
+            data.locationContext().excludedLocations().stream()
+                    .flatMap(location -> location.targetFieldHints().stream())
+                    .filter(ScheduledServiceDataCapabilityCatalog::isAllowedField)
+                    .forEach(fields::add);
+        }
+        return new ArrayList<>(fields);
     }
 
     private String semanticRulesSection() {
@@ -399,6 +651,16 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - CONTAINS_ANY requires "values": [...].
                 - Never use "value" with an array for IN, NOT_IN, or CONTAINS_ANY.
                 - EQUALS and CONTAINS use a single "value".
+
+                4a. requirementCoverage mappedBy field families:
+                - requirementCoverage.mappedBy may reference serviceDataQuery.* for API query requirements.
+                - requirementCoverage.mappedBy may reference stopPointsJourneyDetails[].* for journey snapshot data requirements.
+                - requirementCoverage.mappedBy may reference snapshotEvaluation.* / outputPolicy.* / schedule.* for report/count/threshold/scheduling/output requirements.
+                - count/report intent -> mappedBy may include snapshotEvaluation.mode, outputPolicy.emit, outputPolicy.includeCount.
+                - cardinality threshold -> mappedBy may include snapshotEvaluation.threshold.operator and snapshotEvaluation.threshold.value.
+                - polling frequency -> mappedBy may include schedule.frequencySeconds.
+                - lookahead window -> mappedBy may include serviceDataQuery.timeWindow.lookaheadMinutes.
+                - These are not ServiceData fields and must not be put inside snapshotEvaluation.condition.
 
                 5. LOCAL_TIME_BETWEEN JSON SHAPE - STRICT:
                 The only valid leaf shape is:

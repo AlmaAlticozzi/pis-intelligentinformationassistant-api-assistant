@@ -84,6 +84,21 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptAllowsTechnicalSpecFieldsInRequirementCoverageOnly() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(request.userPrompt())
+                .contains("requirementCoverage.mappedBy may reference serviceDataQuery.*")
+                .contains("requirementCoverage.mappedBy may reference stopPointsJourneyDetails[].*")
+                .contains("requirementCoverage.mappedBy may reference snapshotEvaluation.* / outputPolicy.* / schedule.*")
+                .contains("count/report intent -> mappedBy may include snapshotEvaluation.mode, outputPolicy.emit, outputPolicy.includeCount")
+                .contains("cardinality threshold -> mappedBy may include snapshotEvaluation.threshold.operator and snapshotEvaluation.threshold.value")
+                .contains("polling frequency -> mappedBy may include schedule.frequencySeconds")
+                .contains("lookahead window -> mappedBy may include serviceDataQuery.timeWindow.lookaheadMinutes")
+                .contains("These are not ServiceData fields and must not be put inside snapshotEvaluation.condition");
+    }
+
+    @Test
     void promptRequiresInformativeBooleanOutputPolicy() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
@@ -215,6 +230,45 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("\"operator\": \"PLATFORM_NUMBER_BETWEEN\"")
                 .contains("\"operator\": \"PLATFORM_NOT_EQUALS_FIELD\"")
                 .contains("changes CONTAINS PLATFORM_CHANGED");
+    }
+
+    @Test
+    void promptWithPlatformAndCancellationUsesDynamicCatalogAndStaysCompact() {
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT1",
+                "Platform cancellation report",
+                null,
+                "Fammi sapere quanti treni a San Siro Staeio hanno una cancellazione e sono sul binario 5",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                explicitContext(),
+                defaultTemporalHints(),
+                new ScheduledAlertPlatformHints(true, List.of(new ScheduledAlertPlatformConstraint(
+                        "binario 5",
+                        ScheduledAlertPlatformConstraint.Direction.UNSPECIFIED,
+                        ScheduledAlertPlatformConstraint.PlatformIntent.EQUALS,
+                        "5",
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
+                        0.9)), List.of()),
+                new ScheduledAlertChangeHints(true, List.of(new ScheduledAlertChangeConstraint(
+                        "cancellazione",
+                        ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION,
+                        ScheduledAlertChangeConstraint.Direction.UNSPECIFIED,
+                        ScheduledAlertChangeConstraint.Polarity.INCLUDE,
+                        0.9)), List.of())));
+        int total = request.systemPrompt().length() + request.userPrompt().length();
+        System.out.println("[TEST][SCHEDULED_PROMPT_SIZE] total=" + total);
+
+        assertThat(request.userPrompt())
+                .contains("Relevant capabilities:")
+                .contains("CANCELLATION")
+                .contains("PLATFORM")
+                .contains("Do not place only cancellation and omit platform")
+                .doesNotContain("- field: payload.ongroundServiceEvent.eventsType");
+        assertThat(total).isLessThan(30000);
     }
 
     @Test
