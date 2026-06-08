@@ -283,22 +283,29 @@ public class AlertService {
         }
 
         Map<String, Object> technicalSpecification = normalizeTechnicalSpecificationRequest(request);
+        String requestedInterpreterType = technicalSpecification.get("interpreterType") == null
+                ? null
+                : String.valueOf(technicalSpecification.get("interpreterType"));
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][VALIDATION_CONTEXT] purpose=MANUAL_TECHNICAL_SPECIFICATION_UPDATE interpreterType="
+                + requestedInterpreterType);
         AlertTechnicalSpecificationManualValidator.ValidationResult validation =
                 alertTechnicalSpecificationManualValidator.validate(technicalSpecification);
         if (!validation.valid()) {
+            System.out.println("[IIA][ALERT_TECH_SPEC_PUT][MANUAL_VALIDATION_FAILED] alertId=" + alertId
+                    + " reason=" + validation.reason());
             AlertTechnicalSpecificationRejectedException.Reason reason =
                     validation.failureKind() == AlertTechnicalSpecificationManualValidator.FailureKind.UNSUPPORTED_SPECIFICATION
                             ? AlertTechnicalSpecificationRejectedException.Reason.UNSUPPORTED_TECHNICAL_SPECIFICATION
                             : AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION;
             throw new AlertTechnicalSpecificationRejectedException(reason);
         }
-        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][VALIDATION_OK] alertId=" + alertId
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][MANUAL_VALIDATION_OK] alertId=" + alertId
                 + " interpreterType=" + validation.interpreterType());
 
         Alert updatedAlert = alertRepository.replaceTechnicalSpecificationManually(alertId, technicalSpecification)
                 .orElseThrow(() -> new IllegalStateException("Alert disappeared during technical specification update."));
         List<String> warnings = new ArrayList<>();
-        warnings.add("Technical specification was replaced manually; Agent Blueprint preview realignment will be handled by the dedicated generation/preview flow.");
+        warnings.add("Technical specification was replaced manually by an expert user; backend performed governance validation but did not reinterpret the original prompt.");
         if (wasEnabled) {
             warnings.add("Alert was disabled after manual technical specification replacement and must be explicitly enabled again.");
         }

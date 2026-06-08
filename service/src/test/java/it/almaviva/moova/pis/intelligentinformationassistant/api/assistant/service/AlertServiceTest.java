@@ -1279,7 +1279,7 @@ class AlertServiceTest {
         assertThat(response.getTechnicalSpecification()).isEqualTo(replacement);
         assertThat(response.getAgentBlueprintPreviewRegenerated()).isFalse();
         assertThat(response.getWarnings()).contains(
-                "Technical specification was replaced manually; Agent Blueprint preview realignment will be handled by the dedicated generation/preview flow.",
+                "Technical specification was replaced manually by an expert user; backend performed governance validation but did not reinterpret the original prompt.",
                 "Alert was disabled after manual technical specification replacement and must be explicitly enabled again.");
         verify(service.alertRepository).replaceTechnicalSpecificationManually("ALRT1", replacement);
     }
@@ -1302,6 +1302,58 @@ class AlertServiceTest {
                 .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
                 .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
         verify(service.alertRepository, never()).replaceTechnicalSpecificationManually(any(), any());
+    }
+
+    @Test
+    void manualValidatorAcceptsScheduledConditionWithDirectAnyShape() {
+        AlertTechnicalSpecificationManualValidator validator = new AlertTechnicalSpecificationManualValidator();
+        Map<String, Object> specification = Map.ofEntries(
+                Map.entry("source", "SERVICE_DATA"),
+                Map.entry("schemaVersion", "iia.alert.technical-specification/v2"),
+                Map.entry("interpreterType", "SCHEDULED_INTERPRETER"),
+                Map.entry("accessMode", "SERVICE_DATA_API_SNAPSHOT"),
+                Map.entry("triggerType", "SCHEDULE"),
+                Map.entry("inputModel", "ServiceDataStopPointJourneysV2"),
+                Map.entry("outputModel", "AgentOutput.CANDIDATE_SUGGESTION"),
+                Map.entry("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH"),
+                Map.entry("schedule", Map.of("frequencySeconds", 600)),
+                Map.entry("serviceDataQuery", Map.of(
+                        "operation", "POST /v2/stoppointjourneys",
+                        "monitoringScope", "EXPLICIT_STOP_POINTS",
+                        "stopPoints", List.of("TNPNTS00000000000019"))),
+                Map.entry("outputPolicy", Map.of("emit", "EVERY_RUN", "includeCount", true)),
+                Map.entry("snapshotEvaluation", Map.of(
+                        "mode", "REPORT_COUNT",
+                        "condition", Map.of(
+                                "type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                                "any", List.of(Map.of(
+                                        "field", "arrivalDelay.delay",
+                                        "operator", "GREATER_THAN",
+                                        "value", 0))))));
+
+        AlertTechnicalSpecificationManualValidator.ValidationResult result = validator.validate(specification);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+    }
+
+    @Test
+    void manualValidatorRejectsExecutableMarkers() {
+        AlertTechnicalSpecificationManualValidator validator = new AlertTechnicalSpecificationManualValidator();
+        Map<String, Object> specification = Map.of(
+                "source", "SERVICE_DATA",
+                "interpreterType", "EVENT_INTERPRETER",
+                "triggerType", "EVENT",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of("field", "payload.ongroundServiceEvent.eventsType", "operator", "EQUALS", "value", "DROP TABLE alert"));
+
+        AlertTechnicalSpecificationManualValidator.ValidationResult result = validator.validate(specification);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.failureKind())
+                .isEqualTo(AlertTechnicalSpecificationManualValidator.FailureKind.UNSUPPORTED_SPECIFICATION);
     }
 
     @Test
