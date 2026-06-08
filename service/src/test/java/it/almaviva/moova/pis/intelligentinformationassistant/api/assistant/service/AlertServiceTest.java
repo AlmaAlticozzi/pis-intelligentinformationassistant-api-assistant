@@ -32,6 +32,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
@@ -1243,6 +1244,64 @@ class AlertServiceTest {
                 .isInstanceOf(AlertTechnicalSpecificationRejectedException.class)
                 .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
                 .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.DELETED);
+    }
+
+    @Test
+    void updateAlertTechnicalSpecificationPersistsManualReplacementAndDisablesAlert() {
+        AlertService service = verificationService(false);
+        service.alertTechnicalSpecificationManualValidator = mock(AlertTechnicalSpecificationManualValidator.class);
+        Map<String, Object> replacement = Map.of(
+                "source", "SERVICE_DATA",
+                "interpreterType", "EVENT_INTERPRETER",
+                "triggerType", "EVENT",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of("type", "SERVICE_DATA_FIELD_MATCH", "field", "payload.ongroundServiceEvent.eventsType", "operator", "EQUALS", "value", "ARRIVING"));
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA"));
+        alert.setFlgEnabled(true);
+        Alert updated = verifiedTechnicalSpecificationAlert(replacement);
+        updated.setFlgTechnicalspecificationedited(true);
+        updated.setFlgEnabled(false);
+        updated.setNumVersion(8);
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+        when(service.alertTechnicalSpecificationManualValidator.validate(replacement))
+                .thenReturn(AlertTechnicalSpecificationManualValidator.ValidationResult.valid("EVENT_INTERPRETER"));
+        when(service.alertRepository.replaceTechnicalSpecificationManually("ALRT1", replacement))
+                .thenReturn(java.util.Optional.of(updated));
+        AlertTechnicalSpecificationUpdateRequest request = new AlertTechnicalSpecificationUpdateRequest()
+                .technicalSpecification(replacement);
+
+        AlertTechnicalSpecificationResponse response = service.updateAlertTechnicalSpecification("ALRT1", request).orElseThrow();
+
+        assertThat(response.getTechnicalSpecificationEdited()).isTrue();
+        assertThat(response.getTechnicalSpecification()).isEqualTo(replacement);
+        assertThat(response.getAgentBlueprintPreviewRegenerated()).isFalse();
+        assertThat(response.getWarnings()).contains(
+                "Technical specification was replaced manually; Agent Blueprint preview realignment will be handled by the dedicated generation/preview flow.",
+                "Alert was disabled after manual technical specification replacement and must be explicitly enabled again.");
+        verify(service.alertRepository).replaceTechnicalSpecificationManually("ALRT1", replacement);
+    }
+
+    @Test
+    void updateAlertTechnicalSpecificationRejectsInvalidSpecificationWithoutPersisting() {
+        AlertService service = verificationService(false);
+        service.alertTechnicalSpecificationManualValidator = mock(AlertTechnicalSpecificationManualValidator.class);
+        Map<String, Object> replacement = Map.of("source", "SERVICE_DATA");
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA"));
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+        when(service.alertTechnicalSpecificationManualValidator.validate(replacement))
+                .thenReturn(AlertTechnicalSpecificationManualValidator.ValidationResult.invalid("condition is missing"));
+        AlertTechnicalSpecificationUpdateRequest request = new AlertTechnicalSpecificationUpdateRequest()
+                .technicalSpecification(replacement);
+
+        assertThatThrownBy(() -> service.updateAlertTechnicalSpecification("ALRT1", request))
+                .isInstanceOf(AlertTechnicalSpecificationRejectedException.class)
+                .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
+                .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
+        verify(service.alertRepository, never()).replaceTechnicalSpecificationManually(any(), any());
     }
 
     @Test

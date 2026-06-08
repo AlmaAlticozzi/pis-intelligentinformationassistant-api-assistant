@@ -16,6 +16,8 @@ public class AlertTechnicalSpecificationRejectedException extends RuntimeExcepti
     public enum Reason {
         DELETED,
         NOT_VERIFIED,
-        INVALID_TECHNICAL_SPECIFICATION
+        CONCURRENT_UPDATE,
+        INVALID_TECHNICAL_SPECIFICATION,
+        UNSUPPORTED_TECHNICAL_SPECIFICATION
     }
 }

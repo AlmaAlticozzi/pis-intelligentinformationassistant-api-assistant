@@ -179,6 +179,34 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return find("codAlert = ?1", alertId).firstResultOptional();
     }
 
+    @Transactional
+    public Optional<Alert> replaceTechnicalSpecificationManually(
+            String alertId,
+            Map<String, Object> technicalSpecification) {
+        Optional<Alert> maybeAlert = find("codAlert = ?1", alertId).firstResultOptional();
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Alert alert = maybeAlert.get();
+        OffsetDateTime now = OffsetDateTime.now();
+        alert.setJsnTechnicalspecification(technicalSpecification);
+        alert.setFlgTechnicalspecificationedited(true);
+        alert.setFlgEnabled(false);
+        alert.setNumVersion(alert.getNumVersion() == null ? 1 : alert.getNumVersion() + 1);
+        alert.setDtUpdatedat(now);
+
+        persistAlertVersionHistorySnapshot(
+                alert,
+                technicalSpecification,
+                alert.getJsnAgentblueprintpreview() instanceof Map<?, ?> agentBlueprintPreview
+                        ? (Map<String, Object>) agentBlueprintPreview
+                        : null,
+                now);
+        flush();
+        return Optional.of(alert);
+    }
+
     public boolean softDeleteAlert(String alertId) {
         Optional<Alert> maybeAlert = find("codAlert = ?1 and dtDeletedat is null", alertId).firstResultOptional();
         if (maybeAlert.isEmpty()) {
@@ -614,7 +642,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 .interpreter(toAlertInterpreter(alert))
                 .requiredData(findRequiredData(alert.getCodAlert()))
                 .runtime(toAlertRuntimeMetadata(alert))
-                .agentDefinitions(findAgentDefinitions(alert));
+                .agentDefinitions(findAgentDefinitions(alert))
+                .technicalSpecificationEdited(Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
 
         if (alert.getSglStatus() != null) {
             detail.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus.fromString(alert.getSglStatus().getSglStatus()));
@@ -715,6 +744,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         history.setJsnTechnicalspecification(technicalSpecification);
         history.setJsnAgentblueprintpreview(agentBlueprintPreview);
         history.setCodCreatedby(alert.getCodCreatedby());
+        history.setFlgTechnicalspecificationedited(Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
 
         if (isNewSnapshot) {
             entityManager.persist(history);

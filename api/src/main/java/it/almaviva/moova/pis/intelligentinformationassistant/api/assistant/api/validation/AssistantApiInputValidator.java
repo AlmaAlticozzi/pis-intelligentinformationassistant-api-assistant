@@ -6,6 +6,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.e
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.Error;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
@@ -109,6 +110,27 @@ public final class AssistantApiInputValidator {
             throw badRequest(AssistantApiErrors.alertTechnicalSpecificationGetAlertIdTooLong());
         }
         return alertId;
+    }
+
+    public static String validateAlertIdForTechnicalSpecificationPut(String alertId) {
+        if (alertId == null || alertId.isBlank()) {
+            throw badRequest(AssistantApiErrors.alertTechnicalSpecificationPutBlankAlertId());
+        }
+        if (alertId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.alertTechnicalSpecificationPutAlertIdTooLong());
+        }
+        return alertId;
+    }
+
+    public static AlertTechnicalSpecificationUpdateRequest validateAlertTechnicalSpecificationUpdate(
+            AlertTechnicalSpecificationUpdateRequest request) {
+        if (request == null) {
+            throw badRequest(AssistantApiErrors.alertTechnicalSpecificationPutMissingBody());
+        }
+        if (request.getTechnicalSpecification() == null || request.getTechnicalSpecification().isEmpty()) {
+            throw badRequest(AssistantApiErrors.alertTechnicalSpecificationPutInvalidSpecification());
+        }
+        return request;
     }
 
     public static AlertCreateRequest validateAlertCreate(AlertCreateRequest request) {

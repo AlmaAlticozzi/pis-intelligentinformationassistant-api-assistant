@@ -493,9 +493,30 @@ public class AssistantV1Api implements IAssistantV1Api {
         return switch (ex.reason()) {
             case DELETED -> conflict(AssistantApiErrors.alertTechnicalSpecificationGetDeletedAlert());
             case NOT_VERIFIED -> conflict(AssistantApiErrors.alertTechnicalSpecificationGetNotVerified());
+            case CONCURRENT_UPDATE -> conflict(AssistantApiErrors.alertTechnicalSpecificationPutConcurrentUpdate());
             case INVALID_TECHNICAL_SPECIFICATION -> new WebApplicationException(
                     Response.status(422)
                             .entity(AssistantApiErrors.alertTechnicalSpecificationGetInvalidSpecification())
+                            .build());
+            case UNSUPPORTED_TECHNICAL_SPECIFICATION -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationPutUnsupportedSpecification())
+                            .build());
+        };
+    }
+
+    private WebApplicationException alertTechnicalSpecificationPutRejected(AlertTechnicalSpecificationRejectedException ex) {
+        return switch (ex.reason()) {
+            case DELETED -> conflict(AssistantApiErrors.alertTechnicalSpecificationPutDeletedAlert());
+            case NOT_VERIFIED -> conflict(AssistantApiErrors.alertTechnicalSpecificationPutNotVerified());
+            case CONCURRENT_UPDATE -> conflict(AssistantApiErrors.alertTechnicalSpecificationPutConcurrentUpdate());
+            case INVALID_TECHNICAL_SPECIFICATION -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationPutValidationFailed())
+                            .build());
+            case UNSUPPORTED_TECHNICAL_SPECIFICATION -> new WebApplicationException(
+                    Response.status(422)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationPutUnsupportedSpecification())
                             .build());
         };
     }
@@ -608,7 +629,24 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AlertTechnicalSpecificationResponse updateAlertTechnicalSpecification(String alertId, AlertTechnicalSpecificationUpdateRequest alertTechnicalSpecificationUpdateRequest) {
-        return null;
+        try {
+            String validatedAlertId = AssistantApiInputValidator.validateAlertIdForTechnicalSpecificationPut(alertId);
+            AlertTechnicalSpecificationUpdateRequest validatedRequest =
+                    AssistantApiInputValidator.validateAlertTechnicalSpecificationUpdate(alertTechnicalSpecificationUpdateRequest);
+            return alertService.updateAlertTechnicalSpecification(validatedAlertId, validatedRequest)
+                    .orElseThrow(() -> new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                            .entity(AssistantApiErrors.alertTechnicalSpecificationPutNotFound())
+                            .build()));
+        } catch (AlertTechnicalSpecificationRejectedException ex) {
+            throw alertTechnicalSpecificationPutRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][ALERT_TECH_SPEC_PUT] Unexpected error alertId=" + alertId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.alertTechnicalSpecificationPutUnexpectedError())
+                    .build());
+        }
     }
 
     @GET

@@ -43,6 +43,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummaryListResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertTechnicalSpecificationUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationStatus;
@@ -168,6 +169,9 @@ public class AlertService {
     @Inject
     AgentGenerationLlmResponseParser agentGenerationLlmResponseParser;
 
+    @Inject
+    AlertTechnicalSpecificationManualValidator alertTechnicalSpecificationManualValidator;
+
     /**
      * Development safety valve for non-conforming LLM JSON. Production should set this to false.
      */
@@ -240,23 +244,70 @@ public class AlertService {
                 + " interpreterType=" + interpreterType
                 + " edited=" + edited);
 
-        AlertTechnicalSpecificationResponse response = new AlertTechnicalSpecificationResponse()
-                .alert(new AlertReference()
-                        .id(alert.getCodAlert())
-                        .name(alert.getDscName()))
-                .status(AlertStatus.fromString(status))
-                .verificationStatus(AlertVerificationStatus.fromString(verificationStatus))
-                .technicalSpecificationEdited(edited)
-                .technicalSpecification(technicalSpecification)
-                .warnings(List.of());
+        return Optional.of(toTechnicalSpecificationResponse(alert, technicalSpecification, List.of(), null));
+    }
 
-        if (interpreterType != null) {
-            response.interpreterType(AlertInterpreterType.fromString(interpreterType));
+    public Optional<AlertTechnicalSpecificationResponse> updateAlertTechnicalSpecification(
+            String alertId,
+            AlertTechnicalSpecificationUpdateRequest request) {
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][START] alertId=" + alertId);
+        Optional<Alert> maybeAlert = alertRepository.findAlertForTechnicalSpecification(alertId);
+        if (maybeAlert.isEmpty()) {
+            return Optional.empty();
         }
-        response.inputModel(alert.getDscInputmodel());
-        response.outputModel(alert.getDscOutputmodel());
 
-        return Optional.of(response);
+        Alert alert = maybeAlert.get();
+        String status = alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus();
+        String verificationStatus = alert.getSglVerificationstatus() == null
+                ? null
+                : alert.getSglVerificationstatus().getSglVerificationstatus();
+        boolean deleted = alert.getDtDeletedat() != null || AlertStatus.DELETED.toString().equals(status);
+        boolean wasEnabled = Boolean.TRUE.equals(alert.getFlgEnabled());
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][LOADED] alertId=" + alertId
+                + " status=" + status
+                + " verificationStatus=" + verificationStatus
+                + " enabled=" + alert.getFlgEnabled());
+
+        if (deleted) {
+            throw new AlertTechnicalSpecificationRejectedException(
+                    AlertTechnicalSpecificationRejectedException.Reason.DELETED);
+        }
+        if (AlertStatus.VERIFYING.toString().equals(status)) {
+            throw new AlertTechnicalSpecificationRejectedException(
+                    AlertTechnicalSpecificationRejectedException.Reason.CONCURRENT_UPDATE);
+        }
+        if (!AlertStatus.VERIFIED.toString().equals(status)
+                || !AlertVerificationStatus.VERIFIED.toString().equals(verificationStatus)) {
+            throw new AlertTechnicalSpecificationRejectedException(
+                    AlertTechnicalSpecificationRejectedException.Reason.NOT_VERIFIED);
+        }
+
+        Map<String, Object> technicalSpecification = normalizeTechnicalSpecificationRequest(request);
+        AlertTechnicalSpecificationManualValidator.ValidationResult validation =
+                alertTechnicalSpecificationManualValidator.validate(technicalSpecification);
+        if (!validation.valid()) {
+            AlertTechnicalSpecificationRejectedException.Reason reason =
+                    validation.failureKind() == AlertTechnicalSpecificationManualValidator.FailureKind.UNSUPPORTED_SPECIFICATION
+                            ? AlertTechnicalSpecificationRejectedException.Reason.UNSUPPORTED_TECHNICAL_SPECIFICATION
+                            : AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION;
+            throw new AlertTechnicalSpecificationRejectedException(reason);
+        }
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][VALIDATION_OK] alertId=" + alertId
+                + " interpreterType=" + validation.interpreterType());
+
+        Alert updatedAlert = alertRepository.replaceTechnicalSpecificationManually(alertId, technicalSpecification)
+                .orElseThrow(() -> new IllegalStateException("Alert disappeared during technical specification update."));
+        List<String> warnings = new ArrayList<>();
+        warnings.add("Technical specification was replaced manually; Agent Blueprint preview realignment will be handled by the dedicated generation/preview flow.");
+        if (wasEnabled) {
+            warnings.add("Alert was disabled after manual technical specification replacement and must be explicitly enabled again.");
+        }
+        System.out.println("[IIA][ALERT_TECH_SPEC_PUT][SAVED] alertId=" + alertId
+                + " edited=true"
+                + " disabled=" + wasEnabled
+                + " version=" + updatedAlert.getNumVersion());
+
+        return Optional.of(toTechnicalSpecificationResponse(updatedAlert, technicalSpecification, warnings, false));
     }
 
     private Map<String, Object> technicalSpecificationAsMap(Object rawTechnicalSpecification) {
@@ -286,6 +337,47 @@ public class AlertService {
     private AlertTechnicalSpecificationRejectedException invalidTechnicalSpecification() {
         return new AlertTechnicalSpecificationRejectedException(
                 AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
+    }
+
+    private Map<String, Object> normalizeTechnicalSpecificationRequest(AlertTechnicalSpecificationUpdateRequest request) {
+        if (request == null
+                || request.getTechnicalSpecification() == null
+                || request.getTechnicalSpecification().isEmpty()) {
+            throw invalidTechnicalSpecification();
+        }
+        return OBJECT_MAPPER.convertValue(request.getTechnicalSpecification(), new TypeReference<Map<String, Object>>() {
+        });
+    }
+
+    private AlertTechnicalSpecificationResponse toTechnicalSpecificationResponse(
+            Alert alert,
+            Map<String, Object> technicalSpecification,
+            List<String> warnings,
+            Boolean agentBlueprintPreviewRegenerated) {
+        String status = alert.getSglStatus() == null ? null : alert.getSglStatus().getSglStatus();
+        String verificationStatus = alert.getSglVerificationstatus() == null
+                ? null
+                : alert.getSglVerificationstatus().getSglVerificationstatus();
+        String interpreterType = alert.getSglInterpretertype() == null
+                ? null
+                : alert.getSglInterpretertype().getSglInterpretertype();
+        AlertTechnicalSpecificationResponse response = new AlertTechnicalSpecificationResponse()
+                .alert(new AlertReference()
+                        .id(alert.getCodAlert())
+                        .name(alert.getDscName()))
+                .status(AlertStatus.fromString(status))
+                .verificationStatus(AlertVerificationStatus.fromString(verificationStatus))
+                .technicalSpecificationEdited(Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()))
+                .technicalSpecification(technicalSpecification)
+                .agentBlueprintPreviewRegenerated(agentBlueprintPreviewRegenerated)
+                .warnings(warnings == null ? List.of() : warnings);
+
+        if (interpreterType != null) {
+            response.interpreterType(AlertInterpreterType.fromString(interpreterType));
+        }
+        response.inputModel(alert.getDscInputmodel());
+        response.outputModel(alert.getDscOutputmodel());
+        return response;
     }
 
     public Optional<AgentGenerationPreviewResponse> previewAgentGenerationForAlert(

@@ -489,6 +489,77 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while reading the alert technical specification.");
     }
 
+    public static Error alertTechnicalSpecificationPutBlankAlertId() {
+        return invalidParameter(
+                "IIA-ALT-TSP-PUT-400-001",
+                "alertId",
+                "The alertId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error alertTechnicalSpecificationPutAlertIdTooLong() {
+        return invalidParameter(
+                "IIA-ALT-TSP-PUT-400-002",
+                "alertId",
+                "The alertId path parameter exceeds 50 characters.");
+    }
+
+    public static Error alertTechnicalSpecificationPutMissingBody() {
+        return invalidParameter(
+                "IIA-ALT-TSP-PUT-400-003",
+                "body",
+                "The request body is missing.");
+    }
+
+    public static Error alertTechnicalSpecificationPutInvalidSpecification() {
+        return invalidParameter(
+                "IIA-ALT-TSP-PUT-400-005",
+                "technicalSpecification",
+                "The technicalSpecification field is missing, empty or not a JSON object.");
+    }
+
+    public static Error alertTechnicalSpecificationPutNotFound() {
+        return new Error()
+                .code("IIA-ALT-TSP-PUT-404-001")
+                .title("Alert not found")
+                .detail("No alert with the given alertId was found.")
+                .source("alertId");
+    }
+
+    public static Error alertTechnicalSpecificationPutDeletedAlert() {
+        return conflict("IIA-ALT-TSP-PUT-409-001", "Alert deleted", "The alert has been deleted and cannot be modified.");
+    }
+
+    public static Error alertTechnicalSpecificationPutNotVerified() {
+        return conflict("IIA-ALT-TSP-PUT-409-002", "Alert not verified", "Only a verified alert can have its technical specification replaced.");
+    }
+
+    public static Error alertTechnicalSpecificationPutConcurrentUpdate() {
+        return conflict("IIA-ALT-TSP-PUT-409-003", "Alert update in progress", "The alert is currently verifying or another technical specification update is already in progress.");
+    }
+
+    public static Error alertTechnicalSpecificationPutValidationFailed() {
+        return new Error()
+                .code("IIA-ALT-TSP-PUT-422-001")
+                .title("Technical specification validation failed")
+                .detail("The submitted technical specification is syntactically valid JSON but fails backend validation.")
+                .source("technicalSpecification");
+    }
+
+    public static Error alertTechnicalSpecificationPutUnsupportedSpecification() {
+        return new Error()
+                .code("IIA-ALT-TSP-PUT-422-002")
+                .title("Unsupported technical specification")
+                .detail("The submitted technical specification uses unsupported sources, fields, operators, enum values, interpreter types or evaluation modes.")
+                .source("technicalSpecification");
+    }
+
+    public static Error alertTechnicalSpecificationPutUnexpectedError() {
+        return new Error()
+                .code("IIA-ALT-TSP-PUT-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while replacing the alert technical specification.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
