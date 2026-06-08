@@ -3,7 +3,6 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.mode
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.SuggestionTargetType;
@@ -35,7 +34,7 @@ public class AlertSummary   {
   private @Valid List<SuggestionTargetType> targetTypes = new ArrayList<>();
   private Double confidence;
   private AlertVerificationSummary lastVerification;
-  private AlertSchedule schedule;
+  private Boolean technicalSpecificationEdited;
   private OffsetDateTime createdAt;
   private OffsetDateTime updatedAt;
   private Integer version;
@@ -45,11 +44,11 @@ public class AlertSummary   {
 
   @JsonCreator
   public AlertSummary(
-    @JsonProperty(required = true, value = "id") String id,
-    @JsonProperty(required = true, value = "name") String name,
-    @JsonProperty(required = true, value = "status") AlertStatus status,
-    @JsonProperty(required = true, value = "enabled") Boolean enabled,
-    @JsonProperty(required = true, value = "createdAt") OffsetDateTime createdAt
+          @JsonProperty(required = true, value = "id") String id,
+          @JsonProperty(required = true, value = "name") String name,
+          @JsonProperty(required = true, value = "status") AlertStatus status,
+          @JsonProperty(required = true, value = "enabled") Boolean enabled,
+          @JsonProperty(required = true, value = "createdAt") OffsetDateTime createdAt
   ) {
     this.id = id;
     this.name = name;
@@ -65,7 +64,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "ALRT2026251400000001", required = true, value = "")
   @JsonProperty(required = true, value = "id")
   @NotNull  @Size(max=50)public String getId() {
@@ -84,7 +83,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Cancelled journeys without announcements", required = true, value = "")
   @JsonProperty(required = true, value = "name")
   @NotNull public String getName() {
@@ -103,7 +102,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "status")
   @NotNull public AlertStatus getStatus() {
@@ -122,7 +121,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "true", required = true, value = "")
   @JsonProperty(required = true, value = "enabled")
   @NotNull public Boolean getEnabled() {
@@ -141,7 +140,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("interpreterType")
   public AlertInterpreterType getInterpreterType() {
@@ -160,7 +159,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("targetTypes")
   public List<SuggestionTargetType> getTargetTypes() {
@@ -198,10 +197,10 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "0.86", value = "Estimated detection success/confidence shown by the UI.")
   @JsonProperty("confidence")
-   @DecimalMin("0") @DecimalMax("1")public Double getConfidence() {
+  @DecimalMin("0") @DecimalMax("1")public Double getConfidence() {
     return confidence;
   }
 
@@ -217,7 +216,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("lastVerification")
   @Valid public AlertVerificationSummary getLastVerification() {
@@ -230,22 +229,23 @@ public class AlertSummary   {
   }
 
   /**
+   * Indicates whether the current validated technical specification was manually replaced after the last successful AI-assisted verification.
    **/
-  public AlertSummary schedule(AlertSchedule schedule) {
-    this.schedule = schedule;
+  public AlertSummary technicalSpecificationEdited(Boolean technicalSpecificationEdited) {
+    this.technicalSpecificationEdited = technicalSpecificationEdited;
     return this;
   }
 
-  
-  @ApiModelProperty(value = "")
-  @JsonProperty("schedule")
-  @Valid public AlertSchedule getSchedule() {
-    return schedule;
+
+  @ApiModelProperty(example = "false", value = "Indicates whether the current validated technical specification was manually replaced after the last successful AI-assisted verification.")
+  @JsonProperty("technicalSpecificationEdited")
+  public Boolean getTechnicalSpecificationEdited() {
+    return technicalSpecificationEdited;
   }
 
-  @JsonProperty("schedule")
-  public void setSchedule(AlertSchedule schedule) {
-    this.schedule = schedule;
+  @JsonProperty("technicalSpecificationEdited")
+  public void setTechnicalSpecificationEdited(Boolean technicalSpecificationEdited) {
+    this.technicalSpecificationEdited = technicalSpecificationEdited;
   }
 
   /**
@@ -255,7 +255,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "createdAt")
   @NotNull public OffsetDateTime getCreatedAt() {
@@ -274,7 +274,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("updatedAt")
   public OffsetDateTime getUpdatedAt() {
@@ -293,7 +293,7 @@ public class AlertSummary   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "1", value = "")
   @JsonProperty("version")
   public Integer getVersion() {
@@ -316,29 +316,29 @@ public class AlertSummary   {
     }
     AlertSummary alertSummary = (AlertSummary) o;
     return Objects.equals(this.id, alertSummary.id) &&
-        Objects.equals(this.name, alertSummary.name) &&
-        Objects.equals(this.status, alertSummary.status) &&
-        Objects.equals(this.enabled, alertSummary.enabled) &&
-        Objects.equals(this.interpreterType, alertSummary.interpreterType) &&
-        Objects.equals(this.targetTypes, alertSummary.targetTypes) &&
-        Objects.equals(this.confidence, alertSummary.confidence) &&
-        Objects.equals(this.lastVerification, alertSummary.lastVerification) &&
-        Objects.equals(this.schedule, alertSummary.schedule) &&
-        Objects.equals(this.createdAt, alertSummary.createdAt) &&
-        Objects.equals(this.updatedAt, alertSummary.updatedAt) &&
-        Objects.equals(this.version, alertSummary.version);
+            Objects.equals(this.name, alertSummary.name) &&
+            Objects.equals(this.status, alertSummary.status) &&
+            Objects.equals(this.enabled, alertSummary.enabled) &&
+            Objects.equals(this.interpreterType, alertSummary.interpreterType) &&
+            Objects.equals(this.targetTypes, alertSummary.targetTypes) &&
+            Objects.equals(this.confidence, alertSummary.confidence) &&
+            Objects.equals(this.lastVerification, alertSummary.lastVerification) &&
+            Objects.equals(this.technicalSpecificationEdited, alertSummary.technicalSpecificationEdited) &&
+            Objects.equals(this.createdAt, alertSummary.createdAt) &&
+            Objects.equals(this.updatedAt, alertSummary.updatedAt) &&
+            Objects.equals(this.version, alertSummary.version);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, status, enabled, interpreterType, targetTypes, confidence, lastVerification, schedule, createdAt, updatedAt, version);
+    return Objects.hash(id, name, status, enabled, interpreterType, targetTypes, confidence, lastVerification, technicalSpecificationEdited, createdAt, updatedAt, version);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class AlertSummary {\n");
-    
+
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
@@ -347,7 +347,7 @@ public class AlertSummary   {
     sb.append("    targetTypes: ").append(toIndentedString(targetTypes)).append("\n");
     sb.append("    confidence: ").append(toIndentedString(confidence)).append("\n");
     sb.append("    lastVerification: ").append(toIndentedString(lastVerification)).append("\n");
-    sb.append("    schedule: ").append(toIndentedString(schedule)).append("\n");
+    sb.append("    technicalSpecificationEdited: ").append(toIndentedString(technicalSpecificationEdited)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    updatedAt: ").append(toIndentedString(updatedAt)).append("\n");
     sb.append("    version: ").append(toIndentedString(version)).append("\n");

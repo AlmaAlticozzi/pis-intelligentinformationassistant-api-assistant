@@ -6,7 +6,6 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreter;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRequiredData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationResult;
 import java.time.OffsetDateTime;
@@ -37,9 +36,9 @@ public class AlertDetail   {
   private AlertStatus status;
   private Boolean enabled;
   private AlertVerificationResult verification;
+  private Boolean technicalSpecificationEdited;
   private AlertInterpreter interpreter;
   private @Valid List<@Valid AlertRequiredData> requiredData = new ArrayList<>();
-  private AlertSchedule schedule;
   private AlertRuntimeMetadata runtime;
   private String createdBy;
   private OffsetDateTime createdAt;
@@ -53,12 +52,12 @@ public class AlertDetail   {
 
   @JsonCreator
   public AlertDetail(
-    @JsonProperty(required = true, value = "id") String id,
-    @JsonProperty(required = true, value = "name") String name,
-    @JsonProperty(required = true, value = "prompt") String prompt,
-    @JsonProperty(required = true, value = "status") AlertStatus status,
-    @JsonProperty(required = true, value = "enabled") Boolean enabled,
-    @JsonProperty(required = true, value = "createdAt") OffsetDateTime createdAt
+          @JsonProperty(required = true, value = "id") String id,
+          @JsonProperty(required = true, value = "name") String name,
+          @JsonProperty(required = true, value = "prompt") String prompt,
+          @JsonProperty(required = true, value = "status") AlertStatus status,
+          @JsonProperty(required = true, value = "enabled") Boolean enabled,
+          @JsonProperty(required = true, value = "createdAt") OffsetDateTime createdAt
   ) {
     this.id = id;
     this.name = name;
@@ -75,7 +74,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "ALRT2026251400000001", required = true, value = "")
   @JsonProperty(required = true, value = "id")
   @NotNull  @Size(max=50)public String getId() {
@@ -94,7 +93,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Cancelled journeys without announcements", required = true, value = "")
   @JsonProperty(required = true, value = "name")
   @NotNull  @Size(max=120)public String getName() {
@@ -113,10 +112,10 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Detects cancelled journeys for which no passenger announcement has been generated or broadcast.", value = "")
   @JsonProperty("description")
-   @Size(max=1000)public String getDescription() {
+  @Size(max=1000)public String getDescription() {
     return description;
   }
 
@@ -133,7 +132,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "Create a suggestion when a journey is cancelled and no audio message has been broadcast within five minutes.", required = true, value = "Free-text prompt inserted by the operator.")
   @JsonProperty(required = true, value = "prompt")
   @NotNull  @Size(max=8000)public String getPrompt() {
@@ -152,7 +151,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "status")
   @NotNull public AlertStatus getStatus() {
@@ -171,7 +170,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "true", required = true, value = "")
   @JsonProperty(required = true, value = "enabled")
   @NotNull public Boolean getEnabled() {
@@ -190,7 +189,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("verification")
   @Valid public AlertVerificationResult getVerification() {
@@ -203,13 +202,33 @@ public class AlertDetail   {
   }
 
   /**
+   * Indicates whether the current validated technical specification was manually replaced by an expert user after the last successful AI-assisted verification.  &#x60;false&#x60; means that the current technical specification was produced directly by the governed verification pipeline.  &#x60;true&#x60; means that the technical specification was later replaced through &#x60;PUT /v1/alerts/{alertId}/technical-specification&#x60; and successfully validated by the backend.  A new successful &#x60;POST /v1/alerts/{alertId}/verify&#x60; recalculates the technical specification from the stored prompt and resets this flag to &#x60;false&#x60;.
+   **/
+  public AlertDetail technicalSpecificationEdited(Boolean technicalSpecificationEdited) {
+    this.technicalSpecificationEdited = technicalSpecificationEdited;
+    return this;
+  }
+
+
+  @ApiModelProperty(example = "false", value = "Indicates whether the current validated technical specification was manually replaced by an expert user after the last successful AI-assisted verification.  `false` means that the current technical specification was produced directly by the governed verification pipeline.  `true` means that the technical specification was later replaced through `PUT /v1/alerts/{alertId}/technical-specification` and successfully validated by the backend.  A new successful `POST /v1/alerts/{alertId}/verify` recalculates the technical specification from the stored prompt and resets this flag to `false`. ")
+  @JsonProperty("technicalSpecificationEdited")
+  public Boolean getTechnicalSpecificationEdited() {
+    return technicalSpecificationEdited;
+  }
+
+  @JsonProperty("technicalSpecificationEdited")
+  public void setTechnicalSpecificationEdited(Boolean technicalSpecificationEdited) {
+    this.technicalSpecificationEdited = technicalSpecificationEdited;
+  }
+
+  /**
    **/
   public AlertDetail interpreter(AlertInterpreter interpreter) {
     this.interpreter = interpreter;
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("interpreter")
   @Valid public AlertInterpreter getInterpreter() {
@@ -229,7 +248,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "Data categories required by the interpreter.")
   @JsonProperty("requiredData")
   @Valid public List<@Valid AlertRequiredData> getRequiredData() {
@@ -259,31 +278,12 @@ public class AlertDetail   {
   }
   /**
    **/
-  public AlertDetail schedule(AlertSchedule schedule) {
-    this.schedule = schedule;
-    return this;
-  }
-
-  
-  @ApiModelProperty(value = "")
-  @JsonProperty("schedule")
-  @Valid public AlertSchedule getSchedule() {
-    return schedule;
-  }
-
-  @JsonProperty("schedule")
-  public void setSchedule(AlertSchedule schedule) {
-    this.schedule = schedule;
-  }
-
-  /**
-   **/
   public AlertDetail runtime(AlertRuntimeMetadata runtime) {
     this.runtime = runtime;
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("runtime")
   @Valid public AlertRuntimeMetadata getRuntime() {
@@ -302,7 +302,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "m.user", value = "")
   @JsonProperty("createdBy")
   public String getCreatedBy() {
@@ -321,7 +321,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "createdAt")
   @NotNull public OffsetDateTime getCreatedAt() {
@@ -340,7 +340,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("updatedAt")
   public OffsetDateTime getUpdatedAt() {
@@ -359,7 +359,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "")
   @JsonProperty("deletedAt")
   public OffsetDateTime getDeletedAt() {
@@ -379,7 +379,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(example = "1", value = "Monotonic Alert version. A new version is produced when prompt or relevant verification inputs change.")
   @JsonProperty("version")
   public Integer getVersion() {
@@ -399,7 +399,7 @@ public class AlertDetail   {
     return this;
   }
 
-  
+
   @ApiModelProperty(value = "Agent definitions generated from this Alert.")
   @JsonProperty("agentDefinitions")
   @Valid public List<@Valid AgentDefinitionSummary> getAgentDefinitions() {
@@ -438,34 +438,34 @@ public class AlertDetail   {
     }
     AlertDetail alertDetail = (AlertDetail) o;
     return Objects.equals(this.id, alertDetail.id) &&
-        Objects.equals(this.name, alertDetail.name) &&
-        Objects.equals(this.description, alertDetail.description) &&
-        Objects.equals(this.prompt, alertDetail.prompt) &&
-        Objects.equals(this.status, alertDetail.status) &&
-        Objects.equals(this.enabled, alertDetail.enabled) &&
-        Objects.equals(this.verification, alertDetail.verification) &&
-        Objects.equals(this.interpreter, alertDetail.interpreter) &&
-        Objects.equals(this.requiredData, alertDetail.requiredData) &&
-        Objects.equals(this.schedule, alertDetail.schedule) &&
-        Objects.equals(this.runtime, alertDetail.runtime) &&
-        Objects.equals(this.createdBy, alertDetail.createdBy) &&
-        Objects.equals(this.createdAt, alertDetail.createdAt) &&
-        Objects.equals(this.updatedAt, alertDetail.updatedAt) &&
-        Objects.equals(this.deletedAt, alertDetail.deletedAt) &&
-        Objects.equals(this.version, alertDetail.version) &&
-        Objects.equals(this.agentDefinitions, alertDetail.agentDefinitions);
+            Objects.equals(this.name, alertDetail.name) &&
+            Objects.equals(this.description, alertDetail.description) &&
+            Objects.equals(this.prompt, alertDetail.prompt) &&
+            Objects.equals(this.status, alertDetail.status) &&
+            Objects.equals(this.enabled, alertDetail.enabled) &&
+            Objects.equals(this.verification, alertDetail.verification) &&
+            Objects.equals(this.technicalSpecificationEdited, alertDetail.technicalSpecificationEdited) &&
+            Objects.equals(this.interpreter, alertDetail.interpreter) &&
+            Objects.equals(this.requiredData, alertDetail.requiredData) &&
+            Objects.equals(this.runtime, alertDetail.runtime) &&
+            Objects.equals(this.createdBy, alertDetail.createdBy) &&
+            Objects.equals(this.createdAt, alertDetail.createdAt) &&
+            Objects.equals(this.updatedAt, alertDetail.updatedAt) &&
+            Objects.equals(this.deletedAt, alertDetail.deletedAt) &&
+            Objects.equals(this.version, alertDetail.version) &&
+            Objects.equals(this.agentDefinitions, alertDetail.agentDefinitions);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, description, prompt, status, enabled, verification, interpreter, requiredData, schedule, runtime, createdBy, createdAt, updatedAt, deletedAt, version, agentDefinitions);
+    return Objects.hash(id, name, description, prompt, status, enabled, verification, technicalSpecificationEdited, interpreter, requiredData, runtime, createdBy, createdAt, updatedAt, deletedAt, version, agentDefinitions);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class AlertDetail {\n");
-    
+
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
     sb.append("    description: ").append(toIndentedString(description)).append("\n");
@@ -473,9 +473,9 @@ public class AlertDetail   {
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("    enabled: ").append(toIndentedString(enabled)).append("\n");
     sb.append("    verification: ").append(toIndentedString(verification)).append("\n");
+    sb.append("    technicalSpecificationEdited: ").append(toIndentedString(technicalSpecificationEdited)).append("\n");
     sb.append("    interpreter: ").append(toIndentedString(interpreter)).append("\n");
     sb.append("    requiredData: ").append(toIndentedString(requiredData)).append("\n");
-    sb.append("    schedule: ").append(toIndentedString(schedule)).append("\n");
     sb.append("    runtime: ").append(toIndentedString(runtime)).append("\n");
     sb.append("    createdBy: ").append(toIndentedString(createdBy)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");

@@ -15,7 +15,6 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRequiredData;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertRuntimeMetadata;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSchedule;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertUpdateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertVerificationSummary;
@@ -609,7 +608,6 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 .verification(toAlertVerificationResult(alert))
                 .interpreter(toAlertInterpreter(alert))
                 .requiredData(findRequiredData(alert.getCodAlert()))
-                .schedule(toAlertSchedule(alert))
                 .runtime(toAlertRuntimeMetadata(alert))
                 .agentDefinitions(findAgentDefinitions(alert));
 
@@ -635,9 +633,9 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 .verification(toAlertVerificationResult(alert))
                 .interpreter(toAlertInterpreter(alert))
                 .requiredData(findRequiredData(alert.getCodAlert()))
-                .schedule(toAlertSchedule(alert))
                 .runtime(toAlertRuntimeMetadata(alert))
-                .agentDefinitions(List.of());
+                .agentDefinitions(List.of())
+                .technicalSpecificationEdited(Boolean.TRUE.equals(alert.getFlgTechnicalspecificationedited()));
 
         if (alert.getSglStatus() != null) {
             detail.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus.fromString(alert.getSglStatus().getSglStatus()));
@@ -775,20 +773,6 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         return interpreter;
     }
 
-    private AlertSchedule toAlertSchedule(Alert alert) {
-        if (alert.getNumFrequencyseconds() == null
-                && alert.getNumTimewindowminutes() == null
-                && alert.getFlgEnabledonlyinservicehours() == null
-                && alert.getDscCronexpression() == null) {
-            return null;
-        }
-
-        return new AlertSchedule()
-                .frequencySeconds(alert.getNumFrequencyseconds())
-                .timeWindowMinutes(alert.getNumTimewindowminutes())
-                .enabledOnlyInServiceHours(alert.getFlgEnabledonlyinservicehours())
-                .cronExpression(alert.getDscCronexpression());
-    }
 
     private AlertRuntimeMetadata toAlertRuntimeMetadata(Alert alert) {
         AlertRuntimeMetadata runtime = new AlertRuntimeMetadata()

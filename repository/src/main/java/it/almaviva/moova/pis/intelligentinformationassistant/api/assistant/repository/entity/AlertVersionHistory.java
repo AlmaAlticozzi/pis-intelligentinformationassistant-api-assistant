@@ -63,4 +63,8 @@ public class AlertVersionHistory {
     @Column(name = "dt_createdat", nullable = false)
     private OffsetDateTime dtCreatedat;
 
+    @ColumnDefault("false")
+    @Column(name = "flg_technicalspecificationedited", nullable = false)
+    private Boolean flgTechnicalspecificationedited = false;
+
 }

@@ -202,4 +202,7 @@ public class Alert {
     @Column(name = "dt_deletedat")
     private OffsetDateTime dtDeletedat;
 
+    @ColumnDefault("false")
+    @Column(name = "flg_technicalspecificationedited", nullable = false)
+    private Boolean flgTechnicalspecificationedited = false;
 }

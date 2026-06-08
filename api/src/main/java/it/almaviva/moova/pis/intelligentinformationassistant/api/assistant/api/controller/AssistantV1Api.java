@@ -590,4 +590,21 @@ public class AssistantV1Api implements IAssistantV1Api {
         return textImproveUseCase.improve(body);
     }
 
+    @PUT
+    @Path("/alerts/{alertId}/technical-specification")
+    @Consumes({ "application/json" })
+    @Produces({ "application/json" })
+    @Override
+    public AlertTechnicalSpecificationResponse updateAlertTechnicalSpecification(String alertId, AlertTechnicalSpecificationUpdateRequest alertTechnicalSpecificationUpdateRequest) {
+        return null;
+    }
+
+    @GET
+    @Path("/alerts/{alertId}/technical-specification")
+    @Produces({ "application/json" })
+    @Override
+    public AlertTechnicalSpecificationResponse getAlertTechnicalSpecification(String alertId) {
+        return null;
+    }
+
 }
