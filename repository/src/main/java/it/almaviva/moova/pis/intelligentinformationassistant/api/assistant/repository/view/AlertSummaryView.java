@@ -29,6 +29,9 @@ public interface AlertSummaryView {
     @Mapping("numVerificationconfidence")
     BigDecimal getConfidence();
 
+    @Mapping("flgTechnicalspecificationedited")
+    Boolean getTechnicalSpecificationEdited();
+
     @Mapping("sglVerificationstatus.sglVerificationstatus")
     String getVerificationStatus();
 

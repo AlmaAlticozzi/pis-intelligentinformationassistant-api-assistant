@@ -141,6 +141,27 @@ class AlertRepositoryTest {
     }
 
     @Test
+    void alertSummaryIncludesTechnicalSpecificationEditedFlag() throws Exception {
+        AlertRepository repository = new AlertRepository();
+        AlertSummaryView view = mock(AlertSummaryView.class);
+        when(view.getTechnicalSpecificationEdited()).thenReturn(true);
+
+        AlertSummary summary = toAlertSummary(repository, view);
+
+        assertThat(summary.getTechnicalSpecificationEdited()).isTrue();
+    }
+
+    @Test
+    void alertSummaryDefaultsTechnicalSpecificationEditedToFalse() throws Exception {
+        AlertRepository repository = new AlertRepository();
+        AlertSummaryView view = mock(AlertSummaryView.class);
+
+        AlertSummary summary = toAlertSummary(repository, view);
+
+        assertThat(summary.getTechnicalSpecificationEdited()).isFalse();
+    }
+
+    @Test
     void applyValidatedAgentBlueprintPreviewUpdatesOnlyPreviewAndTimestamp() {
         AlertRepository repository = new AlertRepository();
         Alert alert = verifiedAlertForPreviewPersistence();

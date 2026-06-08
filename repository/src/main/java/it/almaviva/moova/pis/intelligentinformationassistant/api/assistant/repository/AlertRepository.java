@@ -557,7 +557,8 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
                 .enabled(view.getEnabled())
                 .createdAt(view.getCreatedAt())
                 .updatedAt(view.getUpdatedAt())
-                .version(view.getVersion());
+                .version(view.getVersion())
+                .technicalSpecificationEdited(Boolean.TRUE.equals(view.getTechnicalSpecificationEdited()));
 
         if (view.getStatus() != null) {
             summary.status(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus.fromString(view.getStatus()));
