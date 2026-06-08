@@ -455,8 +455,13 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - serviceDataQuery.stopPoints must contain monitored stop point ids from ScheduledServiceDataLocationContext.
                 - serviceDataQuery.stopPoints is the authoritative representation of monitored stop points.
                 - Monitored stop point ids are covered by serviceDataQuery.stopPoints.
+                - MONITORED_STOP_POINT / SERVICE_DATA_API_QUERY_STOP_POINT must be represented in serviceDataQuery.stopPoints.
+                - requirementCoverage.mappedBy for monitored stop point coverage must use serviceDataQuery.stopPoints or body.stopPoints[].
                 - Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points.
+                - Do not add a snapshotEvaluation condition on stopPoint.id only to restate the monitored stop point already used in the ServiceData API query.
                 - Do not add callEnd.stopPoint.id or callStart.stopPoint.id for the same monitored stop point unless the user explicitly asks for destination/origin semantics and the location context marks that stop as a filter/control location.
+                - Use snapshotEvaluation.condition only for constraints that filter the journeys returned by the API, such as arrivalStatuses, departureStatuses, delay, origin, destination, platform, changes, nextCalls, nextCancelledCalls, replacement, exclusion.
+                - FILTER_* locations are different from MONITORED_STOP_POINT locations: FILTER_* locations must be represented in snapshotEvaluation.condition with the proper field and nested anyElement when needed.
                 - Filter/control locations must be represented in snapshotEvaluation.condition.
                 - Monitored locations need condition coverage only if the user asks a distinct field constraint not already represented by the API query scope.
                 - For "arrives at monitored stop X between HH and HH", X is monitored query scope; use serviceDataQuery.stopPoints=[X], then condition arrival time only.
@@ -465,6 +470,29 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - For "origin X", X is a FILTER_ORIGIN_STOP_POINT and must be condition callStart.stopPoint.id.
                 - For a multi-monitored threshold alert such as "Notify me when at stop A and stop B there are two arriving journeys":
                   serviceDataQuery.stopPoints=[A id, B id]; condition checks arrival status; threshold >= 2; no required stopPoint.id IN condition.
+                - Generic report example: User asks for a count/report of journeys at a monitored stop point with an arrival cancellation.
+                  Correct coverage:
+                  monitored stop point -> serviceDataQuery.stopPoints
+                  arrival cancellation -> arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION
+                  Correct snapshotEvaluation:
+                  {
+                    "mode": "REPORT_COUNT",
+                    "journeyPath": "stopPointsJourneyDetails[]",
+                    "condition": {
+                      "type": "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                      "all": [
+                        {
+                          "field": "arrivalStatuses[].status",
+                          "operator": "CONTAINS",
+                          "value": "ARRIVAL_CANCELLATION"
+                        }
+                      ]
+                    },
+                    "threshold": null
+                  }
+                  Wrong:
+                  requirementCoverage.mappedBy = stopPointsJourneyDetails[].stopPoint.id
+                  snapshotEvaluation condition with field stopPoint.id only to represent the monitored stop point.
                 """;
     }
 

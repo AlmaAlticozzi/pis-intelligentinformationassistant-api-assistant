@@ -32,6 +32,7 @@ class ScheduledAlertVerificationServiceTest {
     private static final String GARIBALDI = "TNPNTS00000000000003";
     private static final String VAREDO = "TNPNTS00000000000101";
     private static final String PALAZZOLO = "TNPNTS00000000000102";
+    private static final String MILANO_CENTRALE = "TNPNTS00000000000024";
     private static final String INVENTED = "TNPNTS99999999999999";
 
     @Test
@@ -199,6 +200,60 @@ class ScheduledAlertVerificationServiceTest {
         assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
                 .containsEntry("emit", "EVERY_RUN")
                 .containsEntry("includeCount", true);
+    }
+
+    @Test
+    void verifiesMonitoredStopPointArrivalCancellationReportUsingQueryCoverage() {
+        ScheduledServiceDataLocationContext context = milanoCentraleContext();
+        Map<String, Object> condition = condition(Map.of("all", List.of(
+                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"))));
+        Map<String, Object> response = validReportResponse(context, condition);
+        response.put("requirementCoverage", Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "monitored stop point Milano Centrale",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("serviceDataQuery.stopPoints")),
+                        Map.of(
+                                "text", "arrival cancellation",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("stopPointsJourneyDetails[].arrivalStatuses[].status"))),
+                "allRequiredRequirementsMapped", true));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled report",
+                "Scheduled ServiceData arrival cancellation report test",
+                "Fammi sapere quanti treni a Milano centrale hanno una cancellazione in arrivo",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(outcome.technicalSpecification()).containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        assertThat(outcome.inputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
+        assertThat(outcome.evaluationMode()).isEqualTo("SCHEDULED_SNAPSHOT_MATCH");
+        assertThat(map(outcome.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(map(map(outcome.technicalSpecification().get("serviceDataQuery")).get("timeWindow")))
+                .containsEntry("lookaheadMinutes", 480);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of(MILANO_CENTRALE));
+        Map<String, Object> snapshotEvaluation = map(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshotEvaluation)
+                .containsEntry("mode", "REPORT_COUNT")
+                .containsEntry("threshold", null);
+        assertThat(String.valueOf(snapshotEvaluation.get("condition")))
+                .contains("arrivalStatuses[].status")
+                .contains("ARRIVAL_CANCELLATION")
+                .doesNotContain("stopPointsJourneyDetails[].stopPoint.id");
+        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "EVERY_RUN")
+                .containsEntry("includeCount", true);
+        assertThat(outcome.technicalSpecification()).isNotNull();
+        assertThat(outcome.agentBlueprintPreview()).isNotNull();
     }
 
     @Test
@@ -1494,6 +1549,37 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(PERO),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext milanoCentraleContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Milano centrale",
+                "Milano Centrale",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(MILANO_CENTRALE),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]", "serviceDataQuery.stopPoints"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                List.of(),
+                List.of(MILANO_CENTRALE),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(MILANO_CENTRALE),
                         false));
     }
 

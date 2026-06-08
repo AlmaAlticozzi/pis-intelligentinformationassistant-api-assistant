@@ -44,6 +44,25 @@ class ScheduledServiceDataCapabilityCatalogTest {
     }
 
     @Test
+    void catalogContainsQueryCoverageAliasesOnlyForRequirementCoverage() {
+        assertThat(List.of(
+                "serviceDataQuery.stopPoints",
+                "serviceDataQuery.stopPoints[]",
+                "body.stopPoints[]"))
+                .allSatisfy(field -> {
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(field))
+                            .as(field)
+                            .isTrue();
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(field))
+                            .as(field)
+                            .isTrue();
+                    assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedField(field))
+                            .as(field)
+                            .isFalse();
+                });
+    }
+
+    @Test
     void platformFieldsExposePlatformOperators() {
         assertThat(ScheduledServiceDataCapabilityCatalog.findField(
                 "stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc"))

@@ -11,6 +11,11 @@ import java.util.stream.Collectors;
 
 public final class ScheduledServiceDataCapabilityCatalog {
 
+    private static final Set<String> QUERY_COVERAGE_FIELDS = Set.of(
+            "serviceDataQuery.stopPoints",
+            "serviceDataQuery.stopPoints[]",
+            "body.stopPoints[]");
+
     private static final List<String> STOP_POINT_ID_FIELDS = List.of(
             "stopPoint.id",
             "stopPointsJourneyDetails[].callStart.stopPoint.id",
@@ -240,6 +245,18 @@ public final class ScheduledServiceDataCapabilityCatalog {
         return FIELD_BY_NAME.containsKey(field);
     }
 
+    public static Set<String> queryCoverageFields() {
+        return QUERY_COVERAGE_FIELDS;
+    }
+
+    public static boolean isAllowedQueryCoverageField(String field) {
+        return field != null && QUERY_COVERAGE_FIELDS.contains(field.trim());
+    }
+
+    public static boolean isAllowedRequirementCoverageField(String field) {
+        return isAllowedQueryCoverageField(field) || isAllowedField(field);
+    }
+
     public static boolean isAllowedOperator(String field, String operator) {
         return findField(field)
                 .map(capability -> capability.supportsOperator(operator))
@@ -261,6 +278,8 @@ public final class ScheduledServiceDataCapabilityCatalog {
         StringBuilder builder = new StringBuilder();
         builder.append("This catalog is for ServiceData API snapshot verification.\n")
                 .append("Fields are relative to the StopPointJourneyV2 snapshot response and the input model ServiceDataStopPointJourneysV2.\n")
+                .append("Query coverage fields may be used only in requirementCoverage.mappedBy, not in snapshotEvaluation.condition: ")
+                .append(QUERY_COVERAGE_FIELDS).append(".\n")
                 .append("Do not use Kafka event field roots or event-message envelopes.\n")
                 .append("Use stopPointsJourneyDetails[] anyElement to correlate constraints on the same journey.\n")
                 .append("Use nested anyElement for nextCalls[], nextTransitCalls[], nextCancelledCalls[], and replacement.stopPointReplacements[].\n");

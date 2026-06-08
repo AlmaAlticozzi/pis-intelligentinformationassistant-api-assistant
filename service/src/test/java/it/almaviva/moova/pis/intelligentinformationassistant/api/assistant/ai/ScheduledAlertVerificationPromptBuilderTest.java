@@ -480,9 +480,17 @@ class ScheduledAlertVerificationPromptBuilderTest {
 
         assertThat(request.userPrompt())
                 .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
+                .contains("MONITORED_STOP_POINT / SERVICE_DATA_API_QUERY_STOP_POINT must be represented in serviceDataQuery.stopPoints")
+                .contains("requirementCoverage.mappedBy for monitored stop point coverage must use serviceDataQuery.stopPoints or body.stopPoints[]")
+                .contains("Use snapshotEvaluation.condition only for constraints that filter the journeys returned by the API")
+                .contains("FILTER_* locations are different from MONITORED_STOP_POINT locations")
                 .contains("For \"arrives at monitored stop X between HH and HH\", X is monitored query scope")
                 .contains("then condition arrival time only")
-                .contains("For \"has destination X\", X is a FILTER_DESTINATION_STOP_POINT");
+                .contains("For \"has destination X\", X is a FILTER_DESTINATION_STOP_POINT")
+                .contains("User asks for a count/report of journeys at a monitored stop point with an arrival cancellation")
+                .contains("monitored stop point -> serviceDataQuery.stopPoints")
+                .contains("\"field\": \"arrivalStatuses[].status\"")
+                .contains("requirementCoverage.mappedBy = stopPointsJourneyDetails[].stopPoint.id");
     }
 
     private AlertRouteUnderstandingResult route() {

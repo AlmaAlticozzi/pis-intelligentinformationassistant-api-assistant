@@ -451,7 +451,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     @Test
     void rejectsPlatformNumberOperatorOnNonPlatformField() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
-                leaf("stopPoint.id", "PLATFORM_NUMBER_GREATER_THAN", 2)), "PLATFORM_NUMBER_GREATER_THAN");
+                leaf("departureDelay.delay", "PLATFORM_NUMBER_GREATER_THAN", 2)), "PLATFORM_NUMBER_GREATER_THAN");
     }
 
     @Test
@@ -1485,6 +1485,40 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsRequirementCoverageMappedByServiceDataQueryStopPoints() {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(
+                        Map.of(
+                                "text", "monitored stop point",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("serviceDataQuery.stopPoints")),
+                        Map.of(
+                                "text", "arrival cancellation",
+                                "required", true,
+                                "mappable", true,
+                                "mappedBy", List.of("stopPointsJourneyDetails[].arrivalStatuses[].status"))),
+                "allRequiredRequirementsMapped", true);
+
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(), coverage));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsRequirementCoverageMappedByStopPointsJourneyDetailsStopPointId() {
+        Map<String, Object> coverage = Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "monitored stop point",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of("stopPointsJourneyDetails[].stopPoint.id"))),
+                "allRequiredRequirementsMapped", true);
+
+        assertRejected(validOutcome(technicalSpecification(), blueprint(), coverage), "stopPointsJourneyDetails[].stopPoint.id");
+    }
+
+    @Test
     void rejectsRequirementCoverageMappingUnsupportedWifiToSupportedField() {
         Map<String, Object> coverage = Map.of(
                 "requirements", List.of(Map.of(
@@ -1495,6 +1529,41 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "allRequiredRequirementsMapped", true);
 
         assertRejected(validOutcome(technicalSpecification(), blueprint(), coverage), "not supported");
+    }
+
+    @Test
+    void acceptsRootRelativeJourneyFieldConditionFromSnapshotEvaluationJourneyPath() {
+        Map<String, Object> condition = condition(Map.of("all", List.of(
+                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"))));
+
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(condition), blueprint()));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsQueryCoverageFieldInsideSnapshotEvaluationCondition() {
+        assertRejectedForCondition(condition(Map.of(
+                "field", "serviceDataQuery.stopPoints",
+                "operator", "CONTAINS",
+                "value", GORLA)), "serviceDataQuery.stopPoints");
+    }
+
+    @Test
+    void rejectsStopPointsJourneyDetailsStopPointIdAsEvaluationField() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("stopPoint.id", "EQUALS", GORLA)), "stopPoint.id");
+    }
+
+    @Test
+    void rejectsInventedStopPointIdInServiceDataQueryStopPoints() {
+        assertRejectedWithContext(
+                validOutcome(technicalSpecification(List.of(INVENTED), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        validCondition()),
+                        blueprint(List.of(INVENTED), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false)),
+                context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                        List.of(monitored("Gorla", GORLA)), List.of(), List.of(), List.of(GORLA), false, List.of()),
+                "serviceDataQuery.stopPoints");
     }
 
     @Test

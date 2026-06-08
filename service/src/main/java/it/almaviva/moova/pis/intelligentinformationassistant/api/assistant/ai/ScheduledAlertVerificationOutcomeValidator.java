@@ -660,16 +660,33 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 if (isBlank(field)) {
                     return "Verified scheduled outcome contains blank mappedBy field.";
                 }
+                String classification = classifyRequirementCoverageField(field);
+                System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] mappedBy="
+                        + field + " classifiedAs=" + classification);
                 if (field.contains("payload.ongroundServiceEvent") || field.contains("ServiceDataV2")) {
                     return "Verified scheduled outcome requirementCoverage mappedBy contains Event/Kafka field: " + field + ".";
                 }
-                if (!ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+                if (!ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(field)) {
                     return "Verified scheduled outcome requirementCoverage mappedBy field is not in the Scheduled ServiceData catalog: "
                             + field + ".";
+                }
+                if ("QUERY_FIELD".equals(classification)) {
+                    System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] queryCoverage accepted field="
+                            + field);
                 }
             }
         }
         return null;
+    }
+
+    private String classifyRequirementCoverageField(String field) {
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(field)) {
+            return "QUERY_FIELD";
+        }
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+            return "EVALUATION_FIELD";
+        }
+        return "UNKNOWN";
     }
 
     private String validateSameJourneyCorrelation(Map<String, Object> technicalSpecification) {
@@ -1084,6 +1101,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
         }
         String resolvedField = resolveField(arrayContext, field);
         if (resolvedField == null) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CONDITION] field="
+                    + field + " operator=" + operator + " catalogValid=false");
             return catalogFailure("field is not allowed by ScheduledServiceDataCapabilityCatalog: " + field);
         }
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CATALOG] validating field="
@@ -1091,8 +1110,12 @@ public class ScheduledAlertVerificationOutcomeValidator {
         ScheduledServiceDataCapabilityCatalog.FieldCapability capability =
                 ScheduledServiceDataCapabilityCatalog.findField(resolvedField).orElse(null);
         if (capability == null) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CONDITION] field="
+                    + resolvedField + " operator=" + operator + " catalogValid=false");
             return catalogFailure("field is not allowed by ScheduledServiceDataCapabilityCatalog: " + resolvedField);
         }
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][CONDITION] field="
+                + resolvedField + " operator=" + operator + " catalogValid=" + capability.supportsOperator(operator));
         if (!capability.supportsOperator(operator)) {
             return catalogFailure("operator " + operator + " is not allowed for field " + resolvedField + ".");
         }
@@ -1114,6 +1137,13 @@ public class ScheduledAlertVerificationOutcomeValidator {
             String candidate = arrayContext + "." + trimmed;
             if (ScheduledServiceDataCapabilityCatalog.isAllowedField(candidate)) {
                 return candidate;
+            }
+            return null;
+        }
+        if (arrayContext == null || arrayContext.isBlank()) {
+            String journeyCandidate = "stopPointsJourneyDetails[]." + trimmed;
+            if (ScheduledServiceDataCapabilityCatalog.isAllowedField(journeyCandidate)) {
+                return journeyCandidate;
             }
         }
         return ScheduledServiceDataCapabilityCatalog.isAllowedField(trimmed) ? trimmed : null;
