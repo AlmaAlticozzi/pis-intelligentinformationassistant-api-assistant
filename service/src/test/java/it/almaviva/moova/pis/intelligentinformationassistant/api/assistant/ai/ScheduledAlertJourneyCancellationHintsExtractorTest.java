@@ -32,7 +32,19 @@ class ScheduledAlertJourneyCancellationHintsExtractorTest {
 
         assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
         assertThat(hints.constraints()).anySatisfy(constraint -> {
-            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_CANCELLATION);
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_JOURNEY_CANCELLATION);
+            assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL);
+        });
+    }
+
+    @Test
+    void extractsArrivalDirectionFromSuppressedJourneysInArrivalWording() {
+        ScheduledAlertJourneyCancellationHints hints = extractor.extract(
+                "Avvertimi ogni 10 min su quante corse soppresse in arrivo ci sono a Lecco");
+
+        assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
+        assertThat(hints.constraints()).anySatisfy(constraint -> {
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_JOURNEY_CANCELLATION);
             assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL);
         });
     }
@@ -43,7 +55,19 @@ class ScheduledAlertJourneyCancellationHintsExtractorTest {
 
         assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
         assertThat(hints.constraints()).anySatisfy(constraint -> {
-            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_CANCELLATION);
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION);
+            assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE);
+        });
+    }
+
+    @Test
+    void extractsDepartureDirectionFromSuppressedJourneysInDepartureWording() {
+        ScheduledAlertJourneyCancellationHints hints = extractor.extract(
+                "Avvertimi ogni 10 min su quante corse soppresse in partenza ci sono a Lecco");
+
+        assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
+        assertThat(hints.constraints()).anySatisfy(constraint -> {
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION);
             assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE);
         });
     }

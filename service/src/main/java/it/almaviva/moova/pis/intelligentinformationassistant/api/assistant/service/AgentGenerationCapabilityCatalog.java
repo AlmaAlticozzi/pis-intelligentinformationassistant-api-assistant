@@ -28,7 +28,7 @@ public class AgentGenerationCapabilityCatalog {
     private static final Set<String> PERMISSIONS = orderedSet("READ_SERVICE_DATA");
     private static final Set<String> DSL_OPERATORS = orderedSet(
             "CONTAINS", "CONTAINS_ANY", "CONTAINS_IGNORE_CASE", "CONTAINS_NORMALIZED",
-            "NOT_CONTAINS_NORMALIZED",
+            "NOT_CONTAINS", "NOT_CONTAINS_NORMALIZED",
             "EQUALS", "EQUALS_IGNORE_CASE", "EQUALS_NORMALIZED", "NOT_EQUALS", "NOT_EQUALS_NORMALIZED",
             "GREATER_THAN", "GREATER_OR_EQUAL", "LESS_THAN", "LESS_OR_EQUAL",
             "EXISTS", "NOT_NULL", "NOT_EMPTY", "IN", "NOT_IN", "LOCAL_TIME_BETWEEN",

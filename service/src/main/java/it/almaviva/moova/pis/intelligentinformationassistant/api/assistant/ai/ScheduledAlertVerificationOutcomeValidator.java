@@ -512,26 +512,43 @@ public class ScheduledAlertVerificationOutcomeValidator {
             if (constraint.polarity() == ScheduledAlertJourneyCancellationConstraint.Polarity.EXCLUDE) {
                 return "Negative journey cancellation constraints are not supported by the current Scheduled ServiceData catalog.";
             }
-            if (constraint.cancellationIntent()
-                    == ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_CANCELLATION) {
-                return "Arrival-only cancellation requires negating departure cancellation status, but enum-array negative containment is not supported by the current Scheduled ServiceData catalog.";
-            }
-            if (constraint.cancellationIntent()
-                    == ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_CANCELLATION) {
-                return "Departure-only cancellation requires negating arrival cancellation status, but enum-array negative containment is not supported by the current Scheduled ServiceData catalog.";
-            }
             if (containsLeaf(leaves, "changes", "CONTAINS", "CANCELLATION")
                     || containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION")) {
-                return "Generic journey cancellation must not be mapped with changes CANCELLATION or PARTIALLY_CANCELLATION; use arrival/departure statuses plus passingType.";
+                return "Journey cancellation must not be mapped with changes CANCELLATION or PARTIALLY_CANCELLATION; use arrival/departure statuses.";
             }
-            boolean represented = containsCanonicalGenericJourneyCancellation(condition);
-            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] journeyCancellation required=true represented="
-                    + represented);
+            boolean represented = switch (constraint.direction()) {
+                case ARRIVAL -> containsCanonicalArrivalJourneyCancellation(leaves);
+                case DEPARTURE -> containsCanonicalDepartureJourneyCancellation(leaves);
+                case UNSPECIFIED -> containsCanonicalGenericJourneyCancellation(condition);
+            };
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] journeyCancellation required=true direction="
+                    + constraint.direction()
+                    + " represented=" + represented);
             if (!represented) {
-                return "Generic journey cancellation was requested but not represented with arrival/departure cancellation statuses plus passingType.";
+                return switch (constraint.direction()) {
+                    case ARRIVAL -> "Arrival journey cancellation was requested but not represented with arrival cancellation and departure NOT_CONTAINS cancellation statuses.";
+                    case DEPARTURE -> "Departure journey cancellation was requested but not represented with departure cancellation and arrival NOT_CONTAINS cancellation statuses.";
+                    case UNSPECIFIED -> "Generic journey cancellation was requested but not represented with arrival/departure cancellation statuses plus passingType.";
+                };
             }
         }
         return null;
+    }
+
+    private boolean containsCanonicalArrivalJourneyCancellation(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                && containsLeaf(leaves, "departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")
+                && !containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "ORIGIN")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "DESTINATION");
+    }
+
+    private boolean containsCanonicalDepartureJourneyCancellation(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                && containsLeaf(leaves, "arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")
+                && !containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "ORIGIN")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "DESTINATION");
     }
 
     private boolean containsGenericCancellationSignal(

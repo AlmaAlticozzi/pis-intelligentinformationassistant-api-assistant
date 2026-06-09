@@ -28,7 +28,7 @@ public record ScheduledAlertJourneyCancellationHints(
                 - Generic cancelled/suppressed journeys are full journey cancellation semantics, not generic changes.
                 - Generic cancelled/suppressed journey conditions must use arrivalStatuses[].status, departureStatuses[].status and passingType.
                 - Do not use changes CONTAINS CANCELLATION or changes CONTAINS PARTIALLY_CANCELLATION for generic cancelled/suppressed journey count/report alerts.
-                - Arrival-only or departure-only cancellation requires negating the opposite status; reject if enum-array negative containment is not supported by the Scheduled catalog.
+                - Arrival-only or departure-only cancellation requires NOT_CONTAINS on the opposite status field.
                 """.formatted(hasJourneyCancellationConstraint, constraints, warnings);
     }
 }

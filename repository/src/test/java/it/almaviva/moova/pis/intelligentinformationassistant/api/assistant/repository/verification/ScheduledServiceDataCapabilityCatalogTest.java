@@ -148,7 +148,13 @@ class ScheduledServiceDataCapabilityCatalogTest {
                 "stopPointsJourneyDetails[].arrivalStatuses[].status", "CONTAINS"))
                 .isTrue();
         assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedOperator(
+                "stopPointsJourneyDetails[].arrivalStatuses[].status", "NOT_CONTAINS"))
+                .isTrue();
+        assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedOperator(
                 "stopPointsJourneyDetails[].departureStatuses[].status", "CONTAINS_ANY"))
+                .isTrue();
+        assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedOperator(
+                "stopPointsJourneyDetails[].departureStatuses[].status", "NOT_CONTAINS"))
                 .isTrue();
         assertThat(ScheduledServiceDataCapabilityCatalog.isAllowedEnumValue(
                 "stopPointsJourneyDetails[].arrivalStatuses[].status", "ARRIVAL_PLATFORM_CHANGED"))

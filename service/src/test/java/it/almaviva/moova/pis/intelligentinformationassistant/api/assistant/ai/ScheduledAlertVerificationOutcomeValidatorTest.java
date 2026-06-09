@@ -289,6 +289,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsArrivalJourneyCancellationWhenOppositeStatusIsNegated() {
+        assertVerifiedWithJourneyCancellationHints(
+                arrivalJourneyCancellationCondition(),
+                arrivalJourneyCancellationHints());
+    }
+
+    @Test
+    void acceptsDepartureJourneyCancellationWhenOppositeStatusIsNegated() {
+        assertVerifiedWithJourneyCancellationHints(
+                departureJourneyCancellationCondition(),
+                departureJourneyCancellationHints());
+    }
+
+    @Test
     void rejectsGenericJourneyCancellationMappedOnlyToChanges() {
         assertRejectedWithJourneyCancellationHints(
                 conditionAnyElement("stopPointsJourneyDetails[]",
@@ -2333,6 +2347,24 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 0.9)), List.of());
     }
 
+    private ScheduledAlertJourneyCancellationHints arrivalJourneyCancellationHints() {
+        return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
+                "corse soppresse in arrivo",
+                ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_JOURNEY_CANCELLATION,
+                ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL,
+                ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
+                0.9)), List.of());
+    }
+
+    private ScheduledAlertJourneyCancellationHints departureJourneyCancellationHints() {
+        return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
+                "corse soppresse in partenza",
+                ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION,
+                ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE,
+                ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
+                0.9)), List.of());
+    }
+
     private ScheduledAlertCancelledCallHints genericCancelledCallHints() {
         return new ScheduledAlertCancelledCallHints(true, List.of(new ScheduledAlertCancelledCallConstraint(
                 "fermate soppresse",
@@ -2546,6 +2578,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         Map.of("all", List.of(
                                 leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
                                 leaf("passingType", "EQUALS", "ORIGIN"))))));
+    }
+
+    private Map<String, Object> arrivalJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                        leaf("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION"))));
+    }
+
+    private Map<String, Object> departureJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                        leaf("arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION"))));
     }
 
     private Map<String, Object> condition(Map<String, Object> body) {

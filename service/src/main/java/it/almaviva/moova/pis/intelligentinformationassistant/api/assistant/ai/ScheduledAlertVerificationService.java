@@ -9,6 +9,8 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import jakarta.ws.rs.ProcessingException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -125,6 +127,12 @@ public class ScheduledAlertVerificationService {
                 + " constraints=" + journeyCancellationHints.constraints());
         if (journeyCancellationHints.hasGenericJourneyCancellation()) {
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLATION_SEMANTIC] intent=GENERIC_JOURNEY_CANCELLATION strategy=statuses-plus-passingType");
+        } else if (journeyCancellationHints.hasJourneyCancellationConstraint()
+                && !journeyCancellationHints.constraints().isEmpty()) {
+            ScheduledAlertJourneyCancellationConstraint constraint = journeyCancellationHints.constraints().get(0);
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLATION_SEMANTIC] intent="
+                    + constraint.cancellationIntent()
+                    + " strategy=" + journeyCancellationStrategy(constraint));
         }
         ScheduledAlertCancelledCallHints cancelledCallHints = cancelledCallHints(originalPrompt);
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLED_CALL_HINTS] hasCancelledCallConstraint="
@@ -181,7 +189,9 @@ public class ScheduledAlertVerificationService {
                 return rejected(alertId, "Scheduled alert verification response could not be parsed.", reason, provider, model);
             }
 
-            AlertVerificationOutcome parsed = parseResult.outcome().get();
+            AlertVerificationOutcome parsed = canonicalizeJourneyCancellationOutcome(
+                    parseResult.outcome().get(),
+                    journeyCancellationHints);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PARSER] decision=" + parsed.decision()
                     + " technicalSpecificationPresent=" + (parsed.technicalSpecification() != null)
                     + " agentBlueprintPreviewPresent=" + (parsed.agentBlueprintPreview() != null));
@@ -212,6 +222,171 @@ public class ScheduledAlertVerificationService {
                     null,
                     request.model());
         }
+    }
+
+    private AlertVerificationOutcome canonicalizeJourneyCancellationOutcome(
+            AlertVerificationOutcome outcome,
+            ScheduledAlertJourneyCancellationHints hints) {
+        if (outcome == null
+                || outcome.decision() != AlertVerificationDecision.VERIFIED
+                || hints == null
+                || !hints.hasJourneyCancellationConstraint()
+                || outcome.technicalSpecification() == null) {
+            return outcome;
+        }
+        ScheduledAlertJourneyCancellationConstraint constraint = hints.constraints().isEmpty()
+                ? null
+                : hints.constraints().get(0);
+        if (constraint == null || constraint.polarity() == ScheduledAlertJourneyCancellationConstraint.Polarity.EXCLUDE) {
+            return outcome;
+        }
+
+        Map<String, Object> technicalSpecification = new LinkedHashMap<>(outcome.technicalSpecification());
+        Map<String, Object> snapshotEvaluation = copyMap(technicalSpecification.get("snapshotEvaluation"));
+        if (snapshotEvaluation.isEmpty()) {
+            return outcome;
+        }
+        if (!containsScheduledJourneyCancellationSignal(snapshotEvaluation.get("condition"))) {
+            return outcome;
+        }
+        snapshotEvaluation.put("condition", journeyCancellationCondition(constraint));
+        technicalSpecification.put("snapshotEvaluation", snapshotEvaluation);
+
+        Map<String, Object> requirementCoverage = canonicalizeJourneyCancellationCoverage(
+                outcome.requirementCoverage(),
+                constraint);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLATION_NORMALIZATION] action=canonicalized intent="
+                + constraint.cancellationIntent()
+                + " strategy=" + journeyCancellationStrategy(constraint));
+        return new AlertVerificationOutcome(
+                outcome.decision(),
+                outcome.summary(),
+                outcome.rejectedReason(),
+                outcome.confidence(),
+                outcome.provider(),
+                outcome.model(),
+                outcome.promptVersion(),
+                outcome.requiredSources(),
+                outcome.interpreterType(),
+                outcome.inputModel(),
+                outcome.outputModel(),
+                outcome.triggerType(),
+                outcome.evaluationMode(),
+                outcome.interpretedEventNames(),
+                outcome.interpretedTargetTypes(),
+                technicalSpecification,
+                outcome.agentBlueprintPreview(),
+                requirementCoverage,
+                outcome.warnings(),
+                outcome.safetyChecks());
+    }
+
+    private boolean containsScheduledJourneyCancellationSignal(Object condition) {
+        String text = String.valueOf(condition);
+        return text.contains("field=changes")
+                || text.contains("field=arrivalStatuses[].status")
+                || text.contains("field=departureStatuses[].status")
+                || text.contains("field=stopPointsJourneyDetails[].arrivalStatuses[].status")
+                || text.contains("field=stopPointsJourneyDetails[].departureStatuses[].status");
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> copyMap(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return new LinkedHashMap<>((Map<String, Object>) map);
+        }
+        return new LinkedHashMap<>();
+    }
+
+    private Map<String, Object> journeyCancellationCondition(ScheduledAlertJourneyCancellationConstraint constraint) {
+        Map<String, Object> condition = new LinkedHashMap<>();
+        condition.put("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+        Map<String, Object> anyElement = new LinkedHashMap<>();
+        anyElement.put("path", "stopPointsJourneyDetails[]");
+        anyElement.put("conditions", journeyCancellationConditions(constraint));
+        condition.put("anyElement", anyElement);
+        return condition;
+    }
+
+    private Map<String, Object> journeyCancellationConditions(ScheduledAlertJourneyCancellationConstraint constraint) {
+        return switch (constraint.direction()) {
+            case ARRIVAL -> Map.of("all", List.of(
+                    leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                    leaf("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")));
+            case DEPARTURE -> Map.of("all", List.of(
+                    leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                    leaf("arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")));
+            case UNSPECIFIED -> Map.of("any", List.of(
+                    Map.of("all", List.of(
+                            leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                            leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))),
+                    Map.of("all", List.of(
+                            leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                            leaf("passingType", "EQUALS", "DESTINATION"))),
+                    Map.of("all", List.of(
+                            leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                            leaf("passingType", "EQUALS", "ORIGIN")))));
+        };
+    }
+
+    private Map<String, Object> leaf(String field, String operator, Object value) {
+        Map<String, Object> leaf = new LinkedHashMap<>();
+        leaf.put("field", field);
+        leaf.put("operator", operator);
+        leaf.put("value", value);
+        return leaf;
+    }
+
+    private String journeyCancellationStrategy(ScheduledAlertJourneyCancellationConstraint constraint) {
+        return switch (constraint.direction()) {
+            case ARRIVAL -> "arrival-status-and-not-departure-status";
+            case DEPARTURE -> "departure-status-and-not-arrival-status";
+            case UNSPECIFIED -> "statuses-plus-passingType";
+        };
+    }
+
+    private Map<String, Object> canonicalizeJourneyCancellationCoverage(
+            Map<String, Object> coverage,
+            ScheduledAlertJourneyCancellationConstraint constraint) {
+        if (coverage == null || coverage.isEmpty()) {
+            return coverage;
+        }
+        Map<String, Object> updated = new LinkedHashMap<>(coverage);
+        Object requirementsValue = updated.get("requirements");
+        if (!(requirementsValue instanceof List<?> requirements)) {
+            return updated;
+        }
+        List<Object> rewrittenRequirements = new ArrayList<>();
+        for (Object item : requirements) {
+            Map<String, Object> requirement = copyMap(item);
+            if (requirement.isEmpty()) {
+                rewrittenRequirements.add(item);
+                continue;
+            }
+            requirement.put("mappedBy", journeyCancellationMappedBy(constraint));
+            rewrittenRequirements.add(requirement);
+        }
+        updated.put("requirements", rewrittenRequirements);
+        return updated;
+    }
+
+    private List<String> journeyCancellationMappedBy(ScheduledAlertJourneyCancellationConstraint constraint) {
+        List<String> mappedBy = new ArrayList<>();
+        mappedBy.add("serviceDataQuery.stopPoints");
+        mappedBy.add("schedule.frequencySeconds");
+        if (constraint.direction() == ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE) {
+            mappedBy.add("stopPointsJourneyDetails[].departureStatuses[].status");
+            mappedBy.add("stopPointsJourneyDetails[].arrivalStatuses[].status");
+        } else {
+            mappedBy.add("stopPointsJourneyDetails[].arrivalStatuses[].status");
+            mappedBy.add("stopPointsJourneyDetails[].departureStatuses[].status");
+        }
+        if (constraint.direction() == ScheduledAlertJourneyCancellationConstraint.Direction.UNSPECIFIED) {
+            mappedBy.add("stopPointsJourneyDetails[].passingType");
+        }
+        mappedBy.add("outputPolicy.emit");
+        mappedBy.add("outputPolicy.includeCount");
+        return List.copyOf(mappedBy);
     }
 
     private ScheduledAlertTemporalHints temporalHints(String originalPrompt) {

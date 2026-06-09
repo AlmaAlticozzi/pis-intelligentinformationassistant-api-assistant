@@ -24,6 +24,7 @@ class AgentGenerationCapabilityCatalogTest {
         assertThat(catalog.isSupportedDslOperator("NOT_CONTAINS_NORMALIZED")).isTrue();
         assertThat(catalog.isSupportedDslOperator("EQUALS_NORMALIZED")).isTrue();
         assertThat(catalog.isSupportedDslOperator("NOT_EQUALS_NORMALIZED")).isTrue();
+        assertThat(catalog.isSupportedDslOperator("NOT_CONTAINS")).isTrue();
         assertThat(catalog.isSupportedDslOperator("GREATER_THAN")).isTrue();
         assertThat(catalog.isSupportedDslOperator("GREATER_OR_EQUAL")).isTrue();
         assertThat(catalog.isSupportedDslOperator("LESS_THAN")).isTrue();

@@ -340,7 +340,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("Delay + platform change + excluded destination")
                 .contains("callEnd.stopPoint.id NOT_IN [destination id]")
                 .contains("Negative filters are allowed only with catalog-supported negative operators")
-                .contains("Do not invent NOT_CONTAINS on enum arrays")
+                .contains("Use NOT_CONTAINS on enum arrays only when that exact operator is listed for the field in the catalog")
                 .contains("\"wifi on board\" -> REJECTED")
                 .contains("\"more than 10 carriages/coaches\", \"train composition\" -> REJECTED")
                 .contains("\"weather/rain/snow\" -> REJECTED")

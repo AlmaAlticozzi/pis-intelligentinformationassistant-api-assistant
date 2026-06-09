@@ -9,8 +9,8 @@ public record ScheduledAlertJourneyCancellationConstraint(
 
     public enum CancellationIntent {
         GENERIC_JOURNEY_CANCELLATION,
-        ARRIVAL_ONLY_CANCELLATION,
-        DEPARTURE_ONLY_CANCELLATION
+        ARRIVAL_JOURNEY_CANCELLATION,
+        DEPARTURE_JOURNEY_CANCELLATION
     }
 
     public enum Direction {
