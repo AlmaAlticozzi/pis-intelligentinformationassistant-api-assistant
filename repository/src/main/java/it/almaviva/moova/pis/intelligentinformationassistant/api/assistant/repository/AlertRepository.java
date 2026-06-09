@@ -9,6 +9,7 @@ import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentProfile;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreter;
@@ -961,8 +962,55 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
             }
             summary.compilation(compilation);
         }
+        applyAgentRuntimeMetadata(summary, agentDefinition);
 
         return summary;
+    }
+
+    private void applyAgentRuntimeMetadata(
+            AgentDefinitionSummary summary,
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition agentDefinition) {
+        Map<String, Object> runtimeContract = agentDefinition.getJsnRuntimecontract();
+        Map<String, Object> blueprint = agentDefinition.getJsnBlueprint();
+        summary.interpreterType(toAlertInterpreterType(firstString(
+                        runtimeContract == null ? null : runtimeContract.get("interpreterType"),
+                        blueprint == null ? null : blueprint.get("interpreterType"))))
+                .triggerType(firstString(
+                        runtimeContract == null ? null : runtimeContract.get("triggerType"),
+                        blueprint == null ? null : blueprint.get("triggerType")))
+                .inputModel(firstString(
+                        runtimeContract == null ? null : runtimeContract.get("inputModel"),
+                        agentDefinition.getDscInputmodel()))
+                .outputModel(firstString(
+                        runtimeContract == null ? null : runtimeContract.get("outputModel"),
+                        agentDefinition.getDscOutputmodel()));
+    }
+
+    private AlertInterpreterType toAlertInterpreterType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return AlertInterpreterType.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private String firstString(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (value == null) {
+                continue;
+            }
+            String stringValue = String.valueOf(value);
+            if (!stringValue.isBlank()) {
+                return stringValue;
+            }
+        }
+        return null;
     }
 
     private AgentProfile toAgentProfile(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentProfile profile) {

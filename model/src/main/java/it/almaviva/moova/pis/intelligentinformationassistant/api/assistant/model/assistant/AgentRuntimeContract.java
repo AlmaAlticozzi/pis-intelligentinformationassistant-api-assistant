@@ -5,7 +5,9 @@ import io.swagger.annotations.ApiModelProperty;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.ToolReference;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
@@ -28,6 +30,54 @@ public class AgentRuntimeContract   {
   private String outputModel;
   private @Valid List<@Valid ToolReference> allowedTools = new ArrayList<>();
   private String networkPolicy;
+  public enum RuntimeExecutionModelEnum {
+
+    STANDARD_DSL_EVALUATOR(String.valueOf("STANDARD_DSL_EVALUATOR")), APPROVED_TEMPLATE_RUNTIME(String.valueOf("APPROVED_TEMPLATE_RUNTIME"));
+
+
+    private String value;
+
+    RuntimeExecutionModelEnum (String v) {
+        value = v;
+    }
+
+    public String value() {
+        return value;
+    }
+
+    @Override
+    @JsonValue
+    public String toString() {
+        return String.valueOf(value);
+    }
+
+    public static RuntimeExecutionModelEnum fromString(String s) {
+        for (RuntimeExecutionModelEnum b : RuntimeExecutionModelEnum.values()) {
+            if (Objects.toString(b.value).equals(s)) {
+                return b;
+            }
+        }
+        throw new IllegalArgumentException("Unexpected string value '" + s + "'");
+    }
+
+    @JsonCreator
+    public static RuntimeExecutionModelEnum fromValue(String value) {
+        for (RuntimeExecutionModelEnum b : RuntimeExecutionModelEnum.values()) {
+            if (b.value.equals(value)) {
+                return b;
+            }
+        }
+        throw new IllegalArgumentException("Unexpected value '" + value + "'");
+    }
+}
+
+  private RuntimeExecutionModelEnum runtimeExecutionModel;
+  private AlertInterpreterType interpreterType;
+  private String triggerType;
+  private String evaluationMode;
+  private @Valid List<String> requiredOperators = new ArrayList<>();
+  private @Valid List<String> forbiddenCapabilities = new ArrayList<>();
+  private @Valid Map<String, Object> orchestratorCompatibility = new HashMap<>();
 
   public AgentRuntimeContract() {
   }
@@ -162,6 +212,145 @@ public class AgentRuntimeContract   {
     this.networkPolicy = networkPolicy;
   }
 
+  /**
+   * Execution model expected by the Agent Orchestrator.
+   **/
+  public AgentRuntimeContract runtimeExecutionModel(RuntimeExecutionModelEnum runtimeExecutionModel) {
+    this.runtimeExecutionModel = runtimeExecutionModel;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "STANDARD_DSL_EVALUATOR", value = "Execution model expected by the Agent Orchestrator.")
+  @JsonProperty("runtimeExecutionModel")
+  public RuntimeExecutionModelEnum getRuntimeExecutionModel() {
+    return runtimeExecutionModel;
+  }
+
+  @JsonProperty("runtimeExecutionModel")
+  public void setRuntimeExecutionModel(RuntimeExecutionModelEnum runtimeExecutionModel) {
+    this.runtimeExecutionModel = runtimeExecutionModel;
+  }
+
+  /**
+   **/
+  public AgentRuntimeContract interpreterType(AlertInterpreterType interpreterType) {
+    this.interpreterType = interpreterType;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "")
+  @JsonProperty("interpreterType")
+  public AlertInterpreterType getInterpreterType() {
+    return interpreterType;
+  }
+
+  @JsonProperty("interpreterType")
+  public void setInterpreterType(AlertInterpreterType interpreterType) {
+    this.interpreterType = interpreterType;
+  }
+
+  /**
+   * Runtime trigger type supported by the artifact.
+   **/
+  public AgentRuntimeContract triggerType(String triggerType) {
+    this.triggerType = triggerType;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Runtime trigger type supported by the artifact.")
+  @JsonProperty("triggerType")
+  public String getTriggerType() {
+    return triggerType;
+  }
+
+  @JsonProperty("triggerType")
+  public void setTriggerType(String triggerType) {
+    this.triggerType = triggerType;
+  }
+
+  /**
+   * Evaluation mode required by the runtime artifact.
+   **/
+  public AgentRuntimeContract evaluationMode(String evaluationMode) {
+    this.evaluationMode = evaluationMode;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "STATELESS_EVENT_MATCH", value = "Evaluation mode required by the runtime artifact.")
+  @JsonProperty("evaluationMode")
+  public String getEvaluationMode() {
+    return evaluationMode;
+  }
+
+  @JsonProperty("evaluationMode")
+  public void setEvaluationMode(String evaluationMode) {
+    this.evaluationMode = evaluationMode;
+  }
+
+  /**
+   * Operators that must be implemented by the runtime DSL evaluator in order to load this artifact.
+   **/
+  public AgentRuntimeContract requiredOperators(List<String> requiredOperators) {
+    this.requiredOperators = requiredOperators;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Operators that must be implemented by the runtime DSL evaluator in order to load this artifact.")
+  @JsonProperty("requiredOperators")
+  public List<String> getRequiredOperators() {
+    return requiredOperators;
+  }
+
+  @JsonProperty("requiredOperators")
+  public void setRequiredOperators(List<String> requiredOperators) {
+    this.requiredOperators = requiredOperators;
+  }
+
+  /**
+   * Capabilities explicitly forbidden for this runtime contract.
+   **/
+  public AgentRuntimeContract forbiddenCapabilities(List<String> forbiddenCapabilities) {
+    this.forbiddenCapabilities = forbiddenCapabilities;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Capabilities explicitly forbidden for this runtime contract.")
+  @JsonProperty("forbiddenCapabilities")
+  public List<String> getForbiddenCapabilities() {
+    return forbiddenCapabilities;
+  }
+
+  @JsonProperty("forbiddenCapabilities")
+  public void setForbiddenCapabilities(List<String> forbiddenCapabilities) {
+    this.forbiddenCapabilities = forbiddenCapabilities;
+  }
+
+  /**
+   * Optional runtime compatibility metadata used by the Agent Orchestrator.
+   **/
+  public AgentRuntimeContract orchestratorCompatibility(Map<String, Object> orchestratorCompatibility) {
+    this.orchestratorCompatibility = orchestratorCompatibility;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Optional runtime compatibility metadata used by the Agent Orchestrator.")
+  @JsonProperty("orchestratorCompatibility")
+  public Map<String, Object> getOrchestratorCompatibility() {
+    return orchestratorCompatibility;
+  }
+
+  @JsonProperty("orchestratorCompatibility")
+  public void setOrchestratorCompatibility(Map<String, Object> orchestratorCompatibility) {
+    this.orchestratorCompatibility = orchestratorCompatibility;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -177,12 +366,19 @@ public class AgentRuntimeContract   {
         Objects.equals(this.inputModel, agentRuntimeContract.inputModel) &&
         Objects.equals(this.outputModel, agentRuntimeContract.outputModel) &&
         Objects.equals(this.allowedTools, agentRuntimeContract.allowedTools) &&
-        Objects.equals(this.networkPolicy, agentRuntimeContract.networkPolicy);
+        Objects.equals(this.networkPolicy, agentRuntimeContract.networkPolicy) &&
+        Objects.equals(this.runtimeExecutionModel, agentRuntimeContract.runtimeExecutionModel) &&
+        Objects.equals(this.interpreterType, agentRuntimeContract.interpreterType) &&
+        Objects.equals(this.triggerType, agentRuntimeContract.triggerType) &&
+        Objects.equals(this.evaluationMode, agentRuntimeContract.evaluationMode) &&
+        Objects.equals(this.requiredOperators, agentRuntimeContract.requiredOperators) &&
+        Objects.equals(this.forbiddenCapabilities, agentRuntimeContract.forbiddenCapabilities) &&
+        Objects.equals(this.orchestratorCompatibility, agentRuntimeContract.orchestratorCompatibility);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(runtimeImage, sdkVersion, inputModel, outputModel, allowedTools, networkPolicy);
+    return Objects.hash(runtimeImage, sdkVersion, inputModel, outputModel, allowedTools, networkPolicy, runtimeExecutionModel, interpreterType, triggerType, evaluationMode, requiredOperators, forbiddenCapabilities, orchestratorCompatibility);
   }
 
   @Override
@@ -196,6 +392,13 @@ public class AgentRuntimeContract   {
     sb.append("    outputModel: ").append(toIndentedString(outputModel)).append("\n");
     sb.append("    allowedTools: ").append(toIndentedString(allowedTools)).append("\n");
     sb.append("    networkPolicy: ").append(toIndentedString(networkPolicy)).append("\n");
+    sb.append("    runtimeExecutionModel: ").append(toIndentedString(runtimeExecutionModel)).append("\n");
+    sb.append("    interpreterType: ").append(toIndentedString(interpreterType)).append("\n");
+    sb.append("    triggerType: ").append(toIndentedString(triggerType)).append("\n");
+    sb.append("    evaluationMode: ").append(toIndentedString(evaluationMode)).append("\n");
+    sb.append("    requiredOperators: ").append(toIndentedString(requiredOperators)).append("\n");
+    sb.append("    forbiddenCapabilities: ").append(toIndentedString(forbiddenCapabilities)).append("\n");
+    sb.append("    orchestratorCompatibility: ").append(toIndentedString(orchestratorCompatibility)).append("\n");
     sb.append("}");
     return sb.toString();
   }

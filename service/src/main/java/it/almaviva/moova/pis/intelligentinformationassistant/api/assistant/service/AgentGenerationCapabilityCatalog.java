@@ -17,9 +17,9 @@ import java.util.Set;
 public class AgentGenerationCapabilityCatalog {
 
     private static final Set<String> SOURCES = orderedSet("SERVICE_DATA");
-    private static final Set<String> TRIGGER_TYPES = orderedSet("EVENT");
-    private static final Set<String> EVALUATION_MODES = orderedSet("STATELESS_EVENT_MATCH");
-    private static final Set<String> INPUT_MODELS = orderedSet("ServiceDataV2");
+    private static final Set<String> TRIGGER_TYPES = orderedSet("EVENT", "SCHEDULE", "SCHEDULED");
+    private static final Set<String> EVALUATION_MODES = orderedSet("STATELESS_EVENT_MATCH", "SCHEDULED_SNAPSHOT_MATCH");
+    private static final Set<String> INPUT_MODELS = orderedSet("ServiceDataV2", "ServiceDataStopPointJourneysV2");
     private static final Set<String> OUTPUT_MODELS = orderedSet("AgentOutput.CANDIDATE_SUGGESTION", "CANDIDATE_SUGGESTION");
     private static final Set<String> TARGET_TYPES = orderedSet("SERVICE_DATA_JOURNEY");
     private static final Set<String> GENERATION_MODES = orderedSet("AUTO", "DSL");

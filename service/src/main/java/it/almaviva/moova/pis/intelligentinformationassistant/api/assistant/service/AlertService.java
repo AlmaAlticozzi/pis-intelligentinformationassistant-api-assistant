@@ -236,6 +236,7 @@ public class AlertService {
         }
 
         Map<String, Object> technicalSpecification = technicalSpecificationAsMap(alert.getJsnTechnicalspecification());
+        technicalSpecification = enrichTechnicalSpecificationForResponse(alertId, alert, technicalSpecification);
         String interpreterType = alert.getSglInterpretertype() == null
                 ? null
                 : alert.getSglInterpretertype().getSglInterpretertype();
@@ -289,7 +290,13 @@ public class AlertService {
         System.out.println("[IIA][ALERT_TECH_SPEC_PUT][VALIDATION_CONTEXT] purpose=MANUAL_TECHNICAL_SPECIFICATION_UPDATE interpreterType="
                 + requestedInterpreterType);
         AlertTechnicalSpecificationManualValidator.ValidationResult validation =
-                alertTechnicalSpecificationManualValidator.validate(technicalSpecification);
+                alertTechnicalSpecificationManualValidator.validate(
+                        technicalSpecification,
+                        new AlertTechnicalSpecificationManualValidator.ManualValidationContext(
+                                alertId,
+                                alert.getSglInterpretertype() == null
+                                        ? null
+                                        : alert.getSglInterpretertype().getSglInterpretertype()));
         if (!validation.valid()) {
             System.out.println("[IIA][ALERT_TECH_SPEC_PUT][MANUAL_VALIDATION_FAILED] alertId=" + alertId
                     + " reason=" + validation.reason());
@@ -354,6 +361,72 @@ public class AlertService {
         }
         return OBJECT_MAPPER.convertValue(request.getTechnicalSpecification(), new TypeReference<Map<String, Object>>() {
         });
+    }
+
+    private Map<String, Object> enrichTechnicalSpecificationForResponse(
+            String alertId,
+            Alert alert,
+            Map<String, Object> technicalSpecification) {
+        boolean addedInterpreterType = false;
+        boolean addedInputModel = false;
+        boolean addedOutputModel = false;
+
+        String alertInterpreterType = alert.getSglInterpretertype() == null
+                ? null
+                : alert.getSglInterpretertype().getSglInterpretertype();
+        if (isBlankValue(technicalSpecification.get("inputModel"))
+                && !isBlankText(alert.getDscInputmodel())) {
+            technicalSpecification.put("inputModel", alert.getDscInputmodel());
+            addedInputModel = true;
+        }
+        if (isBlankValue(technicalSpecification.get("outputModel"))
+                && !isBlankText(alert.getDscOutputmodel())) {
+            technicalSpecification.put("outputModel", alert.getDscOutputmodel());
+            addedOutputModel = true;
+        }
+        if (isBlankValue(technicalSpecification.get("interpreterType"))) {
+            String inferredInterpreterType = alertInterpreterType == null
+                    ? inferInterpreterType(technicalSpecification)
+                    : alertInterpreterType;
+            if (inferredInterpreterType != null) {
+                technicalSpecification.put("interpreterType", inferredInterpreterType);
+                addedInterpreterType = true;
+            }
+        }
+
+        System.out.println("[IIA][ALERT_TECH_SPEC_GET][NORMALIZED] alertId=" + alertId
+                + " addedInterpreterType=" + (addedInterpreterType ? technicalSpecification.get("interpreterType") : false)
+                + " addedInputModel=" + (addedInputModel ? technicalSpecification.get("inputModel") : false)
+                + " addedOutputModel=" + (addedOutputModel ? technicalSpecification.get("outputModel") : false));
+        return technicalSpecification;
+    }
+
+    private String inferInterpreterType(Map<String, Object> technicalSpecification) {
+        String inputModel = stringValue(technicalSpecification.get("inputModel"));
+        String triggerType = stringValue(technicalSpecification.get("triggerType"));
+        String evaluationMode = stringValue(technicalSpecification.get("evaluationMode"));
+        String accessMode = stringValue(technicalSpecification.get("accessMode"));
+
+        boolean eventSignal = "ServiceDataV2".equals(inputModel)
+                || "EVENT".equals(triggerType)
+                || "STATELESS_EVENT_MATCH".equals(evaluationMode);
+        boolean scheduledSignal = "ServiceDataStopPointJourneysV2".equals(inputModel)
+                || "SCHEDULE".equals(triggerType)
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode)
+                || "SERVICE_DATA_API_SNAPSHOT".equals(accessMode);
+
+        if (eventSignal == scheduledSignal) {
+            return null;
+        }
+        return eventSignal ? "EVENT_INTERPRETER" : "SCHEDULED_INTERPRETER";
+    }
+
+    private boolean isBlankValue(Object value) {
+        return stringValue(value) == null;
+    }
+
+    private boolean isBlankText(String value) {
+        return value == null || value.isBlank();
     }
 
     private AlertTechnicalSpecificationResponse toTechnicalSpecificationResponse(

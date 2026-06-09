@@ -25,6 +25,12 @@ public class AlertTechnicalSpecificationManualValidator {
             "function(");
 
     public ValidationResult validate(Map<String, Object> technicalSpecification) {
+        return validate(technicalSpecification, null);
+    }
+
+    public ValidationResult validate(
+            Map<String, Object> technicalSpecification,
+            ManualValidationContext context) {
         if (technicalSpecification == null || technicalSpecification.isEmpty()) {
             return ValidationResult.invalid("technicalSpecification must be a non-empty object.");
         }
@@ -35,14 +41,69 @@ public class AlertTechnicalSpecificationManualValidator {
             return ValidationResult.unsupported("technicalSpecification.source must be SERVICE_DATA.");
         }
 
-        String interpreterType = stringValue(technicalSpecification.get("interpreterType"));
+        String interpreterType = resolveInterpreterType(technicalSpecification, context);
         if (EVENT_INTERPRETER.equals(interpreterType)) {
             return validateEventSpecification(technicalSpecification, interpreterType);
         }
         if (SCHEDULED_INTERPRETER.equals(interpreterType)) {
             return validateScheduledSpecification(technicalSpecification, interpreterType);
         }
-        return ValidationResult.unsupported("technicalSpecification.interpreterType is not supported.");
+        return ValidationResult.unsupported("technicalSpecification.interpreterType is missing or not supported.");
+    }
+
+    private String resolveInterpreterType(
+            Map<String, Object> technicalSpecification,
+            ManualValidationContext context) {
+        String interpreterType = stringValue(technicalSpecification.get("interpreterType"));
+        if (interpreterType != null) {
+            return interpreterType;
+        }
+
+        if (context != null && stringValue(context.alertInterpreterType()) != null) {
+            interpreterType = stringValue(context.alertInterpreterType());
+            technicalSpecification.put("interpreterType", interpreterType);
+            System.out.println("[IIA][ALERT_TECH_SPEC_PUT][INTERPRETER_FALLBACK_FROM_ALERT] alertId="
+                    + context.alertId()
+                    + " interpreterType=" + interpreterType);
+            return interpreterType;
+        }
+
+        InferredInterpreter inferred = inferInterpreterType(technicalSpecification);
+        if (inferred != null) {
+            technicalSpecification.put("interpreterType", inferred.interpreterType());
+            if (context != null) {
+                System.out.println("[IIA][ALERT_TECH_SPEC_PUT][INTERPRETER_INFERRED] alertId="
+                        + context.alertId()
+                        + " interpreterType=" + inferred.interpreterType()
+                        + " reason=" + inferred.reason());
+            }
+            return inferred.interpreterType();
+        }
+        return null;
+    }
+
+    private InferredInterpreter inferInterpreterType(Map<String, Object> technicalSpecification) {
+        String inputModel = stringValue(technicalSpecification.get("inputModel"));
+        String triggerType = stringValue(technicalSpecification.get("triggerType"));
+        String evaluationMode = stringValue(technicalSpecification.get("evaluationMode"));
+        String accessMode = stringValue(technicalSpecification.get("accessMode"));
+
+        boolean eventSignal = "ServiceDataV2".equals(inputModel)
+                || "EVENT".equals(triggerType)
+                || "STATELESS_EVENT_MATCH".equals(evaluationMode);
+        boolean scheduledSignal = "ServiceDataStopPointJourneysV2".equals(inputModel)
+                || "SCHEDULE".equals(triggerType)
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode)
+                || "SERVICE_DATA_API_SNAPSHOT".equals(accessMode)
+                || presentMap(technicalSpecification.get("snapshotEvaluation"));
+
+        if (eventSignal == scheduledSignal) {
+            return null;
+        }
+        if (eventSignal) {
+            return new InferredInterpreter(EVENT_INTERPRETER, "event metadata");
+        }
+        return new InferredInterpreter(SCHEDULED_INTERPRETER, "scheduled metadata");
     }
 
     private ValidationResult validateEventSpecification(Map<String, Object> technicalSpecification, String interpreterType) {
@@ -184,5 +245,15 @@ public class AlertTechnicalSpecificationManualValidator {
     public enum FailureKind {
         INVALID_SPECIFICATION,
         UNSUPPORTED_SPECIFICATION
+    }
+
+    public record ManualValidationContext(
+            String alertId,
+            String alertInterpreterType) {
+    }
+
+    private record InferredInterpreter(
+            String interpreterType,
+            String reason) {
     }
 }

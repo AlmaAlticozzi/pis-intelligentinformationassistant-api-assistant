@@ -32,6 +32,13 @@ public class AgentProfile   {
   private Integer memoryLimitMiB;
   private String networkPolicy;
   private Integer maxRuntimeConcurrency;
+  private @Valid List<AlertInterpreterType> supportedInterpreterTypes = new ArrayList<>();
+  private @Valid List<String> supportedTriggerTypes = new ArrayList<>();
+  private Integer minScheduleIntervalSeconds;
+  private Integer maxServiceDataStopPoints;
+  private Integer maxConditionNodes;
+  private Boolean supportsStatefulExecution;
+  private String runtimeClass;
 
   public AgentProfile() {
   }
@@ -280,6 +287,146 @@ public class AgentProfile   {
     this.maxRuntimeConcurrency = maxRuntimeConcurrency;
   }
 
+  /**
+   * Optional list of interpreter types supported by this profile. Empty or omitted means backend default policy applies.
+   **/
+  public AgentProfile supportedInterpreterTypes(List<AlertInterpreterType> supportedInterpreterTypes) {
+    this.supportedInterpreterTypes = supportedInterpreterTypes;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Optional list of interpreter types supported by this profile. Empty or omitted means backend default policy applies.")
+  @JsonProperty("supportedInterpreterTypes")
+  public List<AlertInterpreterType> getSupportedInterpreterTypes() {
+    return supportedInterpreterTypes;
+  }
+
+  @JsonProperty("supportedInterpreterTypes")
+  public void setSupportedInterpreterTypes(List<AlertInterpreterType> supportedInterpreterTypes) {
+    this.supportedInterpreterTypes = supportedInterpreterTypes;
+  }
+
+  /**
+   * Optional list of trigger types supported by this profile.
+   **/
+  public AgentProfile supportedTriggerTypes(List<String> supportedTriggerTypes) {
+    this.supportedTriggerTypes = supportedTriggerTypes;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Optional list of trigger types supported by this profile.")
+  @JsonProperty("supportedTriggerTypes")
+  public List<String> getSupportedTriggerTypes() {
+    return supportedTriggerTypes;
+  }
+
+  @JsonProperty("supportedTriggerTypes")
+  public void setSupportedTriggerTypes(List<String> supportedTriggerTypes) {
+    this.supportedTriggerTypes = supportedTriggerTypes;
+  }
+
+  /**
+   * Minimum allowed interval for SCHEDULED_INTERPRETER definitions using this profile.
+   **/
+  public AgentProfile minScheduleIntervalSeconds(Integer minScheduleIntervalSeconds) {
+    this.minScheduleIntervalSeconds = minScheduleIntervalSeconds;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "300", value = "Minimum allowed interval for SCHEDULED_INTERPRETER definitions using this profile.")
+  @JsonProperty("minScheduleIntervalSeconds")
+  public Integer getMinScheduleIntervalSeconds() {
+    return minScheduleIntervalSeconds;
+  }
+
+  @JsonProperty("minScheduleIntervalSeconds")
+  public void setMinScheduleIntervalSeconds(Integer minScheduleIntervalSeconds) {
+    this.minScheduleIntervalSeconds = minScheduleIntervalSeconds;
+  }
+
+  /**
+   * Maximum number of ServiceData stopPoint identifiers that a scheduled definition can query when this profile is selected.
+   **/
+  public AgentProfile maxServiceDataStopPoints(Integer maxServiceDataStopPoints) {
+    this.maxServiceDataStopPoints = maxServiceDataStopPoints;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "10", value = "Maximum number of ServiceData stopPoint identifiers that a scheduled definition can query when this profile is selected.")
+  @JsonProperty("maxServiceDataStopPoints")
+  public Integer getMaxServiceDataStopPoints() {
+    return maxServiceDataStopPoints;
+  }
+
+  @JsonProperty("maxServiceDataStopPoints")
+  public void setMaxServiceDataStopPoints(Integer maxServiceDataStopPoints) {
+    this.maxServiceDataStopPoints = maxServiceDataStopPoints;
+  }
+
+  /**
+   * Maximum number of DSL condition/evaluation nodes allowed for this profile.
+   **/
+  public AgentProfile maxConditionNodes(Integer maxConditionNodes) {
+    this.maxConditionNodes = maxConditionNodes;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "50", value = "Maximum number of DSL condition/evaluation nodes allowed for this profile.")
+  @JsonProperty("maxConditionNodes")
+  public Integer getMaxConditionNodes() {
+    return maxConditionNodes;
+  }
+
+  @JsonProperty("maxConditionNodes")
+  public void setMaxConditionNodes(Integer maxConditionNodes) {
+    this.maxConditionNodes = maxConditionNodes;
+  }
+
+  /**
+   * Whether this profile allows future stateful Agent execution.
+   **/
+  public AgentProfile supportsStatefulExecution(Boolean supportsStatefulExecution) {
+    this.supportsStatefulExecution = supportsStatefulExecution;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "false", value = "Whether this profile allows future stateful Agent execution.")
+  @JsonProperty("supportsStatefulExecution")
+  public Boolean getSupportsStatefulExecution() {
+    return supportsStatefulExecution;
+  }
+
+  @JsonProperty("supportsStatefulExecution")
+  public void setSupportsStatefulExecution(Boolean supportsStatefulExecution) {
+    this.supportsStatefulExecution = supportsStatefulExecution;
+  }
+
+  /**
+   * Logical runtime class used by the Agent Orchestrator when deciding where to load ACTIVE definitions.
+   **/
+  public AgentProfile runtimeClass(String runtimeClass) {
+    this.runtimeClass = runtimeClass;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "STANDARD_DSL_RUNTIME", value = "Logical runtime class used by the Agent Orchestrator when deciding where to load ACTIVE definitions.")
+  @JsonProperty("runtimeClass")
+  public String getRuntimeClass() {
+    return runtimeClass;
+  }
+
+  @JsonProperty("runtimeClass")
+  public void setRuntimeClass(String runtimeClass) {
+    this.runtimeClass = runtimeClass;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -300,12 +447,19 @@ public class AgentProfile   {
         Objects.equals(this.memoryRequestMiB, agentProfile.memoryRequestMiB) &&
         Objects.equals(this.memoryLimitMiB, agentProfile.memoryLimitMiB) &&
         Objects.equals(this.networkPolicy, agentProfile.networkPolicy) &&
-        Objects.equals(this.maxRuntimeConcurrency, agentProfile.maxRuntimeConcurrency);
+        Objects.equals(this.maxRuntimeConcurrency, agentProfile.maxRuntimeConcurrency) &&
+        Objects.equals(this.supportedInterpreterTypes, agentProfile.supportedInterpreterTypes) &&
+        Objects.equals(this.supportedTriggerTypes, agentProfile.supportedTriggerTypes) &&
+        Objects.equals(this.minScheduleIntervalSeconds, agentProfile.minScheduleIntervalSeconds) &&
+        Objects.equals(this.maxServiceDataStopPoints, agentProfile.maxServiceDataStopPoints) &&
+        Objects.equals(this.maxConditionNodes, agentProfile.maxConditionNodes) &&
+        Objects.equals(this.supportsStatefulExecution, agentProfile.supportsStatefulExecution) &&
+        Objects.equals(this.runtimeClass, agentProfile.runtimeClass);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, description, enabled, recommendedFor, cpuRequestMillicores, cpuLimitMillicores, memoryRequestMiB, memoryLimitMiB, networkPolicy, maxRuntimeConcurrency);
+    return Objects.hash(id, name, description, enabled, recommendedFor, cpuRequestMillicores, cpuLimitMillicores, memoryRequestMiB, memoryLimitMiB, networkPolicy, maxRuntimeConcurrency, supportedInterpreterTypes, supportedTriggerTypes, minScheduleIntervalSeconds, maxServiceDataStopPoints, maxConditionNodes, supportsStatefulExecution, runtimeClass);
   }
 
   @Override
@@ -324,6 +478,13 @@ public class AgentProfile   {
     sb.append("    memoryLimitMiB: ").append(toIndentedString(memoryLimitMiB)).append("\n");
     sb.append("    networkPolicy: ").append(toIndentedString(networkPolicy)).append("\n");
     sb.append("    maxRuntimeConcurrency: ").append(toIndentedString(maxRuntimeConcurrency)).append("\n");
+    sb.append("    supportedInterpreterTypes: ").append(toIndentedString(supportedInterpreterTypes)).append("\n");
+    sb.append("    supportedTriggerTypes: ").append(toIndentedString(supportedTriggerTypes)).append("\n");
+    sb.append("    minScheduleIntervalSeconds: ").append(toIndentedString(minScheduleIntervalSeconds)).append("\n");
+    sb.append("    maxServiceDataStopPoints: ").append(toIndentedString(maxServiceDataStopPoints)).append("\n");
+    sb.append("    maxConditionNodes: ").append(toIndentedString(maxConditionNodes)).append("\n");
+    sb.append("    supportsStatefulExecution: ").append(toIndentedString(supportsStatefulExecution)).append("\n");
+    sb.append("    runtimeClass: ").append(toIndentedString(runtimeClass)).append("\n");
     sb.append("}");
     return sb.toString();
   }

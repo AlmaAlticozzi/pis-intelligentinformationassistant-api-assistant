@@ -4,6 +4,7 @@ import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentHealthStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentQualityStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentRuntimeRef;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentRunStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertReference;
 import java.time.OffsetDateTime;
@@ -40,6 +41,7 @@ public class AgentRunSummary   {
   private OffsetDateTime lastHeartbeatAt;
   private OffsetDateTime startedAt;
   private OffsetDateTime stoppedAt;
+  private AgentRuntimeRef runtime;
 
   public AgentRunSummary() {
   }
@@ -384,6 +386,25 @@ public class AgentRunSummary   {
     this.stoppedAt = stoppedAt;
   }
 
+  /**
+   **/
+  public AgentRunSummary runtime(AgentRuntimeRef runtime) {
+    this.runtime = runtime;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "")
+  @JsonProperty("runtime")
+  @Valid public AgentRuntimeRef getRuntime() {
+    return runtime;
+  }
+
+  @JsonProperty("runtime")
+  public void setRuntime(AgentRuntimeRef runtime) {
+    this.runtime = runtime;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -410,12 +431,13 @@ public class AgentRunSummary   {
         Objects.equals(this.createdSuggestions, agentRunSummary.createdSuggestions) &&
         Objects.equals(this.lastHeartbeatAt, agentRunSummary.lastHeartbeatAt) &&
         Objects.equals(this.startedAt, agentRunSummary.startedAt) &&
-        Objects.equals(this.stoppedAt, agentRunSummary.stoppedAt);
+        Objects.equals(this.stoppedAt, agentRunSummary.stoppedAt) &&
+        Objects.equals(this.runtime, agentRunSummary.runtime);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, agentDefinitionId, agentName, alert, status, healthStatus, healthScore, qualityStatus, qualityScore, profileId, cpuUsagePercent, memoryUsagePercent, generatedOutputs, createdSuggestions, lastHeartbeatAt, startedAt, stoppedAt);
+    return Objects.hash(id, agentDefinitionId, agentName, alert, status, healthStatus, healthScore, qualityStatus, qualityScore, profileId, cpuUsagePercent, memoryUsagePercent, generatedOutputs, createdSuggestions, lastHeartbeatAt, startedAt, stoppedAt, runtime);
   }
 
   @Override
@@ -440,6 +462,7 @@ public class AgentRunSummary   {
     sb.append("    lastHeartbeatAt: ").append(toIndentedString(lastHeartbeatAt)).append("\n");
     sb.append("    startedAt: ").append(toIndentedString(startedAt)).append("\n");
     sb.append("    stoppedAt: ").append(toIndentedString(stoppedAt)).append("\n");
+    sb.append("    runtime: ").append(toIndentedString(runtime)).append("\n");
     sb.append("}");
     return sb.toString();
   }

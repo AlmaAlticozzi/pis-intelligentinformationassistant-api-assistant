@@ -1215,8 +1215,30 @@ class AlertServiceTest {
         assertThat(response.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
         assertThat(response.getTechnicalSpecificationEdited()).isTrue();
         assertThat(response.getTechnicalSpecification()).containsEntry("source", "SERVICE_DATA");
+        assertThat(response.getTechnicalSpecification()).containsEntry("interpreterType", "EVENT_INTERPRETER");
+        assertThat(response.getTechnicalSpecification()).containsEntry("inputModel", "ServiceDataV2");
+        assertThat(response.getTechnicalSpecification()).containsEntry("outputModel", "AgentOutput.CANDIDATE_SUGGESTION");
         assertThat(response.getWarnings()).isEmpty();
         assertThat(response.getAgentBlueprintPreviewRegenerated()).isNull();
+    }
+
+    @Test
+    void getAlertTechnicalSpecificationInfersInterpreterTypeWhenAlertMetadataIsMissing() {
+        AlertService service = verificationService(false);
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of(
+                "source", "SERVICE_DATA",
+                "triggerType", "EVENT",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of("field", "payload.ongroundServiceEvent.eventsType")));
+        alert.setSglInterpretertype(null);
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+
+        AlertTechnicalSpecificationResponse response = service.getAlertTechnicalSpecification("ALRT1").orElseThrow();
+
+        assertThat(response.getTechnicalSpecification()).containsEntry("interpreterType", "EVENT_INTERPRETER");
     }
 
     @Test
@@ -1266,7 +1288,7 @@ class AlertServiceTest {
         updated.setNumVersion(8);
         when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
                 .thenReturn(java.util.Optional.of(alert));
-        when(service.alertTechnicalSpecificationManualValidator.validate(replacement))
+        when(service.alertTechnicalSpecificationManualValidator.validate(any(), any()))
                 .thenReturn(AlertTechnicalSpecificationManualValidator.ValidationResult.valid("EVENT_INTERPRETER"));
         when(service.alertRepository.replaceTechnicalSpecificationManually("ALRT1", replacement))
                 .thenReturn(java.util.Optional.of(updated));
@@ -1292,7 +1314,7 @@ class AlertServiceTest {
         Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA"));
         when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
                 .thenReturn(java.util.Optional.of(alert));
-        when(service.alertTechnicalSpecificationManualValidator.validate(replacement))
+        when(service.alertTechnicalSpecificationManualValidator.validate(any(), any()))
                 .thenReturn(AlertTechnicalSpecificationManualValidator.ValidationResult.invalid("condition is missing"));
         AlertTechnicalSpecificationUpdateRequest request = new AlertTechnicalSpecificationUpdateRequest()
                 .technicalSpecification(replacement);
@@ -1302,6 +1324,41 @@ class AlertServiceTest {
                 .extracting(ex -> ((AlertTechnicalSpecificationRejectedException) ex).reason())
                 .isEqualTo(AlertTechnicalSpecificationRejectedException.Reason.INVALID_TECHNICAL_SPECIFICATION);
         verify(service.alertRepository, never()).replaceTechnicalSpecificationManually(any(), any());
+    }
+
+    @Test
+    void updateAlertTechnicalSpecificationRoundTripsSpecificationWithoutInterpreterType() {
+        AlertService service = verificationService(false);
+        Map<String, Object> replacement = Map.of(
+                "source", "SERVICE_DATA",
+                "triggerType", "EVENT",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of("type", "SERVICE_DATA_FIELD_MATCH", "field", "payload.ongroundServiceEvent.eventsType", "operator", "EQUALS", "value", "ARRIVING"));
+        Alert alert = verifiedTechnicalSpecificationAlert(Map.of("source", "SERVICE_DATA"));
+        Alert updated = verifiedTechnicalSpecificationAlert(replacement);
+        updated.setFlgTechnicalspecificationedited(true);
+        when(service.alertRepository.findAlertForTechnicalSpecification("ALRT1"))
+                .thenReturn(java.util.Optional.of(alert));
+
+        ArgumentCaptor<Map<String, Object>> persistedSpecification = ArgumentCaptor.forClass(Map.class);
+        when(service.alertRepository.replaceTechnicalSpecificationManually(
+                org.mockito.ArgumentMatchers.eq("ALRT1"),
+                persistedSpecification.capture()))
+                .thenAnswer(invocation -> {
+                    Alert saved = verifiedTechnicalSpecificationAlert(invocation.getArgument(1));
+                    saved.setFlgTechnicalspecificationedited(true);
+                    return java.util.Optional.of(saved);
+                });
+        AlertTechnicalSpecificationUpdateRequest request = new AlertTechnicalSpecificationUpdateRequest()
+                .technicalSpecification(replacement);
+
+        AlertTechnicalSpecificationResponse response = service.updateAlertTechnicalSpecification("ALRT1", request).orElseThrow();
+
+        assertThat(persistedSpecification.getValue()).containsEntry("interpreterType", "EVENT_INTERPRETER");
+        assertThat(response.getTechnicalSpecificationEdited()).isTrue();
+        assertThat(response.getTechnicalSpecification()).containsEntry("interpreterType", "EVENT_INTERPRETER");
     }
 
     @Test
@@ -1558,6 +1615,7 @@ class AlertServiceTest {
         service.alertVerificationMockEngine = mock(AlertVerificationMockEngine.class);
         service.alertLocationMentionExtractor = new SimpleAlertLocationMentionExtractor();
         service.alertLocationResolverService = new AlertLocationResolverService();
+        service.alertTechnicalSpecificationManualValidator = new AlertTechnicalSpecificationManualValidator();
         service.llmGateway = mock(Instance.class);
         when(service.llmGateway.isUnsatisfied()).thenReturn(false);
         when(service.llmGateway.get()).thenReturn(mock(LlmGateway.class));

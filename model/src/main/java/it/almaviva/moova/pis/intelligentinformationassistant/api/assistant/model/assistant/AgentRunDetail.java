@@ -9,6 +9,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentQualityStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentResourceUsage;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentRunStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentRuntimeRef;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentRuntimeEvent;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ public class AgentRunDetail   {
   private OffsetDateTime lastErrorAt;
   private String lastErrorCode;
   private String lastErrorMessage;
+  private AgentRuntimeRef runtime;
 
   public AgentRunDetail() {
   }
@@ -441,6 +443,25 @@ public class AgentRunDetail   {
     this.lastErrorMessage = lastErrorMessage;
   }
 
+  /**
+   **/
+  public AgentRunDetail runtime(AgentRuntimeRef runtime) {
+    this.runtime = runtime;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "")
+  @JsonProperty("runtime")
+  @Valid public AgentRuntimeRef getRuntime() {
+    return runtime;
+  }
+
+  @JsonProperty("runtime")
+  public void setRuntime(AgentRuntimeRef runtime) {
+    this.runtime = runtime;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -468,12 +489,13 @@ public class AgentRunDetail   {
         Objects.equals(this.lastHeartbeatAt, agentRunDetail.lastHeartbeatAt) &&
         Objects.equals(this.lastErrorAt, agentRunDetail.lastErrorAt) &&
         Objects.equals(this.lastErrorCode, agentRunDetail.lastErrorCode) &&
-        Objects.equals(this.lastErrorMessage, agentRunDetail.lastErrorMessage);
+        Objects.equals(this.lastErrorMessage, agentRunDetail.lastErrorMessage) &&
+        Objects.equals(this.runtime, agentRunDetail.runtime);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, agentDefinition, status, healthStatus, healthScore, qualityStatus, qualityScore, mainIssues, kubernetes, resources, functionalMetrics, latestEvents, startedAt, stoppedAt, lastHeartbeatAt, lastErrorAt, lastErrorCode, lastErrorMessage);
+    return Objects.hash(id, agentDefinition, status, healthStatus, healthScore, qualityStatus, qualityScore, mainIssues, kubernetes, resources, functionalMetrics, latestEvents, startedAt, stoppedAt, lastHeartbeatAt, lastErrorAt, lastErrorCode, lastErrorMessage, runtime);
   }
 
   @Override
@@ -499,6 +521,7 @@ public class AgentRunDetail   {
     sb.append("    lastErrorAt: ").append(toIndentedString(lastErrorAt)).append("\n");
     sb.append("    lastErrorCode: ").append(toIndentedString(lastErrorCode)).append("\n");
     sb.append("    lastErrorMessage: ").append(toIndentedString(lastErrorMessage)).append("\n");
+    sb.append("    runtime: ").append(toIndentedString(runtime)).append("\n");
     sb.append("}");
     return sb.toString();
   }

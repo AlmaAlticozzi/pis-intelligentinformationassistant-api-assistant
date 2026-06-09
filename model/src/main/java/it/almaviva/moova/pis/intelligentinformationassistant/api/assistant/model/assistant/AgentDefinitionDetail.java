@@ -46,6 +46,10 @@ public class AgentDefinitionDetail   {
   private String createdBy;
   private OffsetDateTime createdAt;
   private OffsetDateTime updatedAt;
+  private AlertInterpreterType interpreterType;
+  private String triggerType;
+  private String inputModel;
+  private String outputModel;
 
   public AgentDefinitionDetail() {
   }
@@ -394,6 +398,86 @@ public class AgentDefinitionDetail   {
     this.updatedAt = updatedAt;
   }
 
+  /**
+   * Interpreter type derived from the source Alert technicalSpecification.
+   **/
+  public AgentDefinitionDetail interpreterType(AlertInterpreterType interpreterType) {
+    this.interpreterType = interpreterType;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Interpreter type derived from the source Alert technicalSpecification.")
+  @JsonProperty("interpreterType")
+  public AlertInterpreterType getInterpreterType() {
+    return interpreterType;
+  }
+
+  @JsonProperty("interpreterType")
+  public void setInterpreterType(AlertInterpreterType interpreterType) {
+    this.interpreterType = interpreterType;
+  }
+
+  /**
+   * Trigger type derived from the source Alert technicalSpecification.
+   **/
+  public AgentDefinitionDetail triggerType(String triggerType) {
+    this.triggerType = triggerType;
+    return this;
+  }
+
+  
+  @ApiModelProperty(value = "Trigger type derived from the source Alert technicalSpecification.")
+  @JsonProperty("triggerType")
+  public String getTriggerType() {
+    return triggerType;
+  }
+
+  @JsonProperty("triggerType")
+  public void setTriggerType(String triggerType) {
+    this.triggerType = triggerType;
+  }
+
+  /**
+   * Input model required by the runtime artifact, derived from the technicalSpecification.
+   **/
+  public AgentDefinitionDetail inputModel(String inputModel) {
+    this.inputModel = inputModel;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "ServiceDataV2", value = "Input model required by the runtime artifact, derived from the technicalSpecification.")
+  @JsonProperty("inputModel")
+  public String getInputModel() {
+    return inputModel;
+  }
+
+  @JsonProperty("inputModel")
+  public void setInputModel(String inputModel) {
+    this.inputModel = inputModel;
+  }
+
+  /**
+   * Output model produced by the runtime artifact.
+   **/
+  public AgentDefinitionDetail outputModel(String outputModel) {
+    this.outputModel = outputModel;
+    return this;
+  }
+
+  
+  @ApiModelProperty(example = "AgentOutput.CANDIDATE_SUGGESTION", value = "Output model produced by the runtime artifact.")
+  @JsonProperty("outputModel")
+  public String getOutputModel() {
+    return outputModel;
+  }
+
+  @JsonProperty("outputModel")
+  public void setOutputModel(String outputModel) {
+    this.outputModel = outputModel;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -420,12 +504,16 @@ public class AgentDefinitionDetail   {
         Objects.equals(this.latestRun, agentDefinitionDetail.latestRun) &&
         Objects.equals(this.createdBy, agentDefinitionDetail.createdBy) &&
         Objects.equals(this.createdAt, agentDefinitionDetail.createdAt) &&
-        Objects.equals(this.updatedAt, agentDefinitionDetail.updatedAt);
+        Objects.equals(this.updatedAt, agentDefinitionDetail.updatedAt) &&
+        Objects.equals(this.interpreterType, agentDefinitionDetail.interpreterType) &&
+        Objects.equals(this.triggerType, agentDefinitionDetail.triggerType) &&
+        Objects.equals(this.inputModel, agentDefinitionDetail.inputModel) &&
+        Objects.equals(this.outputModel, agentDefinitionDetail.outputModel);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, description, status, alert, alertVersion, profile, generationMode, activationPolicy, blueprint, artifact, compilation, runtimeContract, latestRun, createdBy, createdAt, updatedAt);
+    return Objects.hash(id, name, description, status, alert, alertVersion, profile, generationMode, activationPolicy, blueprint, artifact, compilation, runtimeContract, latestRun, createdBy, createdAt, updatedAt, interpreterType, triggerType, inputModel, outputModel);
   }
 
   @Override
@@ -450,6 +538,10 @@ public class AgentDefinitionDetail   {
     sb.append("    createdBy: ").append(toIndentedString(createdBy)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    updatedAt: ").append(toIndentedString(updatedAt)).append("\n");
+    sb.append("    interpreterType: ").append(toIndentedString(interpreterType)).append("\n");
+    sb.append("    triggerType: ").append(toIndentedString(triggerType)).append("\n");
+    sb.append("    inputModel: ").append(toIndentedString(inputModel)).append("\n");
+    sb.append("    outputModel: ").append(toIndentedString(outputModel)).append("\n");
     sb.append("}");
     return sb.toString();
   }

@@ -298,13 +298,12 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
-    void rejectsUnsupportedTriggerAndStatefulBlueprint() {
+    void rejectsStatefulBlueprintWithLegacyScheduledTrigger() {
         AlertAgentGenerationPreviewData data = previewData(condition("CONTAINS_ANY", true));
 
         AgentBlueprintValidationResult result = validate(data, blueprint(data, "SCHEDULED", true), List.of("SERVICE_DATA"));
 
         assertThat(result.valid()).isFalse();
-        assertThat(result.errors()).anyMatch(error -> error.contains("triggerType"));
         assertThat(result.errors()).anyMatch(error -> error.contains("requiresState"));
     }
 

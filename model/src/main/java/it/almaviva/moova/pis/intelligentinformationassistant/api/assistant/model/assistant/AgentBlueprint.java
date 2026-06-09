@@ -37,7 +37,7 @@ public class AgentBlueprint extends HashMap<String, Object>  {
   private String description;
   public enum TriggerTypeEnum {
 
-    EVENT(String.valueOf("EVENT")), SCHEDULED(String.valueOf("SCHEDULED"));
+    EVENT(String.valueOf("EVENT")), SCHEDULE(String.valueOf("SCHEDULE")), SCHEDULED(String.valueOf("SCHEDULED"));
 
 
     private String value;
