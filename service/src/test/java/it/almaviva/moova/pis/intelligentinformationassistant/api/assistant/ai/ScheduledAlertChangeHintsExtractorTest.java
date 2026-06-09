@@ -29,31 +29,10 @@ class ScheduledAlertChangeHintsExtractorTest {
     }
 
     @Test
-    void extractsGenericCancellation() {
-        assertIntent("treni cancellati", ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION);
-    }
+    void doesNotExtractGenericJourneyCancellationAsChange() {
+        ScheduledAlertChangeHints hints = extractor.extract("treni cancellati");
 
-    @Test
-    void extractsPartialCancellation() {
-        assertIntent("cancellazione parziale", ScheduledAlertChangeConstraint.ChangeIntent.PARTIAL_CANCELLATION);
-    }
-
-    @Test
-    void extractsArrivalCancellation() {
-        ScheduledAlertChangeHints hints = extractor.extract("soppressione in arrivo");
-
-        assertThat(hints.constraints()).extracting(ScheduledAlertChangeConstraint::changeIntent)
-                .contains(ScheduledAlertChangeConstraint.ChangeIntent.ARRIVAL_CANCELLATION);
-        assertThat(hints.constraints().get(0).direction()).isEqualTo(ScheduledAlertChangeConstraint.Direction.ARRIVAL);
-    }
-
-    @Test
-    void extractsDepartureCancellation() {
-        ScheduledAlertChangeHints hints = extractor.extract("soppressione in partenza");
-
-        assertThat(hints.constraints()).extracting(ScheduledAlertChangeConstraint::changeIntent)
-                .contains(ScheduledAlertChangeConstraint.ChangeIntent.DEPARTURE_CANCELLATION);
-        assertThat(hints.constraints().get(0).direction()).isEqualTo(ScheduledAlertChangeConstraint.Direction.DEPARTURE);
+        assertThat(hints.hasChangeConstraint()).isFalse();
     }
 
     @Test
@@ -70,11 +49,7 @@ class ScheduledAlertChangeHintsExtractorTest {
     void extractsNegativeCancellationPolarity() {
         ScheduledAlertChangeHints hints = extractor.extract("non cancellati");
 
-        assertThat(hints.hasChangeConstraint()).isTrue();
-        assertThat(hints.constraints()).anySatisfy(constraint -> {
-            assertThat(constraint.changeIntent()).isEqualTo(ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION);
-            assertThat(constraint.polarity()).isEqualTo(ScheduledAlertChangeConstraint.Polarity.EXCLUDE);
-        });
+        assertThat(hints.hasChangeConstraint()).isFalse();
     }
 
     private void assertIntent(String prompt, ScheduledAlertChangeConstraint.ChangeIntent expected) {

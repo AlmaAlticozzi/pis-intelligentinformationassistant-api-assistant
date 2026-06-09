@@ -36,6 +36,9 @@ public class ScheduledAlertVerificationService {
     ScheduledAlertChangeHintsExtractor changeHintsExtractor;
 
     @Inject
+    ScheduledAlertJourneyCancellationHintsExtractor journeyCancellationHintsExtractor;
+
+    @Inject
     ScheduledAlertCancelledCallHintsExtractor cancelledCallHintsExtractor;
 
     @Inject
@@ -116,6 +119,13 @@ public class ScheduledAlertVerificationService {
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CHANGE_HINTS] hasChangeConstraint="
                 + changeHints.hasChangeConstraint()
                 + " constraints=" + changeHints.constraints());
+        ScheduledAlertJourneyCancellationHints journeyCancellationHints = journeyCancellationHints(originalPrompt);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][JOURNEY_CANCELLATION_HINTS] hasJourneyCancellationConstraint="
+                + journeyCancellationHints.hasJourneyCancellationConstraint()
+                + " constraints=" + journeyCancellationHints.constraints());
+        if (journeyCancellationHints.hasGenericJourneyCancellation()) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLATION_SEMANTIC] intent=GENERIC_JOURNEY_CANCELLATION strategy=statuses-plus-passingType");
+        }
         ScheduledAlertCancelledCallHints cancelledCallHints = cancelledCallHints(originalPrompt);
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLED_CALL_HINTS] hasCancelledCallConstraint="
                 + cancelledCallHints.hasCancelledCallConstraint()
@@ -136,6 +146,7 @@ public class ScheduledAlertVerificationService {
                 temporalHints,
                 platformHints,
                 changeHints,
+                journeyCancellationHints,
                 cancelledCallHints,
                 replacementHints));
         int systemPromptLength = promptLength(request.systemPrompt());
@@ -146,7 +157,7 @@ public class ScheduledAlertVerificationService {
                 + " userLength=" + userPromptLength
                 + " total=" + totalPromptLength
                 + " catalogMode=DYNAMIC"
-                + " relevantCapabilities=" + relevantCapabilities(platformHints, changeHints, cancelledCallHints, replacementHints)
+                + " relevantCapabilities=" + relevantCapabilities(platformHints, changeHints, journeyCancellationHints, cancelledCallHints, replacementHints)
                 + " locationContext=" + locationContextSummary(locationContext));
         if (totalPromptLength > promptSizeWarningThreshold) {
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT][WARN] total prompt length exceeds configured warning threshold: "
@@ -184,7 +195,7 @@ public class ScheduledAlertVerificationService {
                         parsed.model());
             }
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision before validation=" + parsed.decision());
-            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
+            AlertVerificationOutcome validated = outcomeValidator.validate(parsed, locationContext, route, temporalHints, platformHints, changeHints, journeyCancellationHints, cancelledCallHints, replacementHints);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] final validator decision="
                     + validated.decision() + " rejectedReason=" + validated.rejectedReason());
             printOutcome(validated);
@@ -223,6 +234,14 @@ public class ScheduledAlertVerificationService {
         ScheduledAlertChangeHintsExtractor extractor = changeHintsExtractor;
         if (extractor == null) {
             extractor = new ScheduledAlertChangeHintsExtractor();
+        }
+        return extractor.extract(originalPrompt);
+    }
+
+    private ScheduledAlertJourneyCancellationHints journeyCancellationHints(String originalPrompt) {
+        ScheduledAlertJourneyCancellationHintsExtractor extractor = journeyCancellationHintsExtractor;
+        if (extractor == null) {
+            extractor = new ScheduledAlertJourneyCancellationHintsExtractor();
         }
         return extractor.extract(originalPrompt);
     }
@@ -354,6 +373,7 @@ public class ScheduledAlertVerificationService {
     private List<String> relevantCapabilities(
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
             ScheduledAlertCancelledCallHints cancelledCallHints,
             ScheduledAlertReplacementHints replacementHints) {
         java.util.ArrayList<String> capabilities = new java.util.ArrayList<>();
@@ -361,6 +381,9 @@ public class ScheduledAlertVerificationService {
         capabilities.add("REPORT_OUTPUT");
         if (changeHints != null && changeHints.hasChangeConstraint()) {
             capabilities.add("CANCELLATION");
+        }
+        if (journeyCancellationHints != null && journeyCancellationHints.hasJourneyCancellationConstraint()) {
+            capabilities.add("JOURNEY_CANCELLATION");
         }
         if (platformHints != null && platformHints.hasPlatformConstraint()) {
             capabilities.add("PLATFORM");

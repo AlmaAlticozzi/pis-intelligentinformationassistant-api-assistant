@@ -80,6 +80,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 temporalHintsSection(data == null ? null : data.temporalHints()),
                 platformHintsSection(data == null ? null : data.platformHints()),
                 changeHintsSection(data == null ? null : data.changeHints()),
+                journeyCancellationHintsSection(data == null ? null : data.journeyCancellationHints()),
                 cancelledCallHintsSection(data == null ? null : data.cancelledCallHints()),
                 replacementHintsSection(data == null ? null : data.replacementHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
@@ -95,11 +96,16 @@ public class ScheduledAlertVerificationPromptBuilder {
     }
 
     private boolean useCompactDynamicPrompt(ScheduledAlertVerificationPromptData data) {
+        boolean hasChangeConstraint = data != null
+                && data.changeHints() != null
+                && data.changeHints().hasChangeConstraint();
+        boolean hasJourneyCancellationConstraint = data != null
+                && data.journeyCancellationHints() != null
+                && data.journeyCancellationHints().hasJourneyCancellationConstraint();
         return data != null
                 && data.platformHints() != null
                 && data.platformHints().hasPlatformConstraint()
-                && data.changeHints() != null
-                && data.changeHints().hasChangeConstraint();
+                && (hasChangeConstraint || hasJourneyCancellationConstraint);
     }
 
     private String compactDynamicUserPrompt(ScheduledAlertVerificationPromptData data) {
@@ -110,6 +116,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 temporalHintsSection(data == null ? null : data.temporalHints()),
                 platformHintsSection(data == null ? null : data.platformHints()),
                 changeHintsSection(data == null ? null : data.changeHints()),
+                journeyCancellationHintsSection(data == null ? null : data.journeyCancellationHints()),
                 scheduledLocationContextSection(data == null ? null : data.locationContext()),
                 scheduledCapabilityCatalogSection(data),
                 compactScheduledRulesSection(),
@@ -130,7 +137,10 @@ public class ScheduledAlertVerificationPromptBuilder {
             section.append("- platform constraints: ").append(data.platformHints().constraints()).append('\n');
         }
         if (data != null && data.changeHints() != null && data.changeHints().hasChangeConstraint()) {
-            section.append("- change/cancellation constraints: ").append(data.changeHints().constraints()).append('\n');
+            section.append("- change/exclusion constraints: ").append(data.changeHints().constraints()).append('\n');
+        }
+        if (data != null && data.journeyCancellationHints() != null && data.journeyCancellationHints().hasJourneyCancellationConstraint()) {
+            section.append("- journey cancellation constraints: ").append(data.journeyCancellationHints().constraints()).append('\n');
         }
         return section.toString();
     }
@@ -149,6 +159,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Valid query/control mappedBy examples: serviceDataQuery.stopPoints, serviceDataQuery.timeWindow, schedule.frequencySeconds, outputPolicy.emit, outputPolicy.includeCount, outputPolicy.includeMatchingJourneys, snapshotEvaluation.mode, snapshotEvaluation.threshold.operator, snapshotEvaluation.threshold.value.
                 - Valid condition mappedBy examples: stopPointsJourneyDetails[].changes, stopPointsJourneyDetails[].arrivalStatuses[].status, stopPointsJourneyDetails[].departureStatuses[].status, stopPointsJourneyDetails[].departureDelay.delay, stopPointsJourneyDetails[].arrivalDelay.delay.
                 - Do not put JSON structural paths in mappedBy, such as snapshotEvaluation.condition.anyElement.path, snapshotEvaluation.condition.anyElement.conditions, snapshotEvaluation.condition.anyElement.conditions.all[].field, technicalSpecification.condition or agentBlueprintPreview.parameters.
+                - Generic cancelled/suppressed journey semantics must use arrivalStatuses[].status, departureStatuses[].status and passingType; do not use changes CANCELLATION/PARTIALLY_CANCELLATION for generic cancelled/suppressed journey reports.
                 - Query/control fields such as snapshotEvaluation.mode and outputPolicy.emit are not ServiceData fields and must not be used in snapshotEvaluation.condition.
                 - condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
                 - Use one anyElement path stopPointsJourneyDetails[] to correlate constraints on the same journey.
@@ -224,8 +235,20 @@ public class ScheduledAlertVerificationPromptBuilder {
         if (hints == null) {
             return """
                     Backend-derived change/cancellation/exclusion hints: unavailable.
-                    - Still map change, cancellation and exclusion wording only with Scheduled snapshot catalog fields.
+                    - Still map change and exclusion wording only with Scheduled snapshot catalog fields.
+                    - Generic journey cancellation/suppression belongs to journey cancellation hints, not change hints.
                     - Do not use payload.ongroundServiceEvent.*.
+                    """;
+        }
+        return hints.compactPromptSection();
+    }
+
+    private String journeyCancellationHintsSection(ScheduledAlertJourneyCancellationHints hints) {
+        if (hints == null) {
+            return """
+                    Backend-derived journey cancellation/suppression hints: unavailable.
+                    - Still distinguish generic cancelled/suppressed journeys from changed-origin/destination/path signals.
+                    - Generic cancelled/suppressed journeys must be based on arrival/departure status fields and passingType, not changes.
                     """;
         }
         return hints.compactPromptSection();
@@ -475,7 +498,8 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Inside that anyElement use relative fields, e.g. changes, arrivalStatuses[].status, timetabledDeparturePlatform.dsc.
                 - Query/control fields are valid only in requirementCoverage.mappedBy, never inside snapshotEvaluation.condition.
                 """);
-        if (capabilities.contains("CANCELLATION") && capabilities.contains("PLATFORM")) {
+        if ((capabilities.contains("CANCELLATION") || capabilities.contains("JOURNEY_CANCELLATION"))
+                && capabilities.contains("PLATFORM")) {
             section.append("""
 
                     Cancellation + platform:
@@ -486,9 +510,9 @@ public class ScheduledAlertVerificationPromptBuilder {
                     Preferred shape:
                     {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[
                       {"any":[
-                        {"field":"changes","operator":"CONTAINS","value":"CANCELLATION"},
-                        {"field":"arrivalStatuses[].status","operator":"CONTAINS","value":"ARRIVAL_CANCELLATION"},
-                        {"field":"departureStatuses[].status","operator":"CONTAINS","value":"DEPARTURE_CANCELLATION"}]},
+                        {"all":[{"field":"arrivalStatuses[].status","operator":"CONTAINS","value":"ARRIVAL_CANCELLATION"},{"field":"departureStatuses[].status","operator":"CONTAINS","value":"DEPARTURE_CANCELLATION"}]},
+                        {"all":[{"field":"arrivalStatuses[].status","operator":"CONTAINS","value":"ARRIVAL_CANCELLATION"},{"field":"passingType","operator":"EQUALS","value":"DESTINATION"}]},
+                        {"all":[{"field":"departureStatuses[].status","operator":"CONTAINS","value":"DEPARTURE_CANCELLATION"},{"field":"passingType","operator":"EQUALS","value":"ORIGIN"}]}]},
                       {"any":[
                         {"field":"timetabledDeparturePlatform.dsc","operator":"EQUAL_PLATFORM","value":"5"},
                         {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"5"},
@@ -509,6 +533,9 @@ public class ScheduledAlertVerificationPromptBuilder {
         }
         if (data.changeHints() != null && data.changeHints().hasChangeConstraint()) {
             capabilities.add("CANCELLATION");
+        }
+        if (data.journeyCancellationHints() != null && data.journeyCancellationHints().hasJourneyCancellationConstraint()) {
+            capabilities.add("JOURNEY_CANCELLATION");
         }
         if (data.platformHints() != null && data.platformHints().hasPlatformConstraint()) {
             capabilities.add("PLATFORM");
@@ -543,10 +570,13 @@ public class ScheduledAlertVerificationPromptBuilder {
         fields.add("stopPointsJourneyDetails[].vehicleJourneyName");
         if (capabilities.contains("CANCELLATION")) {
             fields.add("stopPointsJourneyDetails[].changes");
-            fields.add("stopPointsJourneyDetails[].arrivalStatuses[].status");
-            fields.add("stopPointsJourneyDetails[].departureStatuses[].status");
             fields.add("stopPointsJourneyDetails[].exclusion.totalExclusion");
             fields.add("stopPointsJourneyDetails[].exclusion.timeBasedExclusion");
+        }
+        if (capabilities.contains("JOURNEY_CANCELLATION")) {
+            fields.add("stopPointsJourneyDetails[].arrivalStatuses[].status");
+            fields.add("stopPointsJourneyDetails[].departureStatuses[].status");
+            fields.add("stopPointsJourneyDetails[].passingType");
         }
         if (capabilities.contains("PLATFORM")) {
             fields.add("stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc");
@@ -665,7 +695,8 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - lookahead window -> mappedBy may include serviceDataQuery.timeWindow.lookaheadMinutes.
                 - mappedBy describes user requirement coverage by real query/evaluation fields, not by internal JSON containers.
                 - Never put JSON structural paths in mappedBy: snapshotEvaluation.condition, snapshotEvaluation.condition.type, snapshotEvaluation.condition.anyElement, snapshotEvaluation.condition.anyElement.path, snapshotEvaluation.condition.anyElement.conditions, snapshotEvaluation.condition.anyElement.conditions.all[].field, snapshotEvaluation.condition.anyElement.conditions.any[].field, technicalSpecification.condition, agentBlueprintPreview.parameters, agentBlueprintPreview.parameters.snapshotEvaluation.
-                - For suppressed/cancelled journey report/count prompts, mappedBy should include serviceDataQuery.stopPoints, schedule.frequencySeconds, stopPointsJourneyDetails[].changes and/or stopPointsJourneyDetails[].arrivalStatuses[].status and/or stopPointsJourneyDetails[].departureStatuses[].status, outputPolicy.emit, outputPolicy.includeCount.
+                - For generic suppressed/cancelled journey report/count prompts, mappedBy should include serviceDataQuery.stopPoints, schedule.frequencySeconds, stopPointsJourneyDetails[].arrivalStatuses[].status, stopPointsJourneyDetails[].departureStatuses[].status, stopPointsJourneyDetails[].passingType, outputPolicy.emit, outputPolicy.includeCount.
+                - Do not include stopPointsJourneyDetails[].changes or changes for generic suppressed/cancelled journey prompts.
                 - These are not ServiceData fields and must not be put inside snapshotEvaluation.condition.
 
                 5. LOCAL_TIME_BETWEEN JSON SHAPE - STRICT:
@@ -874,7 +905,7 @@ public class ScheduledAlertVerificationPromptBuilder {
 
                 Cancelled/suppressed/skipped stops using nextCancelledCalls[]:
                 - Cancelled/suppressed/skipped stop constraints are different from full journey cancellation.
-                - "journey/train/service is cancelled" maps to changes/status cancellation fields.
+                - "journey/train/service is cancelled" maps to journey cancellation status fields, not changes.
                 - "suppressed/cancelled/skipped stop X", "cancelled call X", "skips stop X" maps to nextCancelledCalls[].stopPoint.
                 - If user asks for a specific suppressed/cancelled/skipped stop X, use a nested anyElement:
                   outer anyElement path stopPointsJourneyDetails[], inner anyElement path nextCancelledCalls[],
@@ -883,7 +914,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Do not use stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id inside the nested anyElement.
                 - If X is unresolved but fallback is allowed, use stopPoint.nameLong CONTAINS_NORMALIZED X.
                 - If user asks for any suppressed/cancelled/skipped stop without a specific stop, use nextCancelledCalls NOT_EMPTY or EXISTS if catalog-supported.
-                - Do not map "fermata soppressa X" to changes CONTAINS CANCELLATION unless the prompt asks that the whole journey is cancelled.
+                - Do not map "fermata soppressa X" to changes CONTAINS CANCELLATION; cancelled-call semantics are about stopPointsJourneyDetails[] calls, not whole-journey changes.
                 - Do not put cancelled stop X into serviceDataQuery.stopPoints unless X is also explicitly monitored.
                 - Specific cancelled stop shape:
                   {"anyElement":{"path":"stopPointsJourneyDetails[]","conditions":{"all":[{"anyElement":{"path":"nextCancelledCalls[]","conditions":{"field":"stopPoint.id","operator":"EQUALS","value":"TNPNTS..."}}}]}}}
@@ -896,15 +927,16 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Use changes CONTAINS CHANGED_PATH for changed path, route changed, path changed or changed itinerary.
                 - Use changes CONTAINS EXTRA_JOURNEY for extra journey, additional journey or special/extra service.
                 - Use changes CONTAINS PLATFORM_CHANGED for generic platform change.
-                - Use changes CONTAINS CANCELLATION for generic cancellation when a single change signal is sufficient.
-                - Use changes CONTAINS PARTIALLY_CANCELLATION for partial cancellation.
-                - Use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION for arrival cancellation.
-                - Use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION for departure cancellation.
                 - Use exclusion.totalExclusion EQUALS true for total exclusion.
                 - Use exclusion.timeBasedExclusion EQUALS true for time-based exclusion.
-                - Generic cancellation may use an OR over supported cancellation signals:
-                  changes CONTAINS CANCELLATION, changes CONTAINS PARTIALLY_CANCELLATION,
-                  arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
+                - For scheduled snapshot alerts about generic cancelled/suppressed journeys, do not use changes as the semantic signal.
+                - Generic cancelled/suppressed journey semantics must be based on arrivalStatuses[].status, departureStatuses[].status and passingType.
+                - A generic cancelled/suppressed journey at a stop point is:
+                  arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION;
+                  OR arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND passingType EQUALS DESTINATION;
+                  OR departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION AND passingType EQUALS ORIGIN.
+                - Do not use changes CONTAINS CANCELLATION or changes CONTAINS PARTIALLY_CANCELLATION for generic "corsa soppressa" / "cancelled journey" count/report alerts.
+                - Use changes only for explicit change/intention prompts such as cambio origine, cambio destinazione, cambio percorso, variazione, changes, changed origin, changed destination.
                 - Negative cancellation/change wording must use only catalog-supported negative operators. If enum arrays do not support NOT_CONTAINS, reject rather than inventing NOT_CONTAINS.
                 - Do not use NOT_CONTAINS_NORMALIZED on enum fields.
                 - Do not use payload.ongroundServiceEvent.*.

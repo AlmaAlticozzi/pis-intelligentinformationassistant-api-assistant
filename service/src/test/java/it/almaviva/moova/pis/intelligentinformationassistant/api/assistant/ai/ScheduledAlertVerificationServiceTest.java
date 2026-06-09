@@ -32,6 +32,7 @@ class ScheduledAlertVerificationServiceTest {
     private static final String GARIBALDI = "TNPNTS00000000000003";
     private static final String VAREDO = "TNPNTS00000000000101";
     private static final String PALAZZOLO = "TNPNTS00000000000102";
+    private static final String LECCO = "TNPNTS00000000000113";
     private static final String MILANO_CENTRALE = "TNPNTS00000000000024";
     private static final String SAN_SIRO_STADIO = "TNPNTS00000000000019";
     private static final String INVENTED = "TNPNTS99999999999999";
@@ -204,7 +205,7 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
-    void verifiesMonitoredStopPointArrivalCancellationReportUsingQueryCoverage() {
+    void rejectsArrivalOnlyCancellationReportWhenNegativeEnumContainmentIsUnsupported() {
         ScheduledServiceDataLocationContext context = milanoCentraleContext();
         Map<String, Object> condition = condition(Map.of("all", List.of(
                 leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"))));
@@ -232,29 +233,10 @@ class ScheduledAlertVerificationServiceTest {
                 route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
                 context);
 
-        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
-        assertThat(outcome.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
-        assertThat(outcome.technicalSpecification()).containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT");
-        assertThat(outcome.inputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
-        assertThat(outcome.evaluationMode()).isEqualTo("SCHEDULED_SNAPSHOT_MATCH");
-        assertThat(map(outcome.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
-        assertThat(map(map(outcome.technicalSpecification().get("serviceDataQuery")).get("timeWindow")))
-                .containsEntry("lookaheadMinutes", 480);
-        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
-                .isEqualTo(List.of(MILANO_CENTRALE));
-        Map<String, Object> snapshotEvaluation = map(outcome.technicalSpecification().get("snapshotEvaluation"));
-        assertThat(snapshotEvaluation)
-                .containsEntry("mode", "REPORT_COUNT")
-                .containsEntry("threshold", null);
-        assertThat(String.valueOf(snapshotEvaluation.get("condition")))
-                .contains("arrivalStatuses[].status")
-                .contains("ARRIVAL_CANCELLATION")
-                .doesNotContain("stopPointsJourneyDetails[].stopPoint.id");
-        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
-                .containsEntry("emit", "EVERY_RUN")
-                .containsEntry("includeCount", true);
-        assertThat(outcome.technicalSpecification()).isNotNull();
-        assertThat(outcome.agentBlueprintPreview()).isNotNull();
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Arrival-only cancellation requires negating departure cancellation status");
+        assertThat(outcome.technicalSpecification()).isNull();
+        assertThat(outcome.agentBlueprintPreview()).isNull();
     }
 
     @Test
@@ -784,12 +766,7 @@ class ScheduledAlertVerificationServiceTest {
 
     @Test
     void verifiesGenericCancellationBoolean() {
-        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
-                Map.of("any", List.of(
-                        leaf("changes", "CONTAINS", "CANCELLATION"),
-                        leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
-                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
-                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+        Map<String, Object> condition = genericJourneyCancellationCondition();
         TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
 
         AlertVerificationOutcome outcome = fixture.service.verify(
@@ -801,6 +778,79 @@ class ScheduledAlertVerificationServiceTest {
                 explicitContext());
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("arrivalStatuses[].status", "ARRIVAL_CANCELLATION")
+                .contains("departureStatuses[].status", "DEPARTURE_CANCELLATION")
+                .contains("passingType", "DESTINATION", "ORIGIN")
+                .doesNotContain("PARTIALLY_CANCELLATION")
+                .doesNotContain("field=changes");
+    }
+
+    @Test
+    void verifiesSuppressedJourneysCountAtLeccoWithStatusAndPassingTypeSemantics() {
+        ScheduledServiceDataLocationContext context = leccoContext();
+        Map<String, Object> response = validReportResponse(context, genericJourneyCancellationCondition());
+        withSchedule(response, 600, false, "ogni 10 min");
+        response.put("requirementCoverage", Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "Recurring count of suppressed journeys at Lecco",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of(
+                                "serviceDataQuery.stopPoints",
+                                "schedule.frequencySeconds",
+                                "stopPointsJourneyDetails[].arrivalStatuses[].status",
+                                "stopPointsJourneyDetails[].departureStatuses[].status",
+                                "stopPointsJourneyDetails[].passingType",
+                                "outputPolicy.emit",
+                                "outputPolicy.includeCount"))),
+                "allRequiredRequirementsMapped", true));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Suppressed Journeys Count At Lecco",
+                "Verify scheduled snapshot routing for a recurring count of suppressed or cancelled journeys at Lecco.",
+                "Avvertimi ogni 10 min su quante corse soppresse ci sono a Lecco",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(map(outcome.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints")).isEqualTo(List.of(LECCO));
+        assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation"))).containsEntry("mode", "REPORT_COUNT");
+        String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshot)
+                .contains("arrivalStatuses[].status", "ARRIVAL_CANCELLATION")
+                .contains("departureStatuses[].status", "DEPARTURE_CANCELLATION")
+                .contains("passingType", "DESTINATION", "ORIGIN")
+                .doesNotContain("field=changes")
+                .doesNotContain("PARTIALLY_CANCELLATION");
+        assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "EVERY_RUN")
+                .containsEntry("includeCount", true);
+    }
+
+    @Test
+    void rejectsGenericCancellationBooleanMappedOnlyToChanges() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        leaf("changes", "CONTAINS", "CANCELLATION"),
+                        leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"))));
+        TestFixture fixture = fixture(json(validBooleanResponse(explicitContext(), condition)));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled cancellation",
+                "Scheduled ServiceData cancellation boolean test",
+                "Fammi sapere se a Garibaldi FS ci sono treni cancellati",
+                route(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH),
+                explicitContext());
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("must not be mapped with changes");
+        assertThat(outcome.technicalSpecification()).isNull();
     }
 
     @Test
@@ -821,7 +871,7 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
-    void verifiesDepartureCancellationReport() {
+    void rejectsDepartureOnlyCancellationReportWhenNegativeEnumContainmentIsUnsupported() {
         Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"));
         TestFixture fixture = fixture(json(validReportResponse(explicitContext(), condition)));
@@ -834,7 +884,9 @@ class ScheduledAlertVerificationServiceTest {
                 route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
                 explicitContext());
 
-        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("Departure-only cancellation requires negating arrival cancellation status");
+        assertThat(outcome.technicalSpecification()).isNull();
     }
 
     @Test
@@ -871,7 +923,7 @@ class ScheduledAlertVerificationServiceTest {
                 explicitContext());
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(outcome.rejectedReason()).contains("GENERIC_CANCELLATION");
+        assertThat(outcome.rejectedReason()).contains("Generic journey cancellation");
         assertThat(outcome.technicalSpecification()).isNull();
     }
 
@@ -1184,6 +1236,7 @@ class ScheduledAlertVerificationServiceTest {
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
+        service.journeyCancellationHintsExtractor = new ScheduledAlertJourneyCancellationHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
         service.unsupportedConstraintDetector = new ScheduledUnsupportedConstraintDetector();
@@ -1210,6 +1263,7 @@ class ScheduledAlertVerificationServiceTest {
         service.temporalHintsExtractor = temporalHintsExtractor();
         service.platformHintsExtractor = new ScheduledAlertPlatformHintsExtractor();
         service.changeHintsExtractor = new ScheduledAlertChangeHintsExtractor();
+        service.journeyCancellationHintsExtractor = new ScheduledAlertJourneyCancellationHintsExtractor();
         service.cancelledCallHintsExtractor = new ScheduledAlertCancelledCallHintsExtractor();
         service.replacementHintsExtractor = new ScheduledAlertReplacementHintsExtractor();
         service.unsupportedConstraintDetector = new ScheduledUnsupportedConstraintDetector();
@@ -1467,6 +1521,20 @@ class ScheduledAlertVerificationServiceTest {
                 leaf("departureDelay.delay", "GREATER_THAN", 0));
     }
 
+    private Map<String, Object> genericJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        Map.of("all", List.of(
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))),
+                        Map.of("all", List.of(
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                                leaf("passingType", "EQUALS", "DESTINATION"))),
+                        Map.of("all", List.of(
+                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                                leaf("passingType", "EQUALS", "ORIGIN"))))));
+    }
+
     private Map<String, Object> conditionAnyElement(String path, Map<String, Object> conditions) {
         return condition(Map.of("anyElement", Map.of(
                 "path", path,
@@ -1550,6 +1618,37 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(GORLA),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext leccoContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Lecco",
+                "Lecco",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(LECCO),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                List.of(),
+                List.of(LECCO),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(LECCO),
                         false));
     }
 

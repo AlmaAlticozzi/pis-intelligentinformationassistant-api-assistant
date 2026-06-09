@@ -12,6 +12,7 @@ public record ScheduledAlertVerificationPromptData(
         ScheduledAlertTemporalHints temporalHints,
         ScheduledAlertPlatformHints platformHints,
         ScheduledAlertChangeHints changeHints,
+        ScheduledAlertJourneyCancellationHints journeyCancellationHints,
         ScheduledAlertCancelledCallHints cancelledCallHints,
         ScheduledAlertReplacementHints replacementHints) {
 
@@ -48,7 +49,21 @@ public record ScheduledAlertVerificationPromptData(
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints) {
-        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, ScheduledAlertCancelledCallHints.empty());
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, ScheduledAlertJourneyCancellationHints.empty());
+    }
+
+    public ScheduledAlertVerificationPromptData(
+            String alertId,
+            String name,
+            String description,
+            String originalPrompt,
+            AlertRouteUnderstandingResult route,
+            ScheduledServiceDataLocationContext locationContext,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints) {
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, journeyCancellationHints, ScheduledAlertCancelledCallHints.empty());
     }
 
     public ScheduledAlertVerificationPromptData(
@@ -62,6 +77,21 @@ public record ScheduledAlertVerificationPromptData(
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
             ScheduledAlertCancelledCallHints cancelledCallHints) {
-        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, cancelledCallHints, ScheduledAlertReplacementHints.empty());
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, ScheduledAlertJourneyCancellationHints.empty(), cancelledCallHints, ScheduledAlertReplacementHints.empty());
+    }
+
+    public ScheduledAlertVerificationPromptData(
+            String alertId,
+            String name,
+            String description,
+            String originalPrompt,
+            AlertRouteUnderstandingResult route,
+            ScheduledServiceDataLocationContext locationContext,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints) {
+        this(alertId, name, description, originalPrompt, route, locationContext, temporalHints, platformHints, changeHints, journeyCancellationHints, cancelledCallHints, ScheduledAlertReplacementHints.empty());
     }
 }

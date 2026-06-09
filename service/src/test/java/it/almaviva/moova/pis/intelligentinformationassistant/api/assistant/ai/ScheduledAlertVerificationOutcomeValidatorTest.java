@@ -282,15 +282,21 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
-    void acceptsGenericCancellationWhenAnyCancellationSignalIsCovered() {
-        assertVerifiedWithChangeHints(
+    void acceptsGenericJourneyCancellationWhenCanonicalStatusBranchesAreCovered() {
+        assertVerifiedWithJourneyCancellationHints(
+                genericJourneyCancellationCondition(),
+                genericJourneyCancellationHints());
+    }
+
+    @Test
+    void rejectsGenericJourneyCancellationMappedOnlyToChanges() {
+        assertRejectedWithJourneyCancellationHints(
                 conditionAnyElement("stopPointsJourneyDetails[]",
                         Map.of("any", List.of(
                                 leaf("changes", "CONTAINS", "CANCELLATION"),
-                                leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
-                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
-                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")))),
-                changeHints(ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION));
+                                leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION")))),
+                genericJourneyCancellationHints(),
+                "must not be mapped with changes");
     }
 
     @Test
@@ -1588,12 +1594,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
 
     @Test
     void acceptsSuppressedJourneysCountAtLeccoWithStructuralCoverageMetadata() {
-        Map<String, Object> suppressionCondition = conditionAnyElement("stopPointsJourneyDetails[]",
-                Map.of("any", List.of(
-                        leaf("changes", "CONTAINS", "CANCELLATION"),
-                        leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
-                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
-                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+        Map<String, Object> suppressionCondition = genericJourneyCancellationCondition();
         Map<String, Object> technical = technicalSpecificationWithEvaluation(
                 "REPORT_COUNT",
                 suppressionCondition,
@@ -1619,9 +1620,9 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         "schedule.frequencySeconds",
                         "snapshotEvaluation.condition.anyElement.path",
                         "snapshotEvaluation.condition.anyElement.conditions.all[].field",
-                        "stopPointsJourneyDetails[].changes",
                         "stopPointsJourneyDetails[].arrivalStatuses[].status",
                         "stopPointsJourneyDetails[].departureStatuses[].status",
+                        "stopPointsJourneyDetails[].passingType",
                         "outputPolicy.emit",
                         "outputPolicy.includeCount"))));
 
@@ -1638,14 +1639,17 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 .containsEntry("includeCount", true);
         assertThat(validated.technicalSpecification().toString()).contains("operator=CONTAINS");
         assertThat(validated.technicalSpecification().toString()).containsAnyOf(
-                "field=changes",
                 "field=arrivalStatuses[].status",
-                "field=departureStatuses[].status");
+                "field=departureStatuses[].status",
+                "field=passingType");
         assertThat(validated.technicalSpecification().toString()).containsAnyOf(
-                "value=CANCELLATION",
-                "value=PARTIALLY_CANCELLATION",
                 "value=ARRIVAL_CANCELLATION",
-                "value=DEPARTURE_CANCELLATION");
+                "value=DEPARTURE_CANCELLATION",
+                "value=DESTINATION",
+                "value=ORIGIN");
+        assertThat(validated.technicalSpecification().toString())
+                .doesNotContain("value=CANCELLATION")
+                .doesNotContain("value=PARTIALLY_CANCELLATION");
     }
 
     @Test
@@ -1986,6 +1990,44 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
+    private void assertVerifiedWithJourneyCancellationHints(
+            Map<String, Object> condition,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                journeyCancellationHints,
+                null,
+                null);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    private void assertRejectedWithJourneyCancellationHints(
+            Map<String, Object> condition,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
+            String reasonFragment) {
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technicalSpecification(condition), blueprint()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                journeyCancellationHints,
+                null,
+                null);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains(reasonFragment);
+        assertThat(validated.technicalSpecification()).isNull();
+        assertThat(validated.agentBlueprintPreview()).isNull();
+    }
+
     private void assertRejectedWithChangeHints(
             Map<String, Object> condition,
             ScheduledAlertChangeHints changeHints,
@@ -2282,6 +2324,15 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 0.9)), List.of());
     }
 
+    private ScheduledAlertJourneyCancellationHints genericJourneyCancellationHints() {
+        return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
+                "corse soppresse",
+                ScheduledAlertJourneyCancellationConstraint.CancellationIntent.GENERIC_JOURNEY_CANCELLATION,
+                ScheduledAlertJourneyCancellationConstraint.Direction.UNSPECIFIED,
+                ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
+                0.9)), List.of());
+    }
+
     private ScheduledAlertCancelledCallHints genericCancelledCallHints() {
         return new ScheduledAlertCancelledCallHints(true, List.of(new ScheduledAlertCancelledCallConstraint(
                 "fermate soppresse",
@@ -2481,6 +2532,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     private Map<String, Object> validCondition() {
         return conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVING"));
+    }
+
+    private Map<String, Object> genericJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        Map.of("all", List.of(
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))),
+                        Map.of("all", List.of(
+                                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                                leaf("passingType", "EQUALS", "DESTINATION"))),
+                        Map.of("all", List.of(
+                                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                                leaf("passingType", "EQUALS", "ORIGIN"))))));
     }
 
     private Map<String, Object> condition(Map<String, Object> body) {

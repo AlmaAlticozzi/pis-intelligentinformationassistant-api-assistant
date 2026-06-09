@@ -143,6 +143,34 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
+        return validateInternal(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints,
+                journeyCancellationHints, cancelledCallHints, replacementHints);
+    }
+
+    public AlertVerificationOutcome validate(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints) {
+        return validateInternal(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints,
+                null, cancelledCallHints, replacementHints);
+    }
+
+    private AlertVerificationOutcome validateInternal(
+            AlertVerificationOutcome outcome,
+            ScheduledServiceDataLocationContext scheduledLocationContext,
+            AlertRouteUnderstandingResult route,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
             ScheduledAlertCancelledCallHints cancelledCallHints,
             ScheduledAlertReplacementHints replacementHints) {
         if (outcome == null) {
@@ -168,7 +196,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return fail(outcome, DEFAULT_REJECTED_REASON);
         }
 
-        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints, cancelledCallHints, replacementHints);
+        String failure = validateVerified(outcome, scheduledLocationContext, route, temporalHints, platformHints, changeHints,
+                journeyCancellationHints, cancelledCallHints, replacementHints);
         if (failure != null) {
             return fail(outcome, failure);
         }
@@ -183,6 +212,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             ScheduledAlertTemporalHints temporalHints,
             ScheduledAlertPlatformHints platformHints,
             ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
             ScheduledAlertCancelledCallHints cancelledCallHints,
             ScheduledAlertReplacementHints replacementHints) {
         if (!containsOnlyServiceData(outcome.requiredSources())) {
@@ -258,6 +288,10 @@ public class ScheduledAlertVerificationOutcomeValidator {
         String changeFailure = validateChangeHints(outcome.technicalSpecification(), changeHints);
         if (changeFailure != null) {
             return changeFailure;
+        }
+        String journeyCancellationFailure = validateJourneyCancellationHints(outcome.technicalSpecification(), journeyCancellationHints);
+        if (journeyCancellationFailure != null) {
+            return journeyCancellationFailure;
         }
         String cancelledCallFailure = validateCancelledCallHints(outcome.technicalSpecification(), cancelledCallHints);
         if (cancelledCallFailure != null) {
@@ -465,6 +499,41 @@ public class ScheduledAlertVerificationOutcomeValidator {
         };
     }
 
+    private String validateJourneyCancellationHints(
+            Map<String, Object> technicalSpecification,
+            ScheduledAlertJourneyCancellationHints hints) {
+        if (hints == null || !hints.hasJourneyCancellationConstraint()) {
+            return null;
+        }
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
+        List<ConditionLeaf> leaves = collectConditionLeaves(condition, "");
+        for (ScheduledAlertJourneyCancellationConstraint constraint : hints.constraints()) {
+            if (constraint.polarity() == ScheduledAlertJourneyCancellationConstraint.Polarity.EXCLUDE) {
+                return "Negative journey cancellation constraints are not supported by the current Scheduled ServiceData catalog.";
+            }
+            if (constraint.cancellationIntent()
+                    == ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_CANCELLATION) {
+                return "Arrival-only cancellation requires negating departure cancellation status, but enum-array negative containment is not supported by the current Scheduled ServiceData catalog.";
+            }
+            if (constraint.cancellationIntent()
+                    == ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_CANCELLATION) {
+                return "Departure-only cancellation requires negating arrival cancellation status, but enum-array negative containment is not supported by the current Scheduled ServiceData catalog.";
+            }
+            if (containsLeaf(leaves, "changes", "CONTAINS", "CANCELLATION")
+                    || containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION")) {
+                return "Generic journey cancellation must not be mapped with changes CANCELLATION or PARTIALLY_CANCELLATION; use arrival/departure statuses plus passingType.";
+            }
+            boolean represented = containsCanonicalGenericJourneyCancellation(condition);
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] journeyCancellation required=true represented="
+                    + represented);
+            if (!represented) {
+                return "Generic journey cancellation was requested but not represented with arrival/departure cancellation statuses plus passingType.";
+            }
+        }
+        return null;
+    }
+
     private boolean containsGenericCancellationSignal(
             List<ConditionLeaf> leaves,
             ScheduledAlertChangeConstraint.Direction direction) {
@@ -482,6 +551,86 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 || containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION")
                 || containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
                 || containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION");
+    }
+
+    private boolean containsCanonicalGenericJourneyCancellation(Map<String, Object> condition) {
+        Map<String, Object> anyElement = findStopPointJourneyAnyElement(condition);
+        Map<String, Object> conditions = anyElement == null ? null : asMap(anyElement.get("conditions"));
+        Object anyValue = conditions == null ? null : conditions.get("any");
+        if (!(anyValue instanceof Collection<?> branches)) {
+            return false;
+        }
+        boolean normal = false;
+        boolean destination = false;
+        boolean origin = false;
+        for (Object branchItem : branches) {
+            Map<String, Object> branch = asMap(branchItem);
+            if (branch == null) {
+                continue;
+            }
+            if (branchContainsAll(branch,
+                    leafSpec("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                    leafSpec("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))) {
+                normal = true;
+            }
+            if (branchContainsAll(branch,
+                    leafSpec("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                    leafSpec("passingType", "EQUALS", "DESTINATION"))) {
+                destination = true;
+            }
+            if (branchContainsAll(branch,
+                    leafSpec("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),
+                    leafSpec("passingType", "EQUALS", "ORIGIN"))) {
+                origin = true;
+            }
+        }
+        return normal && destination && origin;
+    }
+
+    private Map<String, Object> findStopPointJourneyAnyElement(Map<String, Object> node) {
+        if (node == null || node.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> anyElement = asMap(node.get("anyElement"));
+        if (anyElement != null && "stopPointsJourneyDetails[]".equals(stringValue(anyElement.get("path")))) {
+            return anyElement;
+        }
+        Map<String, Object> nested = findStopPointJourneyAnyElement(asMap(node.get("conditions")));
+        if (nested != null) {
+            return nested;
+        }
+        nested = findStopPointJourneyAnyElementInCollection(node.get("all"));
+        if (nested != null) {
+            return nested;
+        }
+        return findStopPointJourneyAnyElementInCollection(node.get("any"));
+    }
+
+    private Map<String, Object> findStopPointJourneyAnyElementInCollection(Object value) {
+        if (!(value instanceof Collection<?> collection)) {
+            return null;
+        }
+        for (Object item : collection) {
+            Map<String, Object> nested = findStopPointJourneyAnyElement(asMap(item));
+            if (nested != null) {
+                return nested;
+            }
+        }
+        return null;
+    }
+
+    private boolean branchContainsAll(Map<String, Object> branch, LeafSpec... specs) {
+        List<ConditionLeaf> branchLeaves = collectConditionLeaves(branch, "stopPointsJourneyDetails[]");
+        for (LeafSpec spec : specs) {
+            if (!containsLeaf(branchLeaves, spec.fieldSuffix(), spec.operator(), spec.value())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private LeafSpec leafSpec(String fieldSuffix, String operator, Object value) {
+        return new LeafSpec(fieldSuffix, operator, value);
     }
 
     private boolean containsAnyChangeSignal(List<ConditionLeaf> leaves) {
@@ -1982,5 +2131,8 @@ public class ScheduledAlertVerificationOutcomeValidator {
             String operator,
             Object value,
             List<Object> values) {
+    }
+
+    private record LeafSpec(String fieldSuffix, String operator, Object value) {
     }
 }

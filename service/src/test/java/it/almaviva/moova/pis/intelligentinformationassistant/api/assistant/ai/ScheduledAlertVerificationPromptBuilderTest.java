@@ -255,18 +255,19 @@ class ScheduledAlertVerificationPromptBuilderTest {
                         null,
                         ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
                         0.9)), List.of()),
-                new ScheduledAlertChangeHints(true, List.of(new ScheduledAlertChangeConstraint(
+                ScheduledAlertChangeHints.empty(),
+                new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
                         "cancellazione",
-                        ScheduledAlertChangeConstraint.ChangeIntent.GENERIC_CANCELLATION,
-                        ScheduledAlertChangeConstraint.Direction.UNSPECIFIED,
-                        ScheduledAlertChangeConstraint.Polarity.INCLUDE,
+                        ScheduledAlertJourneyCancellationConstraint.CancellationIntent.GENERIC_JOURNEY_CANCELLATION,
+                        ScheduledAlertJourneyCancellationConstraint.Direction.UNSPECIFIED,
+                        ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
                         0.9)), List.of())));
         int total = request.systemPrompt().length() + request.userPrompt().length();
         System.out.println("[TEST][SCHEDULED_PROMPT_SIZE] total=" + total);
 
         assertThat(request.userPrompt())
                 .contains("Relevant capabilities:")
-                .contains("CANCELLATION")
+                .contains("JOURNEY_CANCELLATION")
                 .contains("PLATFORM")
                 .contains("Do not place only cancellation and omit platform")
                 .doesNotContain("- field: payload.ongroundServiceEvent.eventsType");
@@ -284,13 +285,10 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("Use changes CONTAINS CHANGED_DESTINATION")
                 .contains("Use changes CONTAINS CHANGED_PATH")
                 .contains("Use changes CONTAINS EXTRA_JOURNEY")
-                .contains("Use changes CONTAINS CANCELLATION")
-                .contains("Use changes CONTAINS PARTIALLY_CANCELLATION")
-                .contains("Use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION")
-                .contains("Use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION")
+                .contains("Generic cancelled/suppressed journey semantics must be based on arrivalStatuses[].status, departureStatuses[].status and passingType")
+                .contains("Do not use changes CONTAINS CANCELLATION or changes CONTAINS PARTIALLY_CANCELLATION")
                 .contains("exclusion.totalExclusion EQUALS true")
                 .contains("exclusion.timeBasedExclusion EQUALS true")
-                .contains("Generic cancellation may use an OR over supported cancellation signals")
                 .contains("Do not use payload.ongroundServiceEvent.*")
                 .contains("\"replacement stop X\" -> nested anyElement replacement.stopPointReplacements[] stopPointId.id")
                 .contains("replacementType IN/EQUALS DEPARTURE/ARRIVAL/ARRIVALDEPARTURE");
