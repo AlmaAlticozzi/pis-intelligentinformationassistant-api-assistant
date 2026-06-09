@@ -251,6 +251,186 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
+    void primaryRoundedDepartureDelayUsesDepartureDelayEventAndRoundedField() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_MEASURE", "ROUNDED_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithOnlyEvent("DEPARTING"),
+                        coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.roundedDelay")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized,
+                "Avvertimi quando una corsa ha un ritardo arrotondato in partenza maggiore di 5 minuti",
+                context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTURE_DELAY");
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.roundedDelay"))
+                .containsEntry("operator", "GREATER_THAN")
+                .containsEntry("value", 300);
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.delay")).isNull();
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.delay")).isNull();
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.roundedDelay")).isNull();
+        assertThat(findLeaf(normalized.technicalSpecification(), "eventsType")).doesNotContainEntry("value", "DEPARTING");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void primaryRoundedArrivalDelayUsesArrivalDelayEventAndRoundedField() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_MEASURE", "ROUNDED_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithOnlyEvent("ARRIVING"),
+                        coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.roundedDelay")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized,
+                "Avvertimi quando una corsa ha un ritardo arrotondato in arrivo maggiore di 5 minuti",
+                context);
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("ARRIVAL_DELAY");
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.roundedDelay"))
+                .containsEntry("operator", "GREATER_THAN")
+                .containsEntry("value", 300);
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.delay")).isNull();
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.delay")).isNull();
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.roundedDelay")).isNull();
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void primaryNormalDirectedDelaysUseNormalDelayField() {
+        AlertVerificationLocationContext departure = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+        AlertVerificationLocationContext arrival = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVAL_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+
+        AlertVerificationOutcome normalizedDeparture = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithOnlyEvent("DEPARTURE_DELAY"),
+                        coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                promptData(departure));
+        AlertVerificationOutcome normalizedArrival = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithOnlyEvent("ARRIVAL_DELAY"),
+                        coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                promptData(arrival));
+
+        assertThat(findLeaf(normalizedDeparture.technicalSpecification(), "departureDelay.delay"))
+                .containsEntry("value", 300);
+        assertThat(findLeaf(normalizedArrival.technicalSpecification(), "arrivalDelay.delay"))
+                .containsEntry("value", 300);
+        assertThat(validator.validate(normalizedDeparture, "Prompt", departure).decision())
+                .isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validator.validate(normalizedArrival, "Prompt", arrival).decision())
+                .isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void primaryGenericRoundedDelayUsesBothRoundedDelayFields() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "BOTH"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_MEASURE", "ROUNDED_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithGenericDelayEventOnly(),
+                        coverageFor(EVENT_FIELD,
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.roundedDelay",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.roundedDelay")),
+                promptData(context));
+        AlertVerificationOutcome validated = validator.validate(normalized,
+                "Avvertimi quando una corsa ha un ritardo arrotondato maggiore di 5 minuti",
+                context);
+
+        Map<String, Object> eventLeaf = findLeaf(normalized.technicalSpecification(), "eventsType");
+        assertThat(eventLeaf).containsEntry("operator", "CONTAINS_ANY");
+        assertThat(eventLeaf.get("values")).asList().contains("ARRIVAL_DELAY", "DEPARTURE_DELAY");
+        assertThat(findLeaf(normalized.technicalSpecification(), "arrivalDelay.roundedDelay"))
+                .containsEntry("value", 300);
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.roundedDelay"))
+                .containsEntry("value", 300);
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void movementDepartureWithAccessoryDelayKeepsMovementEventAndNormalDelayField() {
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+
+        AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
+                outcomeWithConditionAndCoverage(
+                        conditionWithEvent("DEPARTING"),
+                        coverageFor(EVENT_FIELD, STOP_FIELD,
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.delay")),
+                promptData(context));
+
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("DEPARTING");
+        assertThat(findLeaf(normalized.technicalSpecification(), "departureDelay.delay"))
+                .containsEntry("value", 300);
+        assertThat(findLeaf(normalized.technicalSpecification(), "DEPARTURE_DELAY")).isNull();
+        assertThat(validator.validate(normalized,
+                "Avvertimi quando una corsa e in partenza con un ritardo maggiore di 5 minuti",
+                context).decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void validatorRejectsDirectedDelayContamination() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "PRIMARY_DELAY_EVENT"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTURE_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint("DELAY_MEASURE", "ROUNDED_DELAY"),
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_THRESHOLD",
+                        "operator=GREATER_THAN;value=300;unit=SECONDS"));
+        AlertVerificationOutcome contaminated = outcomeWithConditionAndCoverage(
+                conditionWithEventAndDelayFields("DEPARTURE_DELAY", "departureDelay.roundedDelay", "arrivalDelay.roundedDelay"),
+                coverageFor(EVENT_FIELD,
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.roundedDelay",
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.roundedDelay"));
+
+        AlertVerificationOutcome validated = validator.validate(contaminated, "Prompt", context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("arrivalDelay.roundedDelay");
+    }
+
+    @Test
     void validatorRejectsGenericDelayWithoutEventsTypeWhenNotNormalized() {
         AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "BOTH"));
@@ -456,6 +636,28 @@ class AlertServiceMainEventNormalizationTest {
                         Map.of("field", "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay",
                                 "operator", "GREATER_OR_EQUAL",
                                 "value", 12)));
+    }
+
+    private Map<String, Object> conditionWithEventAndDelayFields(
+            String eventType,
+            String firstField,
+            String secondField) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", EVENT_FIELD, "operator", "CONTAINS", "value", eventType),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "field", firstField,
+                                        "operator", "GREATER_THAN",
+                                        "value", 300))),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of(
+                                        "field", secondField,
+                                        "operator", "GREATER_THAN",
+                                        "value", 300)))));
     }
 
     private Map<String, Object> conditionWithGenericDelayWithoutEvent() {

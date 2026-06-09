@@ -397,6 +397,70 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void derivesPrimaryRoundedDepartureDelayContextWithoutMovementContamination() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando una corsa ha un ritardo arrotondato in partenza maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "DELAY_ROLE", "PRIMARY_DELAY_EVENT");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "DEPARTURE_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "DEPARTURE");
+        assertConstraint(context, "DELAY_MEASURE", "ROUNDED_DELAY");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=300;unit=SECONDS");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTURE_DELAY");
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("BOTH"))
+                .noneSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("DEPARTING"))
+                .noneSatisfy(constraint -> assertThat(constraint.rawText()).isEqualTo("GENERIC"));
+    }
+
+    @Test
+    void derivesPrimaryRoundedArrivalDelayContext() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando una corsa ha un ritardo arrotondato in arrivo maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "DELAY_ROLE", "PRIMARY_DELAY_EVENT");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "ARRIVAL_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "ARRIVAL");
+        assertConstraint(context, "DELAY_MEASURE", "ROUNDED_DELAY");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=300;unit=SECONDS");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVAL_DELAY");
+    }
+
+    @Test
+    void derivesPrimaryGenericRoundedDelayContextOnlyWhenDirectionIsMissing() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando una corsa ha un ritardo arrotondato maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.90),
+                        List.of(),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "DELAY_ROLE", "PRIMARY_DELAY_EVENT");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "BOTH");
+        assertConstraint(context, "DELAY_DIRECTION", "GENERIC");
+        assertConstraint(context, "DELAY_MEASURE", "ROUNDED_DELAY");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=300;unit=SECONDS");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "BOTH");
+    }
+
+    @Test
     void keepsOperationalDepartureWithAccessoryDelayAsMainEvent() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Avvisami quando una corsa e in partenza da X con piu di 15 minuti di ritardo",

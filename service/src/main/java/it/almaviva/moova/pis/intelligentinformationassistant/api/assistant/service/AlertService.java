@@ -991,7 +991,10 @@ public class AlertService {
         if (delayThreshold == null || !supportsDelayThresholdPredicate(expected)) {
             return outcome;
         }
-        if (hasRequiredDelayThresholdPredicate(technicalCondition, expected)) {
+        if (hasRequiredDelayThresholdPredicate(technicalCondition, expected, delayThreshold)) {
+            System.out.println("[IIA][ALERT_VERIFY][DELAY_THRESHOLD_NORMALIZATION] alertId=" + promptData.alertId()
+                    + " action=skip"
+                    + " reason=" + coherentDelayPredicateAlreadyPresentReason(expected, delayThreshold));
             return outcome;
         }
         boolean inserted = insertDelayThresholdPredicate(technicalCondition, expected, delayThreshold);
@@ -1008,7 +1011,8 @@ public class AlertService {
                 + " reason=missing-delay-threshold-predicate-inserted"
                 + " delayEventType=" + expected
                 + " operator=" + delayThreshold.operator()
-                + " value=" + delayThreshold.value());
+                + " value=" + delayThreshold.value()
+                + " measure=" + delayThreshold.measure());
         return rebuildOutcome(outcome, technicalSpecification, agentBlueprintPreview, outcome.requirementCoverage());
     }
 
@@ -1212,25 +1216,30 @@ public class AlertService {
 
     private Map<String, Object> delayThresholdPredicate(String expected, DelayThreshold threshold) {
         if (isDepartureDelayEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate("departureDelay.delay", threshold);
+            return anyStopPointJourneyDetailPredicate(delayField("departure", threshold), threshold);
         }
         if (isArrivalDelayEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate("arrivalDelay.delay", threshold);
+            return anyStopPointJourneyDetailPredicate(delayField("arrival", threshold), threshold);
         }
         if (isDepartureEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate("departureDelay.delay", threshold);
+            return anyStopPointJourneyDetailPredicate(delayField("departure", threshold), threshold);
         }
         if (isArrivalEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate("arrivalDelay.delay", threshold);
+            return anyStopPointJourneyDetailPredicate(delayField("arrival", threshold), threshold);
         }
         if (isGenericDelayEvent(expected)) {
             return Map.of("anyElement", Map.of(
                     "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                     "conditions", Map.of("any", List.of(
-                            delayThresholdLeaf("arrivalDelay.delay", threshold),
-                            delayThresholdLeaf("departureDelay.delay", threshold)))));
+                            delayThresholdLeaf(delayField("arrival", threshold), threshold),
+                            delayThresholdLeaf(delayField("departure", threshold), threshold)))));
         }
         return Map.of();
+    }
+
+    private String delayField(String direction, DelayThreshold threshold) {
+        String measureField = "ROUNDED_DELAY".equals(threshold.measure()) ? "roundedDelay" : "delay";
+        return direction + "Delay." + measureField;
     }
 
     private Map<String, Object> anyStopPointJourneyDetailPredicate(String field, DelayThreshold threshold) {
@@ -1246,24 +1255,37 @@ public class AlertService {
                 "value", threshold.value());
     }
 
-    private boolean hasRequiredDelayThresholdPredicate(Object node, String expected) {
+    private boolean hasRequiredDelayThresholdPredicate(Object node, String expected, DelayThreshold threshold) {
         if (isDepartureDelayEvent(expected)) {
-            return hasDelayThresholdField(node, "departureDelay.delay");
+            return hasDelayThresholdField(node, delayField("departure", threshold));
         }
         if (isArrivalDelayEvent(expected)) {
-            return hasDelayThresholdField(node, "arrivalDelay.delay");
+            return hasDelayThresholdField(node, delayField("arrival", threshold));
         }
         if (isDepartureEvent(expected)) {
-            return hasDelayThresholdField(node, "departureDelay.delay");
+            return hasDelayThresholdField(node, delayField("departure", threshold));
         }
         if (isArrivalEvent(expected)) {
-            return hasDelayThresholdField(node, "arrivalDelay.delay");
+            return hasDelayThresholdField(node, delayField("arrival", threshold));
         }
         if (isGenericDelayEvent(expected)) {
-            return hasDelayThresholdField(node, "arrivalDelay.delay")
-                    && hasDelayThresholdField(node, "departureDelay.delay");
+            return hasDelayThresholdField(node, delayField("arrival", threshold))
+                    && hasDelayThresholdField(node, delayField("departure", threshold));
         }
         return true;
+    }
+
+    private String coherentDelayPredicateAlreadyPresentReason(String expected, DelayThreshold threshold) {
+        if ("ROUNDED_DELAY".equals(threshold.measure()) && isDepartureDelayEvent(expected)) {
+            return "coherent-rounded-departure-delay-predicate-already-present";
+        }
+        if ("ROUNDED_DELAY".equals(threshold.measure()) && isArrivalDelayEvent(expected)) {
+            return "coherent-rounded-arrival-delay-predicate-already-present";
+        }
+        if ("ROUNDED_DELAY".equals(threshold.measure()) && isGenericDelayEvent(expected)) {
+            return "coherent-rounded-generic-delay-predicate-already-present";
+        }
+        return "coherent-delay-predicate-already-present";
     }
 
     private boolean hasDelayThresholdField(Object node, String fieldFragment) {
@@ -1512,7 +1534,9 @@ public class AlertService {
             return null;
         }
         try {
-            return new DelayThreshold(operator, Integer.parseInt(value), unit == null ? "SECONDS" : unit);
+            String measure = nonLocationConstraint(context, "DELAY_MEASURE");
+            return new DelayThreshold(operator, Integer.parseInt(value), unit == null ? "SECONDS" : unit,
+                    measure == null ? "NORMAL_DELAY" : measure);
         } catch (NumberFormatException ignored) {
             return null;
         }
@@ -1703,7 +1727,7 @@ public class AlertService {
         }
     }
 
-    private record DelayThreshold(String operator, int value, String unit) {
+    private record DelayThreshold(String operator, int value, String unit, String measure) {
         private String rawText() {
             return "operator=" + operator + ";value=" + value + ";unit=" + unit;
         }
@@ -2140,6 +2164,9 @@ public class AlertService {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_THRESHOLD",
                         delayThreshold.rawText()));
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_MEASURE",
+                        delayThreshold.measure()));
             }
             String promptDelayEventType = delayEventType(prompt);
             String derivedDelayEventType = normalizedDelayEventType(constraints);
@@ -2171,7 +2198,9 @@ public class AlertService {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_PHASE",
                     derivation.phase().name()));
-            String expectedEventType = derivation.expectedEventType();
+            String expectedEventType = promptDelayEventType != null && !derivation.accessoryDelay()
+                    ? promptDelayEventType
+                    : derivation.expectedEventType();
             if (expectedEventType != null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "EXPECTED_MAIN_EVENT_TYPE",
@@ -2322,6 +2351,15 @@ public class AlertService {
                         + " reason=canonical-delay-event-type");
                 continue;
             }
+            if (selectedDelayEventType != null && isSpecificDelayEvent(selectedDelayEventType)
+                    && isGenericDelayEvent(normalized)) {
+                System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_TYPE_NORMALIZATION] rawValue="
+                        + rawValue
+                        + " normalizedValue=" + normalized
+                        + " action=ignored-generic-because-specific-direction-present"
+                        + " reason=canonical-delay-event-type");
+                continue;
+            }
             String action = normalized.equals(rawValue) ? "kept-canonical" : "replaced-by-backend-derived";
             if (selectedDelayEventType != null) {
                 action = "replaced-by-backend-derived";
@@ -2349,6 +2387,10 @@ public class AlertService {
         return canonicalized;
     }
 
+    private boolean isSpecificDelayEvent(String value) {
+        return isDepartureDelayEvent(value) || isArrivalDelayEvent(value);
+    }
+
     private String delayEventType(String prompt) {
         String normalized = normalizeText(prompt);
         if (normalized == null || !normalized.contains("ritardo") && !normalized.contains("delay")) {
@@ -2358,6 +2400,11 @@ public class AlertService {
             return null;
         }
         if (containsAny(normalized,
+                "ritardo arrotondato in partenza",
+                "ritardo arrotondato alla partenza",
+                "ritardo arrotondato di partenza",
+                "rounded departure delay",
+                "rounded delay on departure",
                 "ritardo in partenza",
                 "ritardo alla partenza",
                 "ritardo di partenza",
@@ -2366,6 +2413,11 @@ public class AlertService {
             return "DEPARTURE_DELAY";
         }
         if (containsAny(normalized,
+                "ritardo arrotondato in arrivo",
+                "ritardo arrotondato all arrivo",
+                "ritardo arrotondato di arrivo",
+                "rounded arrival delay",
+                "rounded delay on arrival",
                 "ritardo in arrivo",
                 "ritardo all arrivo",
                 "ritardo di arrivo",
@@ -2408,7 +2460,8 @@ public class AlertService {
         }
         int rawValue = Integer.parseInt(matcher.group(1));
         boolean seconds = containsAny(normalizedPrompt, "secondo", "secondi", "second", "seconds");
-        return new DelayThreshold(operator, seconds ? rawValue : rawValue * 60, seconds ? "SECONDS" : "SECONDS");
+        String measure = containsAny(normalizedPrompt, "arrotondato", "rounded") ? "ROUNDED_DELAY" : "NORMAL_DELAY";
+        return new DelayThreshold(operator, seconds ? rawValue : rawValue * 60, "SECONDS", measure);
     }
 
     private boolean isOperationalEventWithAccessoryDelay(String normalized) {

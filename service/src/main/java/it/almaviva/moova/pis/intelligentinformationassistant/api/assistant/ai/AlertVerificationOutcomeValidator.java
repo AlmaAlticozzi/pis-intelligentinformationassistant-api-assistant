@@ -952,6 +952,11 @@ public class AlertVerificationOutcomeValidator {
                 continue;
             }
             if (!mappable) {
+                if (isInternalDelayDirectionRequirement(text)) {
+                    System.out.println("[IIA][ALERT_VERIFY][COVERAGE_NORMALIZATION] reason=ignore-internal-delay-direction-requirement"
+                            + " text=" + text);
+                    continue;
+                }
                 System.out.println("[IIA][ALERT_VERIFY][COVERAGE] rejected unmapped requirement=" + text);
                 context.fail("Verified alert contains a required user constraint that is not mappable to the ServiceData capability catalog.");
                 return;
@@ -983,6 +988,15 @@ public class AlertVerificationOutcomeValidator {
                 return;
             }
         }
+    }
+
+    private boolean isInternalDelayDirectionRequirement(String text) {
+        String normalized = text == null ? null : text.trim().toUpperCase(Locale.ROOT);
+        return "DELAY_DIRECTION".equals(normalized)
+                || "DELAY DIRECTION".equals(normalized)
+                || "DELAY_DIRECTION=DEPARTURE".equals(normalized)
+                || "DELAY_DIRECTION=ARRIVAL".equals(normalized)
+                || "DELAY_DIRECTION=GENERIC".equals(normalized);
     }
 
     private boolean isNoLocationRequirement(String text) {
@@ -1593,6 +1607,7 @@ public class AlertVerificationOutcomeValidator {
                         + "payload.ongroundServiceEvent.eventsType to contain ARRIVAL_DELAY and DEPARTURE_DELAY.");
             }
             validateDelayThresholdPredicate(context, delayEventType);
+            validateNoDirectedDelayContamination(context, delayEventType);
             logDelayEventOverride(context, delayEventType);
             return;
         }
@@ -1607,6 +1622,7 @@ public class AlertVerificationOutcomeValidator {
                         + delayEventType + ".");
             }
             validateDelayThresholdPredicate(context, delayEventType);
+            validateNoDirectedDelayContamination(context, delayEventType);
             logDelayEventOverride(context, delayEventType);
             return;
         }
@@ -1704,27 +1720,67 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         String delayRole = nonLocationConstraintValue(context, "DELAY_ROLE");
+        String measure = delayMeasure(context);
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][DELAY_THRESHOLD] requested=true"
                 + " operator=" + delayThresholdPart(threshold, "operator")
                 + " value=" + delayThresholdPart(threshold, "value")
                 + " delayRole=" + delayRole
-                + " delayEventType=" + delayEventType);
+                + " delayEventType=" + delayEventType
+                + " delayMeasure=" + measure);
         boolean represented;
         if ("DEPARTURE_DELAY".equals(delayEventType)) {
-            represented = hasDelayField(context, "departureDelay.delay");
+            represented = hasDelayField(context, delayField("departure", measure));
         } else if ("ARRIVAL_DELAY".equals(delayEventType)) {
-            represented = hasDelayField(context, "arrivalDelay.delay");
+            represented = hasDelayField(context, delayField("arrival", measure));
         } else if ("DEPARTING".equals(delayEventType) || "DEPARTED".equals(delayEventType)) {
-            represented = hasDelayField(context, "departureDelay.delay");
+            represented = hasDelayField(context, delayField("departure", measure));
         } else if ("ARRIVING".equals(delayEventType) || "ARRIVED".equals(delayEventType)) {
-            represented = hasDelayField(context, "arrivalDelay.delay");
+            represented = hasDelayField(context, delayField("arrival", measure));
         } else {
-            represented = hasDelayField(context, "arrivalDelay.delay") && hasDelayField(context, "departureDelay.delay");
+            represented = hasDelayField(context, delayField("arrival", measure))
+                    && hasDelayField(context, delayField("departure", measure));
         }
         System.out.println("[IIA][ALERT_VERIFY][VALIDATOR][DELAY_THRESHOLD] matched=" + represented
                 + " reason=" + (represented ? "coherent-delay-predicate-found" : "missing-coherent-delay-predicate"));
         if (!represented) {
-            context.fail("Delay threshold requested by the user is not represented by a delay.delay predicate.");
+            context.fail("Delay threshold requested by the user is not represented by a coherent delay predicate.");
+        }
+    }
+
+    private String delayMeasure(ValidationContext context) {
+        String measure = nonLocationConstraintValue(context, "DELAY_MEASURE");
+        return "ROUNDED_DELAY".equals(measure) ? "ROUNDED_DELAY" : "NORMAL_DELAY";
+    }
+
+    private String delayField(String direction, String measure) {
+        String field = "ROUNDED_DELAY".equals(measure) ? "roundedDelay" : "delay";
+        return direction + "Delay." + field;
+    }
+
+    private void validateNoDirectedDelayContamination(ValidationContext context, String delayEventType) {
+        if ("DEPARTURE_DELAY".equals(delayEventType)) {
+            failIfEventContains(context, "ARRIVAL_DELAY", "DEPARTURE_DELAY must not include ARRIVAL_DELAY.");
+            failIfDelayFieldPresent(context, "arrivalDelay.delay", "DEPARTURE_DELAY must not include arrivalDelay.delay.");
+            failIfDelayFieldPresent(context, "arrivalDelay.roundedDelay", "DEPARTURE_DELAY must not include arrivalDelay.roundedDelay.");
+        } else if ("ARRIVAL_DELAY".equals(delayEventType)) {
+            failIfEventContains(context, "DEPARTURE_DELAY", "ARRIVAL_DELAY must not include DEPARTURE_DELAY.");
+            failIfDelayFieldPresent(context, "departureDelay.delay", "ARRIVAL_DELAY must not include departureDelay.delay.");
+            failIfDelayFieldPresent(context, "departureDelay.roundedDelay", "ARRIVAL_DELAY must not include departureDelay.roundedDelay.");
+        }
+    }
+
+    private void failIfEventContains(ValidationContext context, String forbiddenEventType, String reason) {
+        boolean present = context.conditionLeaves.stream()
+                .filter(leaf -> "payload.ongroundServiceEvent.eventsType".equals(leaf.field()))
+                .anyMatch(leaf -> eventLeafContains(leaf, forbiddenEventType));
+        if (present) {
+            context.fail("Delay event semantic validation failed: " + reason);
+        }
+    }
+
+    private void failIfDelayFieldPresent(ValidationContext context, String fieldFragment, String reason) {
+        if (hasDelayField(context, fieldFragment)) {
+            context.fail("Delay event semantic validation failed: " + reason);
         }
     }
 
