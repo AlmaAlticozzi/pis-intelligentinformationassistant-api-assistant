@@ -90,11 +90,13 @@ class ScheduledAlertVerificationPromptBuilderTest {
         assertThat(request.userPrompt())
                 .contains("requirementCoverage.mappedBy may reference serviceDataQuery.*")
                 .contains("requirementCoverage.mappedBy may reference stopPointsJourneyDetails[].*")
-                .contains("requirementCoverage.mappedBy may reference snapshotEvaluation.* / outputPolicy.* / schedule.*")
+                .contains("requirementCoverage.mappedBy may reference only the specific allowed query/control fields")
                 .contains("count/report intent -> mappedBy may include snapshotEvaluation.mode, outputPolicy.emit, outputPolicy.includeCount")
                 .contains("cardinality threshold -> mappedBy may include snapshotEvaluation.threshold.operator and snapshotEvaluation.threshold.value")
                 .contains("polling frequency -> mappedBy may include schedule.frequencySeconds")
                 .contains("lookahead window -> mappedBy may include serviceDataQuery.timeWindow.lookaheadMinutes")
+                .contains("Never put JSON structural paths in mappedBy")
+                .contains("snapshotEvaluation.condition.anyElement.path")
                 .contains("These are not ServiceData fields and must not be put inside snapshotEvaluation.condition");
     }
 

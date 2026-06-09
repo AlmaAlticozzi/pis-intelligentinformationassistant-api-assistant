@@ -745,21 +745,18 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 }
                 RequirementCoverageFieldKind classification = classifyRequirementCoverageField(field);
                 System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] mappedBy="
-                        + field + " classifiedAs=" + classification);
+                        + field + " classifiedAs=" + coverageClassificationLabel(classification)
+                        + " action=" + coverageAction(classification));
+                if (classification == RequirementCoverageFieldKind.STRUCTURAL_METADATA_FIELD) {
+                    continue;
+                }
                 if (field.contains("payload.ongroundServiceEvent") || field.contains("ServiceDataV2")) {
                     return "Verified scheduled outcome requirementCoverage mappedBy contains Event/Kafka field: " + field + ".";
                 }
-                if (!ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(field)) {
+                String normalizedField = normalizeRequirementCoverageField(field);
+                if (normalizedField == null) {
                     return "Verified scheduled outcome requirementCoverage mappedBy field is not in the Scheduled ServiceData catalog: "
                             + field + ".";
-                }
-                if (classification == RequirementCoverageFieldKind.QUERY_FIELD) {
-                    System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] queryCoverage accepted field="
-                            + field);
-                }
-                if (classification == RequirementCoverageFieldKind.TECHNICAL_SPEC_FIELD) {
-                    System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][COVERAGE] technicalSpecCoverage accepted field="
-                            + field);
                 }
             }
         }
@@ -767,22 +764,76 @@ public class ScheduledAlertVerificationOutcomeValidator {
     }
 
     private RequirementCoverageFieldKind classifyRequirementCoverageField(String field) {
-        if (ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(field)) {
+        if (isStructuralMetadataCoverageField(field)) {
+            return RequirementCoverageFieldKind.STRUCTURAL_METADATA_FIELD;
+        }
+        String normalized = normalizeRequirementCoverageField(field);
+        if (normalized == null) {
+            return RequirementCoverageFieldKind.UNKNOWN;
+        }
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedQueryCoverageField(normalized)) {
             return RequirementCoverageFieldKind.QUERY_FIELD;
         }
-        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(normalized)) {
             return RequirementCoverageFieldKind.EVALUATION_FIELD;
         }
-        if (ScheduledServiceDataCapabilityCatalog.isAllowedTechnicalSpecCoverageField(field)) {
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedTechnicalSpecCoverageField(normalized)) {
             return RequirementCoverageFieldKind.TECHNICAL_SPEC_FIELD;
         }
         return RequirementCoverageFieldKind.UNKNOWN;
+    }
+
+    private String normalizeRequirementCoverageField(String field) {
+        if (field == null) {
+            return null;
+        }
+        String trimmed = field.trim();
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedRequirementCoverageField(trimmed)) {
+            return trimmed;
+        }
+        String journeyCandidate = "stopPointsJourneyDetails[]." + trimmed;
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(journeyCandidate)) {
+            return journeyCandidate;
+        }
+        return null;
+    }
+
+    private boolean isStructuralMetadataCoverageField(String field) {
+        if (field == null) {
+            return false;
+        }
+        String trimmed = field.trim();
+        return trimmed.equals("snapshotEvaluation.condition")
+                || trimmed.equals("snapshotEvaluation.condition.type")
+                || trimmed.equals("snapshotEvaluation.condition.anyElement")
+                || trimmed.equals("snapshotEvaluation.condition.anyElement.path")
+                || trimmed.equals("snapshotEvaluation.condition.anyElement.conditions")
+                || trimmed.equals("snapshotEvaluation.condition.anyElement.conditions.all[].field")
+                || trimmed.equals("snapshotEvaluation.condition.anyElement.conditions.any[].field")
+                || trimmed.equals("technicalSpecification.condition")
+                || trimmed.equals("agentBlueprintPreview.parameters")
+                || trimmed.equals("agentBlueprintPreview.parameters.snapshotEvaluation");
+    }
+
+    private String coverageAction(RequirementCoverageFieldKind classification) {
+        return classification == RequirementCoverageFieldKind.STRUCTURAL_METADATA_FIELD
+                ? "ignored"
+                : classification == RequirementCoverageFieldKind.UNKNOWN ? "rejected" : "accepted";
+    }
+
+    private String coverageClassificationLabel(RequirementCoverageFieldKind classification) {
+        return switch (classification) {
+            case EVALUATION_FIELD -> "CATALOG_FIELD";
+            case TECHNICAL_SPEC_FIELD -> "QUERY_FIELD";
+            default -> classification.name();
+        };
     }
 
     private enum RequirementCoverageFieldKind {
         QUERY_FIELD,
         EVALUATION_FIELD,
         TECHNICAL_SPEC_FIELD,
+        STRUCTURAL_METADATA_FIELD,
         UNKNOWN
     }
 

@@ -1564,6 +1564,91 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void ignoresStructuralMetadataFieldsInRequirementCoverageMappedBy() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("count report with structural metadata", List.of(
+                        "serviceDataQuery.stopPoints",
+                        "snapshotEvaluation.condition.anyElement.path",
+                        "snapshotEvaluation.condition.anyElement.conditions.all[].field",
+                        "outputPolicy.includeCount"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsRequirementCoverageMappedByRootRelativeJourneyConditionFields() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("suppressed journey condition", List.of(
+                        "changes",
+                        "arrivalStatuses[].status",
+                        "departureStatuses[].status"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsSuppressedJourneysCountAtLeccoWithStructuralCoverageMetadata() {
+        Map<String, Object> suppressionCondition = conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        leaf("changes", "CONTAINS", "CANCELLATION"),
+                        leaf("changes", "CONTAINS", "PARTIALLY_CANCELLATION"),
+                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+        Map<String, Object> technical = technicalSpecificationWithEvaluation(
+                "REPORT_COUNT",
+                suppressionCondition,
+                null,
+                "EVERY_RUN",
+                true);
+        technical.put("serviceDataQuery", Map.of(
+                "operation", "POST /v2/stoppointjourneys",
+                "monitoringScope", String.valueOf(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS),
+                "stopPoints", List.of("TNPNTS00000000000113"),
+                "requiresAllKnownStopPoints", false,
+                "timeWindow", Map.of(
+                        "startMode", "NOW_TRUNCATED_TO_MINUTE",
+                        "endMode", "NOW_PLUS_DEFAULT_LOOKAHEAD",
+                        "lookaheadMinutes", 480,
+                        "defaulted", true)));
+        withSchedule(technical, 600, false, "ogni 10 min");
+
+        AlertVerificationOutcome validated = validator.validate(validOutcome(technical,
+                blueprint(List.of("TNPNTS00000000000113"), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false),
+                coverageMappedBy("Lecco suppressed journeys count", List.of(
+                        "serviceDataQuery.stopPoints",
+                        "schedule.frequencySeconds",
+                        "snapshotEvaluation.condition.anyElement.path",
+                        "snapshotEvaluation.condition.anyElement.conditions.all[].field",
+                        "stopPointsJourneyDetails[].changes",
+                        "stopPointsJourneyDetails[].arrivalStatuses[].status",
+                        "stopPointsJourneyDetails[].departureStatuses[].status",
+                        "outputPolicy.emit",
+                        "outputPolicy.includeCount"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.technicalSpecification()).containsEntry("interpreterType", "SCHEDULED_INTERPRETER");
+        assertThat(validated.technicalSpecification()).containsEntry("triggerType", "SCHEDULE");
+        assertThat(validated.technicalSpecification()).containsEntry("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH");
+        assertThat(map(validated.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(map(validated.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of("TNPNTS00000000000113"));
+        assertThat(map(validated.technicalSpecification().get("snapshotEvaluation"))).containsEntry("mode", "REPORT_COUNT");
+        assertThat(map(validated.technicalSpecification().get("outputPolicy")))
+                .containsEntry("emit", "EVERY_RUN")
+                .containsEntry("includeCount", true);
+        assertThat(validated.technicalSpecification().toString()).contains("operator=CONTAINS");
+        assertThat(validated.technicalSpecification().toString()).containsAnyOf(
+                "field=changes",
+                "field=arrivalStatuses[].status",
+                "field=departureStatuses[].status");
+        assertThat(validated.technicalSpecification().toString()).containsAnyOf(
+                "value=CANCELLATION",
+                "value=PARTIALLY_CANCELLATION",
+                "value=ARRIVAL_CANCELLATION",
+                "value=DEPARTURE_CANCELLATION");
+    }
+
+    @Test
     void rejectsRequirementCoverageMappedByFakeTechnicalSpecFields() {
         assertRejected(validOutcome(technicalSpecification(), blueprint(),
                 coverageMappedBy("fake snapshot field", List.of("snapshotEvaluation.fakeField"))), "snapshotEvaluation.fakeField");
@@ -1575,6 +1660,14 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 coverageMappedBy("fake time window field", List.of("serviceDataQuery.timeWindow.fakeField"))), "serviceDataQuery.timeWindow.fakeField");
         assertRejected(validOutcome(technicalSpecification(), blueprint(),
                 coverageMappedBy("fake schedule field", List.of("schedule.fakeField"))), "schedule.fakeField");
+    }
+
+    @Test
+    void rejectsRequirementCoverageMappedByInventedServiceDataConditionField() {
+        assertRejected(validOutcome(technicalSpecification(), blueprint(),
+                coverageMappedBy("journey count",
+                        List.of("stopPointsJourneyDetails[].passengerCount"))),
+                "stopPointsJourneyDetails[].passengerCount");
     }
 
     @Test

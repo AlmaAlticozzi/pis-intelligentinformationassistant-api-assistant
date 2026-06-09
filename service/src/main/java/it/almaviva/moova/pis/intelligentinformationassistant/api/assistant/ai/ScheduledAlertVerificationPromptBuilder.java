@@ -145,7 +145,10 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Report/count route: snapshotEvaluation.mode REPORT_COUNT, outputPolicy.emit EVERY_RUN, outputPolicy.includeCount true, threshold null.
                 - Conditional threshold route: snapshotEvaluation.mode COUNT_MATCHING_JOURNEYS, outputPolicy.emit ON_MATCH, threshold required.
                 - serviceDataQuery.stopPoints must be exactly the resolved monitored stop points from context.
-                - requirementCoverage.mappedBy may use serviceDataQuery.*, stopPointsJourneyDetails[].*, snapshotEvaluation.*, outputPolicy.*, schedule.*.
+                - requirementCoverage.mappedBy may use only ServiceData API query/control fields and real Scheduled catalog fields used by the condition.
+                - Valid query/control mappedBy examples: serviceDataQuery.stopPoints, serviceDataQuery.timeWindow, schedule.frequencySeconds, outputPolicy.emit, outputPolicy.includeCount, outputPolicy.includeMatchingJourneys, snapshotEvaluation.mode, snapshotEvaluation.threshold.operator, snapshotEvaluation.threshold.value.
+                - Valid condition mappedBy examples: stopPointsJourneyDetails[].changes, stopPointsJourneyDetails[].arrivalStatuses[].status, stopPointsJourneyDetails[].departureStatuses[].status, stopPointsJourneyDetails[].departureDelay.delay, stopPointsJourneyDetails[].arrivalDelay.delay.
+                - Do not put JSON structural paths in mappedBy, such as snapshotEvaluation.condition.anyElement.path, snapshotEvaluation.condition.anyElement.conditions, snapshotEvaluation.condition.anyElement.conditions.all[].field, technicalSpecification.condition or agentBlueprintPreview.parameters.
                 - Query/control fields such as snapshotEvaluation.mode and outputPolicy.emit are not ServiceData fields and must not be used in snapshotEvaluation.condition.
                 - condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
                 - Use one anyElement path stopPointsJourneyDetails[] to correlate constraints on the same journey.
@@ -655,11 +658,14 @@ public class ScheduledAlertVerificationPromptBuilder {
                 4a. requirementCoverage mappedBy field families:
                 - requirementCoverage.mappedBy may reference serviceDataQuery.* for API query requirements.
                 - requirementCoverage.mappedBy may reference stopPointsJourneyDetails[].* for journey snapshot data requirements.
-                - requirementCoverage.mappedBy may reference snapshotEvaluation.* / outputPolicy.* / schedule.* for report/count/threshold/scheduling/output requirements.
+                - requirementCoverage.mappedBy may reference only the specific allowed query/control fields for report/count/threshold/scheduling/output requirements.
                 - count/report intent -> mappedBy may include snapshotEvaluation.mode, outputPolicy.emit, outputPolicy.includeCount.
                 - cardinality threshold -> mappedBy may include snapshotEvaluation.threshold.operator and snapshotEvaluation.threshold.value.
                 - polling frequency -> mappedBy may include schedule.frequencySeconds.
                 - lookahead window -> mappedBy may include serviceDataQuery.timeWindow.lookaheadMinutes.
+                - mappedBy describes user requirement coverage by real query/evaluation fields, not by internal JSON containers.
+                - Never put JSON structural paths in mappedBy: snapshotEvaluation.condition, snapshotEvaluation.condition.type, snapshotEvaluation.condition.anyElement, snapshotEvaluation.condition.anyElement.path, snapshotEvaluation.condition.anyElement.conditions, snapshotEvaluation.condition.anyElement.conditions.all[].field, snapshotEvaluation.condition.anyElement.conditions.any[].field, technicalSpecification.condition, agentBlueprintPreview.parameters, agentBlueprintPreview.parameters.snapshotEvaluation.
+                - For suppressed/cancelled journey report/count prompts, mappedBy should include serviceDataQuery.stopPoints, schedule.frequencySeconds, stopPointsJourneyDetails[].changes and/or stopPointsJourneyDetails[].arrivalStatuses[].status and/or stopPointsJourneyDetails[].departureStatuses[].status, outputPolicy.emit, outputPolicy.includeCount.
                 - These are not ServiceData fields and must not be put inside snapshotEvaluation.condition.
 
                 5. LOCAL_TIME_BETWEEN JSON SHAPE - STRICT:
