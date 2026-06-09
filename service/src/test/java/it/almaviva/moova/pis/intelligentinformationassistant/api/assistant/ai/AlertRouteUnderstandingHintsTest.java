@@ -65,6 +65,78 @@ class AlertRouteUnderstandingHintsTest {
     }
 
     @Test
+    void delayThresholdForSingleDepartureIsAttributeNotCardinality() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando una corsa parte da Garibaldi FS con ritardo di almeno 5 min");
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(hints.containsAttributeThresholdExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+        assertThat(hints.containsPollingExpression()).isFalse();
+        assertThat(hints.containsSnapshotStateExpression()).isFalse();
+    }
+
+    @Test
+    void englishDelayThresholdForSingleDepartureIsAttributeNotCardinality() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Notify me when a journey departs from Garibaldi FS with a delay of at least 5 minutes");
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(hints.containsAttributeThresholdExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+        assertThat(hints.containsPollingExpression()).isFalse();
+    }
+
+    @Test
+    void delayThresholdForSingleArrivalIsAttributeNotCardinality() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando una corsa arriva a Garibaldi FS con ritardo superiore a 10 minuti");
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(hints.containsAttributeThresholdExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
+    void snapshotPresenceWithDelayThresholdIsScheduledButNotCardinality() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Ci sono corse a Garibaldi FS con ritardo di almeno 5 min");
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsAttributeThresholdExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
+    void countQuestionWithDelayThresholdIsScheduledReport() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Quanti treni a Garibaldi FS hanno ritardo di almeno 5 min");
+
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsAttributeThresholdExpression()).isTrue();
+    }
+
+    @Test
+    void journeyCountThresholdRemainsCardinality() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando ci sono almeno 3 corse in ritardo a Garibaldi FS");
+
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isTrue();
+    }
+
+    @Test
+    void periodicCountReportKeepsPollingAndReportSignals() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS");
+
+        assertThat(hints.containsPollingExpression()).isTrue();
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+    }
+
+    @Test
     void allLocationsHourlyReportIsServiceDataSnapshotNotWeather() {
         AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
                 "Fammi sapere ogni ora quanti treni sono in ritardo in tutte le località");

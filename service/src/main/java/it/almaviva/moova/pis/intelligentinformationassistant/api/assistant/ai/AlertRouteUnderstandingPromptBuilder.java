@@ -101,6 +101,19 @@ public class AlertRouteUnderstandingPromptBuilder {
                 - The presence of event-like words such as arriving, departing, delayed or cancelled does not automatically
                   imply EVENT_INTERPRETER when the request also contains aggregation, count, threshold or multiple
                   monitored stop points.
+                - A numeric threshold does not automatically imply SCHEDULED_INTERPRETER.
+                - Thresholds over event attributes remain EVENT_INTERPRETER when the request is about a single occurrence,
+                  such as a journey departing, arriving, being delayed, being cancelled or changing platform.
+                - Delay thresholds such as "delay of at least 5 minutes", "ritardo di almeno 5 min" or
+                  "more than 10 minutes late" are field-value thresholds, not journey cardinality. If the prompt says
+                  "when a journey/train departs/arrives/is delayed" and has no snapshot/report/polling/count semantics,
+                  route to EVENT_INTERPRETER.
+                - Cardinality thresholds route to SCHEDULED_INTERPRETER only when the threshold is about the number of
+                  journeys, trains, services or results in a snapshot, especially with presence/count/report wording such
+                  as "there are", "how many", "number of", "at least N trains", "ci sono", "quanti", "numero di", or
+                  explicit polling/schedule wording.
+                - Event occurrence wording has priority over attribute thresholds when no snapshot, report, polling or
+                  count semantics are present.
                 - Platform-change wording does not automatically imply EVENT_INTERPRETER. Classify the user meaning:
                   snapshot state, count or report prompts about journeys that have changed platform at a monitored
                   location are SCHEDULED_INTERPRETER; single emitted platform-change event prompts are EVENT_INTERPRETER.

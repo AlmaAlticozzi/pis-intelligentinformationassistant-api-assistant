@@ -8,6 +8,7 @@ public record AlertRouteUnderstandingHints(
         boolean containsPollingExpression,
         boolean containsCountOrReportExpression,
         boolean containsCardinalityThresholdExpression,
+        boolean containsAttributeThresholdExpression,
         boolean containsMultiMonitoredLocationExpression,
         boolean containsSnapshotStateExpression,
         boolean containsAllLocationsExpression,
@@ -33,10 +34,20 @@ public record AlertRouteUnderstandingHints(
             "\\b(quanti|quante|numero|conteggio|count|how many|total|quantity|report|rapporto|dimmi quante|dimmi quanti)\\b");
     private static final Pattern THRESHOLD = Pattern.compile(
             "\\b(almeno|piu di|piu\\s+di|oltre|maggiore di|meno di|at least|more than|over|less than|fewer than)\\b");
+    private static final Pattern CARDINALITY_THRESHOLD = Pattern.compile(
+            "\\b(?:almeno|piu di|piu\\s+di|oltre|maggiore di|meno di|at least|more than|over|less than|fewer than)\\s+"
+                    + "(?:\\d+|uno|una|due|tre|quattro|cinque|one|two|three|four|five)\\s+"
+                    + "(?:\\w+\\s+){0,2}"
+                    + "(treni|treno|corse|corsa|servizi|servizio|bus|tram|trains|train|services|service|journeys|journey|buses|results|risultati)\\b");
+    private static final Pattern ATTRIBUTE_THRESHOLD = Pattern.compile(
+            "\\b(?:(?:ritardo|delay|late|lateness)\\s+(?:di\\s+)?(?:almeno|piu di|piu\\s+di|oltre|maggiore di|superiore a|at least|more than|over|greater than)\\s+\\d+\\s*(?:min|mins|minute|minutes|minuti|second|seconds|secondi|hour|hours|ore)?"
+                    + "|(?:almeno|piu di|piu\\s+di|oltre|maggiore di|superiore a|at least|more than|over|greater than)\\s+\\d+\\s*(?:min|mins|minute|minutes|minuti|second|seconds|secondi|hour|hours|ore)\\b"
+                    + "|(?:binario|platform|track|quay|banchina|marciapiede)\\s*(?:numero\\s+|number\\s+)?(?:>|greater than|maggiore di|superiore a|at least|almeno)\\s*\\d+)"
+    );
     private static final Pattern SNAPSHOT_STATE = Pattern.compile(
             "\\b(ci sono|c[' ]?e|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
     private static final Pattern POLLING = Pattern.compile(
-            "\\b(ogni|every|ciascun|periodicamente|periodic|minutes|minute|minuti|ore|hours)\\b");
+            "\\b(ogni|every|ciascun|periodicamente|periodic)\\b(?:\\s+\\d+\\s*(?:min|mins|minute|minutes|minuti|ore|hours))?");
     private static final Pattern PLATFORM = Pattern.compile(
             "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
     private static final Pattern PLATFORM_CHANGE = Pattern.compile(
@@ -44,7 +55,7 @@ public record AlertRouteUnderstandingHints(
     private static final Pattern CHANGE_CANCELLATION_EXCLUSION = Pattern.compile(
             "\\b(cambio origine|origine cambiata|changed origin|origin changed|cambio destinazione|destinazione cambiata|changed destination|destination changed|cambio percorso|percorso cambiato|itinerario cambiato|changed path|route changed|path changed|corsa straordinaria|corsa aggiuntiva|extra journey|cancellata|cancellati|cancellazione|cancelled|cancellation|soppressa|soppresse|soppresso|soppressione|fermata soppressa|fermate soppresse|fermata cancellata|fermate cancellate|fermata saltata|salta la fermata|saltano|skipped stop|cancelled stop|suppressed stop|cancelled call|partial cancellation|cancellazione parziale|parzialmente cancellata|total exclusion|esclusione totale|time based exclusion|time-based exclusion|esclusione temporale|corse sostitutive|corsa sostitutiva|servizi sostitutivi|servizio sostitutivo|mezzo sostitutivo|bus sostitutivo|navetta sostitutiva|fermata sostitutiva|replacement service|substitute service|substitute journey|replacement stop|external replacement|replacement esterno)\\b");
     private static final Pattern EVENT_OCCURRENCE = Pattern.compile(
-            "\\b(quando\\s+(?:una\\s+)?corsa\\s+cambia|quando\\s+viene\\s+cambiato\\s+il\\s+binario|quando\\s+(?:una\\s+)?corsa\\s+viene\\s+cancellata|quando\\s+cambia\\s+destinazione\\s+(?:una\\s+)?corsa|quando\\s+(?:una\\s+)?corsa\\s+sopprime\\s+la\\s+fermata|quando\\s+viene\\s+cancellata\\s+la\\s+fermata|quando\\s+(?:una\\s+)?corsa\\s+diventa\\s+sostitutiva|quando\\s+viene\\s+generata\\s+una\\s+sostituzione|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+changes|when\\s+platform\\s+changes|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+is\\s+cancelled|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+becomes\\s+(?:a\\s+)?replacement|when\\s+a\\s+replacement\\s+is\\s+generated)\\b");
+            "\\b(quando\\s+(?:una\\s+)?corsa\\s+(?:parte|parta|arriva|arrivi|e\\s+in\\s+ritardo|risulta\\s+in\\s+ritardo|cambia)|quando\\s+(?:un\\s+)?treno\\s+(?:parte|parta|arriva|arrivi|e\\s+in\\s+ritardo|risulta\\s+in\\s+ritardo|cambia)|quando\\s+viene\\s+cambiato\\s+il\\s+binario|quando\\s+(?:una\\s+)?corsa\\s+viene\\s+cancellata|quando\\s+cambia\\s+destinazione\\s+(?:una\\s+)?corsa|quando\\s+(?:una\\s+)?corsa\\s+sopprime\\s+la\\s+fermata|quando\\s+viene\\s+cancellata\\s+la\\s+fermata|quando\\s+(?:una\\s+)?corsa\\s+diventa\\s+sostitutiva|quando\\s+viene\\s+generata\\s+una\\s+sostituzione|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+(?:departs|arrives|is\\s+delayed|has\\s+a\\s+delay|changes)|when\\s+platform\\s+changes|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+is\\s+cancelled|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+becomes\\s+(?:a\\s+)?replacement|when\\s+a\\s+replacement\\s+is\\s+generated)\\b");
     private static final Pattern ALL_LOCATIONS = Pattern.compile(
             "\\b(tutte le localita|tutte le fermate|tutte le stazioni|all locations|all stop points|every stop point|all stops|every station)\\b");
     private static final Pattern WEATHER = Pattern.compile(
@@ -67,7 +78,10 @@ public record AlertRouteUnderstandingHints(
         boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find();
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean threshold = THRESHOLD.matcher(normalized).find();
-        boolean cardinality = threshold || (hasVehicleNoun && quantifiedVehicle);
+        boolean attributeThreshold = ATTRIBUTE_THRESHOLD.matcher(normalized).find();
+        boolean cardinality = CARDINALITY_THRESHOLD.matcher(normalized).find()
+                || (hasVehicleNoun && quantifiedVehicle && !attributeThreshold)
+                || (threshold && countOrReport && !attributeThreshold);
         boolean multiLocation = snapshotState
                 && (normalized.contains(" e ") || normalized.contains(" and "))
                 && (normalized.contains(" a ") || normalized.contains(" at "));
@@ -76,6 +90,7 @@ public record AlertRouteUnderstandingHints(
                 POLLING.matcher(normalized).find(),
                 countOrReport,
                 cardinality,
+                attributeThreshold,
                 multiLocation,
                 snapshotState || countOrReport,
                 allLocations,
@@ -89,7 +104,7 @@ public record AlertRouteUnderstandingHints(
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -104,6 +119,7 @@ public record AlertRouteUnderstandingHints(
                 - containsPollingExpression: %s
                 - containsCountOrReportExpression: %s
                 - containsCardinalityThresholdExpression: %s
+                - containsAttributeThresholdExpression: %s
                 - containsMultiMonitoredLocationExpression: %s
                 - containsSnapshotStateExpression: %s
                 - containsAllLocationsExpression: %s
@@ -117,12 +133,14 @@ public record AlertRouteUnderstandingHints(
 
                 Treat these as backend observations. They are not a technicalSpecification.
                 If aggregate snapshot/cardinality hints are true, prefer SCHEDULED_INTERPRETER over EVENT_INTERPRETER.
+                Numeric attribute thresholds such as delay >= N minutes or platform > N are not journey cardinality.
                 Platform expressions are ServiceData event constraints and do not imply SCHEDULED_INTERPRETER by themselves.
                 A number attached to a platform/binario/track/quay expression is a platform value/property, not a count of journeys.
                 """.formatted(
                 containsPollingExpression,
                 containsCountOrReportExpression,
                 containsCardinalityThresholdExpression,
+                containsAttributeThresholdExpression,
                 containsMultiMonitoredLocationExpression,
                 containsSnapshotStateExpression,
                 containsAllLocationsExpression,

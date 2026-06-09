@@ -28,6 +28,10 @@ public class AlertRouteUnderstandingService {
         System.out.println("[IIA][ALERT_ROUTE] prompt=" + prompt);
         AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
         System.out.println("[IIA][ALERT_ROUTE][HINTS] " + hints);
+        System.out.println("[IIA][ALERT_ROUTE][HINTS][THRESHOLD] containsCardinalityThresholdExpression="
+                + hints.containsCardinalityThresholdExpression()
+                + " containsAttributeThresholdExpression="
+                + hints.containsAttributeThresholdExpression());
 
         if (llmGateway == null || llmGateway.isUnsatisfied()) {
             AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(

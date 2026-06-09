@@ -70,7 +70,7 @@ public class AlertRouteUnderstandingValidator {
         }
         if (route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
             if (shouldNormalizeScheduledRouteToEvent(originalPrompt, safeHints)) {
-                return normalizeScheduledRouteToEvent(route, domains, primaryDomain);
+                return normalizeScheduledRouteToEvent(route, domains, primaryDomain, safeHints);
             }
             if (shouldNormalizeScheduledConditionToReport(route, safeHints)) {
                 return normalizeScheduledConditionToReport(route, domains, primaryDomain);
@@ -84,6 +84,7 @@ public class AlertRouteUnderstandingValidator {
         return hints.containsPollingExpression()
                 || hints.stronglyIndicatesAggregateSnapshot()
                 || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression())
+                || (hints.containsSnapshotStateExpression() && !hints.containsEventOccurrenceExpression())
                 || (hints.containsSnapshotStateExpression()
                 && hints.containsPlatformChangeExpression()
                 && !hints.containsEventOccurrenceExpression())
@@ -128,23 +129,33 @@ public class AlertRouteUnderstandingValidator {
                 || hints.containsMultiMonitoredLocationExpression()
                 || hints.containsCardinalityThresholdExpression();
         return !hasScheduledSignal
-                && hints.containsPlatformExpression()
-                && looksLikeSingleEventOccurrence(originalPrompt);
+                && (hints.containsEventOccurrenceExpression() || looksLikeSingleEventOccurrence(originalPrompt))
+                && (hints.containsAttributeThresholdExpression()
+                || hints.containsPlatformExpression()
+                || looksLikeSingleEventOccurrence(originalPrompt));
     }
 
     private AlertRouteUnderstandingResult normalizeScheduledRouteToEvent(
             AlertRouteUnderstandingResult route,
             List<String> domains,
-            String primaryDomain) {
-        String warning = "Route normalized from SCHEDULED_INTERPRETER to EVENT_INTERPRETER because backend hints detected a single ServiceData event with a platform constraint, not journey cardinality.";
-        System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] from=SCHEDULED_INTERPRETER to=EVENT_INTERPRETER reason=platform constraint is not cardinality");
+            String primaryDomain,
+            AlertRouteUnderstandingHints hints) {
+        boolean attributeThreshold = hints.containsAttributeThresholdExpression();
+        AlertRouteIntentKind intentKind = attributeThreshold
+                ? AlertRouteIntentKind.EVENT_CONDITION
+                : AlertRouteIntentKind.EVENT_OCCURRENCE;
+        String reason = attributeThreshold
+                ? "event_occurrence_with_attribute_threshold_no_snapshot"
+                : "event_occurrence_no_snapshot";
+        String warning = "Route normalized from SCHEDULED_INTERPRETER to EVENT_INTERPRETER because backend hints detected event occurrence and no snapshot/count/polling semantics.";
+        System.out.println("[IIA][ALERT_ROUTE][VALIDATOR_NORMALIZE] scheduled_to_event reason=" + reason);
         return new AlertRouteUnderstandingResult(
                 AlertRouteDecision.ROUTED,
                 domains,
                 primaryDomain,
                 AlertRouteInterpreterType.EVENT_INTERPRETER,
                 AlertRouteAccessMode.KAFKA_EVENT,
-                AlertRouteIntentKind.EVENT_OCCURRENCE,
+                intentKind,
                 AlertRouteOutputMode.ON_MATCH,
                 false,
                 false,
