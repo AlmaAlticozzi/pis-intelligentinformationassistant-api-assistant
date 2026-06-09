@@ -122,6 +122,16 @@ public final class AssistantApiInputValidator {
         return alertId;
     }
 
+    public static String validateAgentProfileIdForGet(String agentProfileId) {
+        if (agentProfileId == null || agentProfileId.isBlank()) {
+            throw badRequest(AssistantApiErrors.agentProfileGetBlankProfileId());
+        }
+        if (agentProfileId.length() > ALERT_ID_MAX_LENGTH) {
+            throw badRequest(AssistantApiErrors.agentProfileGetProfileIdTooLong());
+        }
+        return agentProfileId;
+    }
+
     public static AlertTechnicalSpecificationUpdateRequest validateAlertTechnicalSpecificationUpdate(
             AlertTechnicalSpecificationUpdateRequest request) {
         if (request == null) {

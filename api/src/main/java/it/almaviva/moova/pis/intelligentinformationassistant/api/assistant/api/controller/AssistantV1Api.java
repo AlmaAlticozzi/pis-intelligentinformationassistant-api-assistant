@@ -7,6 +7,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertAgentGenerationPreviewRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertTechnicalSpecificationRejectedException;
@@ -29,6 +30,9 @@ public class AssistantV1Api implements IAssistantV1Api {
 
     @Inject
     AlertService alertService;
+
+    @Inject
+    AgentProfileService agentProfileService;
 
     @Inject
     TextImproveUseCase textImproveUseCase;
@@ -235,8 +239,24 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentProfile getAgentProfile(@PathParam("agentProfileId") @Size(max=50) String agentProfileId) {
-        System.out.println("getAgentProfile: " + "agentProfileId=" + agentProfileId);
-        return new AgentProfile();
+        try {
+            String validatedAgentProfileId = AssistantApiInputValidator.validateAgentProfileIdForGet(agentProfileId);
+            System.out.println("[IIA][AGENT_PROFILE][GET] requested agentProfileId=" + validatedAgentProfileId);
+            return agentProfileService.getAgentProfile(validatedAgentProfileId)
+                    .orElseThrow(() -> {
+                        System.out.println("[IIA][AGENT_PROFILE][GET] not found agentProfileId=" + validatedAgentProfileId);
+                        return new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                                .entity(AssistantApiErrors.agentProfileGetNotFound())
+                                .build());
+                    });
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_PROFILE][GET] Unexpected error agentProfileId=" + agentProfileId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentProfileGetUnexpectedError())
+                    .build());
+        }
     }
 
     @GET
@@ -348,8 +368,17 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentProfileListResponse listAgentProfiles() {
-        System.out.println("listAgentProfiles");
-        return new AgentProfileListResponse();
+        try {
+            System.out.println("[IIA][AGENT_PROFILE][LIST] requested");
+            return agentProfileService.listAgentProfiles();
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_PROFILE][LIST] Unexpected error error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentProfileListUnexpectedError())
+                    .build());
+        }
     }
 
     @PATCH

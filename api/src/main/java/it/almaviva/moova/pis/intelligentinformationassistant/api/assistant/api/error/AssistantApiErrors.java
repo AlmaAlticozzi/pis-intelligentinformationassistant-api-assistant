@@ -560,6 +560,42 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while replacing the alert technical specification.");
     }
 
+    public static Error agentProfileListUnexpectedError() {
+        return new Error()
+                .code("IIA-AGP-SEA-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while listing Agent profiles.");
+    }
+
+    public static Error agentProfileGetBlankProfileId() {
+        return invalidParameter(
+                "IIA-AGP-GET-400-001",
+                "agentProfileId",
+                "The agentProfileId path parameter is empty or contains only whitespace characters.");
+    }
+
+    public static Error agentProfileGetProfileIdTooLong() {
+        return invalidParameter(
+                "IIA-AGP-GET-400-002",
+                "agentProfileId",
+                "The agentProfileId path parameter exceeds 50 characters.");
+    }
+
+    public static Error agentProfileGetNotFound() {
+        return new Error()
+                .code("IIA-AGP-GET-404-001")
+                .title("Agent profile not found")
+                .detail("No Agent profile with the given agentProfileId was found.")
+                .source("agentProfileId");
+    }
+
+    public static Error agentProfileGetUnexpectedError() {
+        return new Error()
+                .code("IIA-AGP-GET-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while reading the Agent profile.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
