@@ -1358,22 +1358,31 @@ public class AlertVerificationOutcomeValidator {
         boolean exclude = "EXCLUDE".equals(normalizedPolarity(location));
         if (isResolved(location)) {
             for (ConditionLeaf leaf : candidateLeaves) {
-                if (!leaf.field().endsWith(".stopPoint.id") && !leaf.field().endsWith(".stopPointId.id")) {
+                boolean compatible = leaf.field().endsWith(".stopPoint.id") || leaf.field().endsWith(".stopPointId.id");
+                if (!compatible) {
+                    logLocationCoverageMatchCheck(location, selectedPointIds, leaf, false, false,
+                            "NOT_COVERED", "leaf-field-is-not-stop-point-id");
                     continue;
                 }
+                boolean intersects = leafIntersectsSelectedPointIds(leaf, selectedPointIds);
                 if (exclude && "NOT_IN".equals(leaf.operator()) && leaf.values().containsAll(selectedPointIds)) {
+                    logLocationCoverageMatchCheck(location, selectedPointIds, leaf, true, intersects, "COVERED", null);
                     return leaf;
                 }
                 if (!exclude && selectedPointIds.size() == 1
                         && "EQUALS".equals(leaf.operator())
                         && selectedPointIds.getFirst().equals(stringValue(leaf.value()))) {
+                    logLocationCoverageMatchCheck(location, selectedPointIds, leaf, true, true, "COVERED", null);
                     return leaf;
                 }
-                if (!exclude && selectedPointIds.size() > 1
+                if (!exclude
                         && "IN".equals(leaf.operator())
-                        && leaf.values().containsAll(selectedPointIds)) {
+                        && intersects) {
+                    logLocationCoverageMatchCheck(location, selectedPointIds, leaf, true, true, "COVERED", null);
                     return leaf;
                 }
+                logLocationCoverageMatchCheck(location, selectedPointIds, leaf, true, intersects,
+                        "NOT_COVERED", "no-compatible-leaf-containing-selected-id");
             }
             return null;
         }
@@ -1391,6 +1400,43 @@ public class AlertVerificationOutcomeValidator {
             }
         }
         return null;
+    }
+
+    private boolean leafIntersectsSelectedPointIds(ConditionLeaf leaf, List<String> selectedPointIds) {
+        if (selectedPointIds.isEmpty()) {
+            return false;
+        }
+        if (leaf.value() != null && selectedPointIds.contains(stringValue(leaf.value()))) {
+            return true;
+        }
+        return leaf.values().stream().anyMatch(selectedPointIds::contains);
+    }
+
+    private void logLocationCoverageMatchCheck(
+            AlertVerificationLocationContext.LocationResolution location,
+            List<String> selectedPointIds,
+            ConditionLeaf leaf,
+            boolean compatible,
+            boolean intersects,
+            String result,
+            String reason) {
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION_COVERAGE][MATCH_CHECK] rawText=" + location.rawText()
+                + " selectedPointIds=" + selectedPointIds
+                + " leafField=" + leaf.field()
+                + " operator=" + leaf.operator()
+                + " leafValues=" + leafValuesForLog(leaf)
+                + " compatible=" + compatible
+                + " intersects=" + intersects
+                + " result=" + result
+                + (reason == null || reason.isBlank() ? "" : " reason=" + reason));
+    }
+
+    private List<String> leafValuesForLog(ConditionLeaf leaf) {
+        if (!leaf.values().isEmpty()) {
+            return leaf.values();
+        }
+        String value = stringValue(leaf.value());
+        return value == null ? List.of() : List.of(value);
     }
 
     private boolean locationValueMatches(AlertVerificationLocationContext.LocationResolution location, ConditionLeaf leaf) {

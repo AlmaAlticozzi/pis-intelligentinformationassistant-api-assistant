@@ -751,6 +751,116 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void coversSingleResolvedLocationWithEquals() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "EQUALS",
+                                "value", BIGNAMI_ID))), coverageFor(field)),
+                "Prompt",
+                locationContext(resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void coversSingleResolvedLocationWithInSuperset() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "IN",
+                                "values", List.of(BIGNAMI_ID, SAN_SIRO_STADIO_ID)))), coverageFor(field)),
+                "Prompt",
+                locationContext(resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void coversTwoResolvedAlternativeLocationsWithOneCumulativeIn() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "IN",
+                                "values", List.of(BIGNAMI_ID, SAN_SIRO_STADIO_ID)))), coverageFor(field)),
+                "Prompt",
+                locationContext(
+                        resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID),
+                        resolved("San Siro Stadio", "MAIN_EVENT_LOCATION", "INCLUDE", SAN_SIRO_STADIO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void coversTwoResolvedAlternativeLocationsWithOrOfEquals() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "any", List.of(
+                                Map.of("field", field, "operator", "EQUALS", "value", BIGNAMI_ID),
+                                Map.of("field", field, "operator", "EQUALS", "value", SAN_SIRO_STADIO_ID))),
+                        coverageFor(field)),
+                "Prompt",
+                locationContext(
+                        resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID),
+                        resolved("San Siro Stadio", "MAIN_EVENT_LOCATION", "INCLUDE", SAN_SIRO_STADIO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsInMissingOneRequiredResolvedLocation() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "IN",
+                                "values", List.of(BIGNAMI_ID)))), coverageFor(field)),
+                "Prompt",
+                locationContext(
+                        resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID),
+                        resolved("San Siro Stadio", "MAIN_EVENT_LOCATION", "INCLUDE", SAN_SIRO_STADIO_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("San Siro Stadio");
+    }
+
+    @Test
+    void rejectsInWithInventedStopPointId() {
+        String field = "payload.stopPointJourney.stopPoint.id";
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(Map.of(
+                                "field", field,
+                                "operator", "IN",
+                                "values", List.of(BIGNAMI_ID, "FAKE_ID")))), coverageFor(field)),
+                "Prompt",
+                locationContext(resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Unsupported or unknown stopPoint id");
+    }
+
+    @Test
     void acceptsNotInOnKnownResolvedStopPointIds() {
         String field = "payload.stopPointJourney.stopPoint.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
@@ -2514,9 +2624,8 @@ class AlertVerificationOutcomeValidatorTest {
                                 "type", "SERVICE_DATA_FIELD_MATCH",
                                 "all", List.of(
                                         Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVING"),
-                                        Map.of("any", List.of(
-                                                Map.of("field", stopPointField, "operator", "EQUALS", "value", BIGNAMI_ID),
-                                                Map.of("field", stopPointField, "operator", "EQUALS", "value", SAN_SIRO_STADIO_ID))),
+                                        Map.of("field", stopPointField, "operator", "IN",
+                                                "values", List.of(BIGNAMI_ID, SAN_SIRO_STADIO_ID)),
                                         cancellationAnyElement(detailsPath, Map.of(
                                                 "field", "departureStatuses[].status",
                                                 "operator", "CONTAINS",
