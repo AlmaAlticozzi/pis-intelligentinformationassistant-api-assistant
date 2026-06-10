@@ -112,6 +112,18 @@ class AlertLocationUnderstandingPromptBuilderTest {
     }
 
     @Test
+    void promptSaysFunctionalWordsAreNotLocations() {
+        LlmRequest request = builder.build("Avvisami quando a Bologna ci sono treni in partenza soppressi", "ALRT1");
+
+        assertThat(request.userPrompt())
+                .contains("Functional words are not locations")
+                .contains("Do not emit a location object for pure functional transport words")
+                .contains("\"in arrivo\", \"arrivo\", \"in partenza\", \"partenza\"")
+                .contains("These words must become mainEvent or nonLocationConstraints, never unresolved location fallbacks")
+                .contains("emit only the station name as location and use the functional word to set role, event intent, phase, direction or state filter");
+    }
+
+    @Test
     void promptContainsGenericExamplesWithoutStationNames() {
         LlmRequest request = builder.build("prompt", "ALRT1");
 

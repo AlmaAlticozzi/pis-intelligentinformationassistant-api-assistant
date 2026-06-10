@@ -283,7 +283,9 @@ public class AlertVerificationPromptBuilder {
                 - This is a mapping obligation for the verifier, not something the user must explicitly write as technical fields. Do not reject solely because the user did not specify arrivalDelay.delay/departureDelay.delay field names.
                 - Do not replace DEPARTING/ARRIVING/DEPARTED/ARRIVED with DEPARTURE_DELAY/ARRIVAL_DELAY when the user says "is departing from X with delay", "is arriving at X with delay", "e in partenza da X con ritardo" or "e in arrivo a X con ritardo".
                 - Use DEPARTURE_DELAY/ARRIVAL_DELAY only when the grammatical focus is the delay on departure/arrival. For "service in departure/arrival with delay", keep DEPARTING/ARRIVING and add the coherent delay predicate.
-                - Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
+                - Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "fermata", "corsa", "treno", "soppressa", "cancellata", "arrival", "departure", "destination", "origin", "transit", "stop", "call", "journey", "train", "cancelled", "suppressed".
+                - If Location Context mistakenly contains an unresolved location whose rawText is only a functional transport keyword, ignore it as a location and use it only as non-location semantics when possible.
+                - Never generate stopPoint.nameLong/nameShort conditions whose value is exactly "in partenza", "in arrivo", "partenza", "arrivo", "origine", "destinazione", "destino", "transito" or equivalent English functional words.
                 - "arriva a destinazione", "arriva a destino", "at destination" and "at final destination" without a proper stop name mean passingType EQUALS DESTINATION inside stopPointsJourneyDetails[], plus coherent arrival event if requested.
                 - "parte dall'origine" without a proper stop name means passingType EQUALS ORIGIN inside stopPointsJourneyDetails[], plus coherent departure event if requested.
                 - "passa in transito" without a proper stop name means passingType EQUALS TRANSIT, not a textual location named "transito".
@@ -302,6 +304,9 @@ public class AlertVerificationPromptBuilder {
                 - EXPECTED_MAIN_EVENT_TYPE=DEPARTED -> use DEPARTED, never DEPARTING.
                 - EXPECTED_MAIN_EVENT_TYPE=ARRIVING -> use ARRIVING, never ARRIVED.
                 - EXPECTED_MAIN_EVENT_TYPE=ARRIVED -> use ARRIVED, never ARRIVING.
+                - CANCELLATION_DIRECTION=ARRIVAL means represent an arrival cancellation state filter with arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
+                - CANCELLATION_DIRECTION=DEPARTURE means represent a departure cancellation state filter with departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
+                - CANCELLATION_EXCLUSIVE=true means add the opposite status NOT_CONTAINS only for the requested exclusive direction.
                 - For precise completed arrival wording such as "arriva", prefer payload.ongroundServiceEvent.eventsType CONTAINS ARRIVED. For "in arrivo" or progressive arrival wording, prefer ARRIVING. If truly ambiguous between progress and completion, use ARRIVING/ARRIVED only, never departure events.
                 - For precise completed departure wording such as "parte", prefer payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED. For "in partenza" or progressive departure wording, prefer DEPARTING. If truly ambiguous between progress and completion, use DEPARTING/DEPARTED only, never arrival events.
                 - If the user specifies a platform without arrival or departure wording, do not invent one direction: construct an any condition with one arrival branch and one departure branch.

@@ -269,6 +269,57 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void removesFunctionalDepartureLocationCandidateAndKeepsBologna() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando a Bologna ci sono treni in partenza soppressi",
+                cancellationUnderstandingWithLocations(
+                        location("Bologna", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1"),
+                        location("in partenza", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G2")));
+
+        assertThat(context.resolutions())
+                .extracting(AlertVerificationLocationContext.LocationResolution::rawText)
+                .contains("Bologna")
+                .doesNotContain("in partenza");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .contains("payload.stopPointJourney.stopPoint.id")
+                .doesNotContain("payload.stopPointJourney.stopPoint.nameLong");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "CANCELLATION");
+        assertConstraint(context, "CANCELLATION_DIRECTION", "DEPARTURE");
+    }
+
+    @Test
+    void removesFunctionalArrivalLocationCandidateAndKeepsBologna() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando a Bologna ci sono treni in arrivo soppressi",
+                cancellationUnderstandingWithLocations(
+                        location("Bologna", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1"),
+                        location("in arrivo", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G2")));
+
+        assertThat(context.resolutions())
+                .extracting(AlertVerificationLocationContext.LocationResolution::rawText)
+                .contains("Bologna")
+                .doesNotContain("in arrivo");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "CANCELLATION");
+        assertConstraint(context, "CANCELLATION_DIRECTION", "ARRIVAL");
+    }
+
+    @Test
+    void removesFunctionalDepartureCandidateFromSuppressedDeparturePrompt() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando un treno in partenza da Bologna viene soppresso",
+                cancellationUnderstandingWithLocations(
+                        location("Bologna", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1"),
+                        location("in partenza", AlertLocationRole.GENERIC_LOCATION, AlertLocationRelation.UNKNOWN, "G2")));
+
+        assertThat(context.resolutions())
+                .extracting(AlertVerificationLocationContext.LocationResolution::rawText)
+                .contains("Bologna")
+                .doesNotContain("in partenza");
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+        assertConstraint(context, "CANCELLATION_DIRECTION", "DEPARTURE");
+    }
+
+    @Test
     void normalizesProgressiveDepartureFromOriginToMainEventLocation() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Dimmi quando una corsa e in partenza da Garibaldi e passera da Venezia",
@@ -889,6 +940,17 @@ class AlertServiceLocationUnderstandingContextTest {
                 "it",
                 new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.CANCELLATION, 0.90),
                 List.of(location(rawText, role, relation, "G1")),
+                List.of(),
+                List.of());
+    }
+
+    private AlertLocationUnderstandingResult cancellationUnderstandingWithLocations(
+            AlertLocationUnderstandingLocation... locations) {
+        return new AlertLocationUnderstandingResult(
+                true,
+                "it",
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.CANCELLATION, 0.90),
+                List.of(locations),
                 List.of(),
                 List.of());
     }

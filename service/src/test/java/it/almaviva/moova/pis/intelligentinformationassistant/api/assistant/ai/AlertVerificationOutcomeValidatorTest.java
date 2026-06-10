@@ -603,7 +603,7 @@ class AlertVerificationOutcomeValidatorTest {
                 "all", List.of(Map.of(
                         "field", field,
                         "operator", "CONTAINS_NORMALIZED",
-                        "value", "destinazione"))), coverageFor(field)));
+                        "value", "in partenza"))), coverageFor(field)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
         assertThat(validated.rejectedReason()).contains("Functional keyword");
@@ -2316,6 +2316,32 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void verifiesArrivalSuppressedTrainsWithoutFunctionalLocationFallback() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("ARRIVAL_CANCELLATION", "CANCELLATION")),
+                        cancellationAnyElement(detailsPath, Map.of(
+                                "field", "arrivalStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION"))));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                condition,
+                coverageFor(stopPointField, eventField, detailsPath + ".arrivalStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(condition.toString()).doesNotContain("in arrivo");
+    }
+
+    @Test
     void acceptsEventArrivalOnlyCancellation() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String stopPointField = "payload.stopPointJourney.stopPoint.id";
@@ -2366,6 +2392,32 @@ class AlertVerificationOutcomeValidatorTest {
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
+    void verifiesDepartureSuppressedTrainsWithoutFunctionalLocationFallback() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_CANCELLATION", "CANCELLATION")),
+                        cancellationAnyElement(detailsPath, Map.of(
+                                "field", "departureStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_CANCELLATION"))));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                condition,
+                coverageFor(stopPointField, eventField, detailsPath + ".departureStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(condition.toString()).doesNotContain("in partenza");
     }
 
     @Test

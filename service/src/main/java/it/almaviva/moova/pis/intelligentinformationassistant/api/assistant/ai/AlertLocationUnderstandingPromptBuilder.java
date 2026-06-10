@@ -82,6 +82,13 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Provide confidence for mainEvent and for every location, as a number from 0.0 to 1.0.
                 - If there are no locations, return hasLocations=false and locations=[].
 
+                Functional words are not locations:
+                - Do not emit a location object for pure functional transport words such as arrival, departure, origin, destination, transit, stop, call, journey, train, cancellation, suppression or platform.
+                - In Italian, do not emit locations for "in arrivo", "arrivo", "in partenza", "partenza", "origine", "destinazione", "destino", "transito", "fermata", "corsa", "treno", "soppressa" or "cancellata".
+                - These words must become mainEvent or nonLocationConstraints, never unresolved location fallbacks.
+                - A location requires a proper stop/station/place name, such as "Bologna", "Lecco", "Genova P.P." or "Rho Fieramilano".
+                - If a phrase contains both a functional word and a station name, emit only the station name as location and use the functional word to set role, event intent, phase, direction or state filter.
+
                 Allowed location roles:
                 - MAIN_EVENT_LOCATION
                 - ORIGIN_LOCATION

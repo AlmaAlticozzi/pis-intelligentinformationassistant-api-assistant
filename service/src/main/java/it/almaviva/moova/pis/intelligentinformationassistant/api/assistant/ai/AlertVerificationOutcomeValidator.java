@@ -72,11 +72,23 @@ public class AlertVerificationOutcomeValidator {
             "destino",
             "origine",
             "transito",
+            "fermata",
+            "corsa",
+            "treno",
+            "soppressa",
+            "cancellata",
             "arrival",
             "departure",
             "destination",
             "origin",
-            "transit");
+            "transit",
+            "stop",
+            "call",
+            "journey",
+            "train",
+            "cancelled",
+            "canceled",
+            "suppressed");
     private static final String PLATFORM_NUMERIC_EVENT_BINDING_REASON =
             "Platform numeric/property predicates must include payload.ongroundServiceEvent.eventsType "
                     + "to bind the predicate to a current ServiceData event.";

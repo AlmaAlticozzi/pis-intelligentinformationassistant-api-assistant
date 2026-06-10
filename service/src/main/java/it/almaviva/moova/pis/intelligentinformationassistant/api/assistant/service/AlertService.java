@@ -87,6 +87,7 @@ import java.util.ArrayList;
 import java.text.Normalizer;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 
 @ApplicationScoped
 public class AlertService {
@@ -96,6 +97,32 @@ public class AlertService {
             "Alert verification failed because the AI provider did not respond successfully.";
     private static final String TENANT_CONTEXT_ERROR_SUMMARY =
             "Alert verification failed because tenant context was not available for database access.";
+    private static final Set<String> FUNCTIONAL_LOCATION_KEYWORDS = Set.of(
+            "in partenza",
+            "partenza",
+            "in arrivo",
+            "arrivo",
+            "origine",
+            "destinazione",
+            "destino",
+            "transito",
+            "fermata",
+            "corsa",
+            "treno",
+            "soppressa",
+            "cancellata",
+            "suppressed",
+            "cancelled",
+            "canceled",
+            "arrival",
+            "departure",
+            "origin",
+            "destination",
+            "transit",
+            "stop",
+            "call",
+            "journey",
+            "train");
 
     @Inject
     AlertRepository alertRepository;
@@ -1934,28 +1961,97 @@ public class AlertService {
             return understanding;
         }
         List<AlertLocationUnderstandingLocation> normalizedLocations = new ArrayList<>();
-        boolean changed = false;
-        boolean singleCancelledCallLocation = understanding.locations().size() == 1
-                && understanding.locations().getFirst().role() == AlertLocationRole.CANCELLED_CALL_LOCATION;
+        List<AlertLocationUnderstandingLocation> keptLocations = new ArrayList<>();
+        List<String> warnings = new ArrayList<>(understanding.warnings());
+        AlertLocationMainEventIntent derivedIntent = understanding.mainEvent().eventIntent();
         for (AlertLocationUnderstandingLocation location : understanding.locations()) {
+            if (isFunctionalLocationCandidate(location)) {
+                String normalizedText = firstNonBlank(normalizeText(location.normalizedText()), normalizeText(location.rawText()));
+                System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][FUNCTIONAL_LOCATION_GUARD] "
+                        + "action=REMOVED rawText=\"" + location.rawText()
+                        + "\" normalizedText=\"" + normalizedText
+                        + "\" reason=functional-transport-keyword");
+                warnings.add("Functional location candidate removed: " + location.rawText());
+                AlertLocationMainEventIntent intentFromKeyword = intentFromFunctionalKeyword(normalizedText);
+                if (intentFromKeyword != null && canApplyFunctionalKeywordIntent(derivedIntent)) {
+                    derivedIntent = intentFromKeyword;
+                    System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][FUNCTIONAL_LOCATION_GUARD] "
+                            + "action=ADDED_NON_LOCATION_CONSTRAINT type=MAIN_EVENT_INTENT value="
+                            + intentFromKeyword
+                            + " source=removed-functional-keyword");
+                }
+                continue;
+            }
+            System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][FUNCTIONAL_LOCATION_GUARD] "
+                    + "action=KEPT rawText=\"" + location.rawText()
+                    + "\" reason=proper-location-candidate");
+            keptLocations.add(location);
+        }
+        AlertLocationUnderstandingMainEvent mainEvent = new AlertLocationUnderstandingMainEvent(
+                derivedIntent,
+                understanding.mainEvent().confidence());
+        boolean changed = false;
+        boolean singleCancelledCallLocation = keptLocations.size() == 1
+                && keptLocations.getFirst().role() == AlertLocationRole.CANCELLED_CALL_LOCATION;
+        for (AlertLocationUnderstandingLocation location : keptLocations) {
             AlertLocationUnderstandingLocation normalized = normalizeLocationRole(
                     prompt,
-                    understanding.mainEvent(),
+                    mainEvent,
                     location,
                     singleCancelledCallLocation);
             normalizedLocations.add(normalized);
             changed = changed || normalized != location;
         }
-        if (!changed) {
+        if (!changed
+                && keptLocations.size() == understanding.locations().size()
+                && derivedIntent == understanding.mainEvent().eventIntent()
+                && warnings.size() == understanding.warnings().size()) {
             return understanding;
         }
         return new AlertLocationUnderstandingResult(
-                understanding.hasLocations(),
+                !normalizedLocations.isEmpty(),
                 understanding.language(),
-                understanding.mainEvent(),
+                mainEvent,
                 normalizedLocations,
                 understanding.nonLocationConstraints(),
-                understanding.warnings());
+                warnings);
+    }
+
+    private boolean isFunctionalLocationCandidate(AlertLocationUnderstandingLocation location) {
+        String rawText = normalizeText(location.rawText());
+        String normalizedText = normalizeText(location.normalizedText());
+        return isFunctionalLocationText(rawText) || isFunctionalLocationText(normalizedText);
+    }
+
+    private boolean isFunctionalLocationText(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String canonical = value.replaceAll("[\"'`.,;:!?()\\[\\]]", "").trim();
+        return FUNCTIONAL_LOCATION_KEYWORDS.contains(canonical);
+    }
+
+    private AlertLocationMainEventIntent intentFromFunctionalKeyword(String value) {
+        if (value == null) {
+            return null;
+        }
+        if ("in partenza".equals(value) || "partenza".equals(value) || "departure".equals(value)) {
+            return AlertLocationMainEventIntent.DEPARTURE;
+        }
+        if ("in arrivo".equals(value) || "arrivo".equals(value) || "arrival".equals(value)) {
+            return AlertLocationMainEventIntent.ARRIVAL;
+        }
+        return null;
+    }
+
+    private boolean canApplyFunctionalKeywordIntent(AlertLocationMainEventIntent currentIntent) {
+        return currentIntent == null
+                || currentIntent == AlertLocationMainEventIntent.UNKNOWN
+                || currentIntent == AlertLocationMainEventIntent.DEPARTURE_OR_ARRIVAL;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 
     private AlertLocationUnderstandingLocation normalizeLocationRole(
@@ -2268,6 +2364,21 @@ public class AlertService {
                         "EXPECTED_MAIN_EVENT_TYPE",
                         expectedEventType));
             }
+            String cancellationDirection = cancellationDirection(prompt);
+            if (AlertLocationMainEventIntent.CANCELLATION.equals(derivation.intent()) && cancellationDirection != null) {
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "CANCELLATION_DIRECTION",
+                        cancellationDirection));
+                System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][FUNCTIONAL_LOCATION_GUARD] "
+                        + "action=ADDED_NON_LOCATION_CONSTRAINT type=CANCELLATION_DIRECTION value="
+                        + cancellationDirection
+                        + " source=removed-functional-keyword");
+                if (hasExclusiveCancellationDirection(prompt)) {
+                    constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                            "CANCELLATION_EXCLUSIVE",
+                            "true"));
+                }
+            }
         }
         List<AlertVerificationLocationContext.NonLocationConstraint> canonicalized =
                 canonicalizeDelayEventTypeConstraints(constraints);
@@ -2302,6 +2413,26 @@ public class AlertService {
         AlertEventPhase phase = classifier.classify(prompt, derivedIntent);
         String expectedEventType = classifier.expectedEventType(derivedIntent, phase);
         return new MainEventDerivation(derivedIntent, phase, expectedEventType, accessoryDelay);
+    }
+
+    private String cancellationDirection(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null || !containsAny(normalized,
+                "soppres", "cancellat", "cancelled", "canceled", "suppressed")) {
+            return null;
+        }
+        if (containsAny(normalized, "in partenza", "partenza", "departure", "departing")) {
+            return "DEPARTURE";
+        }
+        if (containsAny(normalized, "in arrivo", "arrivo", "arrival", "arriving")) {
+            return "ARRIVAL";
+        }
+        return null;
+    }
+
+    private boolean hasExclusiveCancellationDirection(String prompt) {
+        String normalized = normalizeText(prompt);
+        return normalized != null && containsAny(normalized, "solo", "only", "exclusive");
     }
 
     private boolean hasMainEventLocation(AlertLocationUnderstandingResult understanding) {

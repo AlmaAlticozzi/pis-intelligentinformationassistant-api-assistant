@@ -253,6 +253,17 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptRejectsFunctionalWordsAsLocationFallbacks() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone")
+                .contains("\"in arrivo\", \"in partenza\", \"arrivo\", \"partenza\"")
+                .contains("If Location Context mistakenly contains an unresolved location whose rawText is only a functional transport keyword")
+                .contains("Never generate stopPoint.nameLong/nameShort conditions whose value is exactly \"in partenza\"");
+    }
+
+    @Test
     void promptContainsMainEventPhaseMappings() {
         LlmRequest request = builder().build(promptData());
 
