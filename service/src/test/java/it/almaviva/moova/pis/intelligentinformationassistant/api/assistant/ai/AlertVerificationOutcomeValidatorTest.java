@@ -15,6 +15,8 @@ class AlertVerificationOutcomeValidatorTest {
     private static final String RHO_FIERAMILANO_ID = "TNPNTS00000000005467";
     private static final String MALPENSA_T1_ID = "TNPNTS00000000000028";
     private static final String MALPENSA_T2_ID = "TNPNTS00000000000029";
+    private static final String BIGNAMI_ID = "TNPNTS00000000000001";
+    private static final String SAN_SIRO_STADIO_ID = "TNPNTS00000000000019";
 
     private final AlertVerificationOutcomeValidator validator = new AlertVerificationOutcomeValidator();
 
@@ -2491,6 +2493,47 @@ class AlertVerificationOutcomeValidatorTest {
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
+    void acceptsAlternativeMonitoredLocationsArrivingWithDepartureCancellationState() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "ARRIVAL"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "ARRIVING"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("CANCELLATION_DIRECTION", "DEPARTURE")),
+                resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID),
+                resolved("San Siro stadio", "MAIN_EVENT_LOCATION", "INCLUDE", SAN_SIRO_STADIO_ID));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "all", List.of(
+                                        Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVING"),
+                                        Map.of("any", List.of(
+                                                Map.of("field", stopPointField, "operator", "EQUALS", "value", BIGNAMI_ID),
+                                                Map.of("field", stopPointField, "operator", "EQUALS", "value", SAN_SIRO_STADIO_ID))),
+                                        cancellationAnyElement(detailsPath, Map.of(
+                                                "field", "departureStatuses[].status",
+                                                "operator", "CONTAINS",
+                                                "value", "DEPARTURE_CANCELLATION")))),
+                        coverageFor(stopPointField, eventField, detailsPath + ".departureStatuses[].status")),
+                "Avvertimi quando a Bignami o San Siro stadio c'e un treno in arrivo con una soppressione in partenza",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.interpreterType()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(validated.triggerType()).isEqualTo("EVENT");
+        assertThat(validated.evaluationMode()).isEqualTo("STATELESS_EVENT_MATCH");
+        assertThat(validated.inputModel()).isEqualTo("ServiceDataV2");
+        assertThat(validated.technicalSpecification()).doesNotContainKey("snapshotEvaluation");
+        assertThat(validated.technicalSpecification()).doesNotContainKey("serviceDataQuery");
+        assertThat(validated.technicalSpecification()).doesNotContainEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        assertThat(validated.technicalSpecification()).doesNotContainEntry("triggerType", "SCHEDULE");
     }
 
     @Test

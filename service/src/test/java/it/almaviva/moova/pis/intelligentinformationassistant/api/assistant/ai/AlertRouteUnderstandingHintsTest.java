@@ -56,6 +56,29 @@ class AlertRouteUnderstandingHintsTest {
     }
 
     @Test
+    void alternativeMultiLocationArrivalSuppressionIsEventOccurrenceSignal() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvertimi quando a Bignami o San Siro stadio o Bologna c'e un treno in arrivo con una soppressione in partenza");
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsPollingExpression()).isFalse();
+        assertThat(hints.containsCountOrReportExpression()).isFalse();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
+    void alternativeMultiLocationGenericCancellationIsEventOccurrenceSignal() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvisami quando a Lecco o Milano Centrale viene soppresso un treno");
+
+        assertThat(hints.containsEventOccurrenceExpression()).isTrue();
+        assertThat(hints.containsPollingExpression()).isFalse();
+        assertThat(hints.containsCountOrReportExpression()).isFalse();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
     void thresholdJourneyCardinalityKeepsSnapshotSignals() {
         AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
                 "Fammi sapere se a Garibaldi FS ci sono piu di cinque treni in ritardo");

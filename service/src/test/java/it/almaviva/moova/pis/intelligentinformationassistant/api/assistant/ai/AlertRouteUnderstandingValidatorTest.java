@@ -122,6 +122,99 @@ class AlertRouteUnderstandingValidatorTest {
     }
 
     @Test
+    void normalizesAlternativeMultiLocationScheduledRouteToEventInterpreter() {
+        String prompt = "Avvertimi quando a Bignami o San Siro stadio o Bologna c'e un treno in arrivo con una soppressione in partenza";
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, false, false),
+                prompt,
+                hints);
+
+        assertAlternativeEventRoute(validated);
+    }
+
+    @Test
+    void keepsAlternativeJourneyCancellationAsEventInterpreter() {
+        String prompt = "Avvisami quando a Lecco o Milano Centrale viene soppresso un treno";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, false, false),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+        assertThat(validated.hasAggregation()).isFalse();
+    }
+
+    @Test
+    void keepsAlternativeArrivalDelayAsEventInterpreter() {
+        String prompt = "Avvisami quando a Garibaldi o Cadorna arriva un treno con piu di 10 minuti di ritardo";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, false, false),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+        assertThat(validated.hasAggregation()).isFalse();
+    }
+
+    @Test
+    void keepsPeriodicCountReportAsScheduledInterpreter() {
+        String prompt = "Ogni 10 minuti dimmi quante corse soppresse ci sono a Lecco";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+    }
+
+    @Test
+    void keepsPeriodicCardinalityBetweenLocationsAsScheduledInterpreter() {
+        String prompt = "Avvisami ogni 5 minuti se ci sono almeno 3 treni soppressi tra Bignami e San Siro";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(validated.hasAggregation()).isTrue();
+        assertThat(validated.hasCardinalityThreshold()).isTrue();
+    }
+
+    @Test
+    void keepsContemporaneousLocationsAsScheduledInterpreter() {
+        String prompt = "Avvisami se contemporaneamente a Bignami e San Siro ci sono treni soppressi";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+    }
+
+    @Test
+    void keepsAllLocationsPromptAsScheduledInterpreter() {
+        String prompt = "Avvisami quando in tutte le localita Bignami, San Siro e Bologna ci sono treni soppressi";
+
+        AlertRouteUnderstandingResult validated = validator.validate(eventRoute(), prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+    }
+
+    @Test
     void normalizesSingleLocationCardinalityStateToScheduledSnapshotCondition() {
         String prompt = "Fammi sapere se a Garibaldi FS ci sono piu di cinque treni in ritardo";
 
@@ -591,5 +684,19 @@ class AlertRouteUnderstandingValidatorTest {
                 "The alert requires a scheduled ServiceData snapshot.",
                 null,
                 List.of());
+    }
+
+    private void assertAlternativeEventRoute(AlertRouteUnderstandingResult validated) {
+        assertThat(validated.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(validated.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(validated.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.EVENT_OCCURRENCE);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.requiresPolling()).isFalse();
+        assertThat(validated.requiresServiceDataApi()).isFalse();
+        assertThat(validated.requiresKafkaEvent()).isTrue();
+        assertThat(validated.hasAggregation()).isFalse();
+        assertThat(validated.hasCardinalityThreshold()).isFalse();
+        assertThat(validated.hasReportIntent()).isFalse();
     }
 }

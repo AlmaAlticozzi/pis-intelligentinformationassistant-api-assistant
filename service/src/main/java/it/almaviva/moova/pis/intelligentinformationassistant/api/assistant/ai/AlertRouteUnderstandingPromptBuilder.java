@@ -92,6 +92,17 @@ public class AlertRouteUnderstandingPromptBuilder {
                   one single event.
                 - If the user mentions multiple monitored stop points to be evaluated together in one condition, this is
                   SCHEDULED_INTERPRETER.
+                - Multiple monitored locations do not imply scheduled interpreter.
+                - A list of alternative locations joined by OR, commas, "o", "oppure", "or" or "any of" remains
+                  EVENT_INTERPRETER when the user asks for an event notification.
+                - Use EVENT_INTERPRETER when the request means "notify me when this event/state condition happens at
+                  X or Y or Z".
+                - Do not set hasAggregation=true just because multiple monitored locations are present.
+                - Do not set requiresPolling=true just because multiple monitored locations are present.
+                - Do not route to SCHEDULED_INTERPRETER just because a condition mentions cancellation, delay,
+                  platform, arrival status or departure status.
+                - Route to SCHEDULED_INTERPRETER only when the prompt contains polling, report, count, snapshot,
+                  cross-location, all-locations, contemporaneity or cardinality semantics.
                 - If the prompt says that at stop point A and stop point B there are N arriving, departing, delayed or
                   cancelled journeys, classify as SCHEDULED_INTERPRETER.
                 - The phrase "when there are two trains arriving at A and B" means a snapshot/cardinality condition, not

@@ -64,17 +64,23 @@ public class AlertRouteUnderstandingValidator {
 
         if (route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
             if (requiresScheduledInterpreter(safeHints)) {
+                if (isAlternativeEventMonitoring(originalPrompt, safeHints)) {
+                    logMultiLocationSemantic(originalPrompt, safeHints, AlertRouteInterpreterType.EVENT_INTERPRETER);
+                    return validateEventRoute(route, domains, primaryDomain);
+                }
                 return normalizeEventRouteToScheduled(route, domains, primaryDomain, safeHints);
             }
             return validateEventRoute(route, domains, primaryDomain);
         }
         if (route.interpreterType() == AlertRouteInterpreterType.SCHEDULED_INTERPRETER) {
             if (shouldNormalizeScheduledRouteToEvent(originalPrompt, safeHints)) {
-                return normalizeScheduledRouteToEvent(route, domains, primaryDomain, safeHints);
+                return normalizeScheduledRouteToEvent(route, domains, primaryDomain, safeHints,
+                        isAlternativeEventMonitoring(originalPrompt, safeHints));
             }
             if (shouldNormalizeScheduledConditionToReport(route, safeHints)) {
                 return normalizeScheduledConditionToReport(route, domains, primaryDomain);
             }
+            System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] action=KEEP_SCHEDULED reason=count-report-polling-cross-location alertId=n/a");
             return validateScheduledRoute(route, domains, primaryDomain);
         }
         return rejected("Routed alert requires EVENT_INTERPRETER or SCHEDULED_INTERPRETER.");
@@ -83,6 +89,7 @@ public class AlertRouteUnderstandingValidator {
     private boolean requiresScheduledInterpreter(AlertRouteUnderstandingHints hints) {
         return hints.containsPollingExpression()
                 || hints.stronglyIndicatesAggregateSnapshot()
+                || hints.containsAllLocationsExpression()
                 || (hints.containsCardinalityThresholdExpression() && hints.containsSnapshotStateExpression())
                 || (hints.containsSnapshotStateExpression() && !hints.containsEventOccurrenceExpression())
                 || (hints.containsSnapshotStateExpression()
@@ -123,6 +130,10 @@ public class AlertRouteUnderstandingValidator {
     }
 
     private boolean shouldNormalizeScheduledRouteToEvent(String originalPrompt, AlertRouteUnderstandingHints hints) {
+        if (isAlternativeEventMonitoring(originalPrompt, hints)) {
+            logMultiLocationSemantic(originalPrompt, hints, AlertRouteInterpreterType.EVENT_INTERPRETER);
+            return true;
+        }
         boolean hasScheduledSignal = hints.containsPollingExpression()
                 || hints.containsCountOrReportExpression()
                 || hints.containsSnapshotStateExpression()
@@ -139,7 +150,8 @@ public class AlertRouteUnderstandingValidator {
             AlertRouteUnderstandingResult route,
             List<String> domains,
             String primaryDomain,
-            AlertRouteUnderstandingHints hints) {
+            AlertRouteUnderstandingHints hints,
+            boolean alternativeEventMonitoring) {
         boolean attributeThreshold = hints.containsAttributeThresholdExpression();
         AlertRouteIntentKind intentKind = attributeThreshold
                 ? AlertRouteIntentKind.EVENT_CONDITION
@@ -148,7 +160,11 @@ public class AlertRouteUnderstandingValidator {
                 ? "event_occurrence_with_attribute_threshold_no_snapshot"
                 : "event_occurrence_no_snapshot";
         String warning = "Route normalized from SCHEDULED_INTERPRETER to EVENT_INTERPRETER because backend hints detected event occurrence and no snapshot/count/polling semantics.";
-        System.out.println("[IIA][ALERT_ROUTE][VALIDATOR_NORMALIZE] scheduled_to_event reason=" + reason);
+        if (alternativeEventMonitoring) {
+            System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] action=RECLASSIFIED_SCHEDULED_TO_EVENT reason=multi-location-alternative-on-match alertId=n/a");
+        } else {
+            System.out.println("[IIA][ALERT_ROUTE][VALIDATOR_NORMALIZE] scheduled_to_event reason=" + reason);
+        }
         return new AlertRouteUnderstandingResult(
                 AlertRouteDecision.ROUTED,
                 domains,
@@ -296,6 +312,51 @@ public class AlertRouteUnderstandingValidator {
 
     private AlertRouteUnderstandingResult rejected(String reason) {
         return AlertRouteUnderstandingResult.rejected(reason);
+    }
+
+    private boolean isAlternativeEventMonitoring(String prompt, AlertRouteUnderstandingHints hints) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null) {
+            return false;
+        }
+        boolean hasEventNotification = hints.containsEventOccurrenceExpression()
+                || looksLikeSingleEventOccurrence(prompt)
+                || containsAny(normalized, "avvisami quando", "avvertimi quando", "notify me when", "tell me when");
+        if (!hasEventNotification || !hasAlternativeLocationList(normalized)) {
+            return false;
+        }
+        return !hints.containsPollingExpression()
+                && !hints.containsCountOrReportExpression()
+                && !hints.containsCardinalityThresholdExpression()
+                && !hints.containsAllLocationsExpression()
+                && !hasCrossLocationCondition(normalized);
+    }
+
+    private boolean hasAlternativeLocationList(String normalized) {
+        return containsAny(normalized, " o ", " oppure ", " or ", " any of ")
+                || java.util.regex.Pattern.compile("\\b(?:a|at)\\s+[^,]+,\\s*[^,]+(?:,|\\s+(?:o|or)\\s+)")
+                .matcher(normalized)
+                .find();
+    }
+
+    private boolean hasCrossLocationCondition(String normalized) {
+        return containsAny(normalized,
+                "tutte le localita", "in tutte", "all locations", "all stop points", "every stop point",
+                "contemporaneamente", "allo stesso tempo", "simultaneously", "at the same time",
+                "tra queste localita", "across these locations", "numero totale", "totale", "total");
+    }
+
+    private void logMultiLocationSemantic(
+            String prompt,
+            AlertRouteUnderstandingHints hints,
+            AlertRouteInterpreterType selectedInterpreter) {
+        String normalized = normalizeText(prompt);
+        boolean hasCrossLocationCondition = normalized != null && hasCrossLocationCondition(normalized);
+        System.out.println("[IIA][ALERT_ROUTE][MULTI_LOCATION_SEMANTIC] locationsMode=ALTERNATIVE_EVENT_MONITORING"
+                + " hasCrossLocationCondition=" + hasCrossLocationCondition
+                + " hasPolling=" + hints.containsPollingExpression()
+                + " hasCountOrReport=" + hints.containsCountOrReportExpression()
+                + " selectedInterpreter=" + selectedInterpreter);
     }
 
     private List<String> normalizedDomains(List<String> domains) {

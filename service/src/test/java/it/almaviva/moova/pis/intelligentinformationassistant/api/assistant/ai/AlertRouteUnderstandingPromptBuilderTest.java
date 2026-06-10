@@ -36,6 +36,21 @@ class AlertRouteUnderstandingPromptBuilderTest {
                 .contains("route to EVENT_INTERPRETER");
     }
 
+    @Test
+    void promptSaysAlternativeLocationsDoNotImplyScheduledInterpreter() {
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT1",
+                "Route test",
+                "Metadata only",
+                "Avvertimi quando a Bignami o San Siro stadio o Bologna c'e un treno in arrivo"));
+
+        assertThat(request.userPrompt())
+                .contains("Multiple monitored locations do not imply scheduled interpreter")
+                .contains("X or Y or Z")
+                .contains("Do not set hasAggregation=true just because multiple monitored locations are present")
+                .contains("Do not route to SCHEDULED_INTERPRETER just because a condition mentions cancellation, delay");
+    }
+
     private AlertRouteUnderstandingPromptBuilder builder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);

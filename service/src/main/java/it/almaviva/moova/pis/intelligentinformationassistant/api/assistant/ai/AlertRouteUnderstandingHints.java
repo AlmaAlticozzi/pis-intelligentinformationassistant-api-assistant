@@ -56,6 +56,10 @@ public record AlertRouteUnderstandingHints(
             "\\b(cambio origine|origine cambiata|changed origin|origin changed|cambio destinazione|destinazione cambiata|changed destination|destination changed|cambio percorso|percorso cambiato|itinerario cambiato|changed path|route changed|path changed|corsa straordinaria|corsa aggiuntiva|extra journey|cancellata|cancellati|cancellazione|cancelled|cancellation|soppressa|soppresse|soppresso|soppressione|fermata soppressa|fermate soppresse|fermata cancellata|fermate cancellate|fermata saltata|salta la fermata|saltano|skipped stop|cancelled stop|suppressed stop|cancelled call|partial cancellation|cancellazione parziale|parzialmente cancellata|total exclusion|esclusione totale|time based exclusion|time-based exclusion|esclusione temporale|corse sostitutive|corsa sostitutiva|servizi sostitutivi|servizio sostitutivo|mezzo sostitutivo|bus sostitutivo|navetta sostitutiva|fermata sostitutiva|replacement service|substitute service|substitute journey|replacement stop|external replacement|replacement esterno)\\b");
     private static final Pattern EVENT_OCCURRENCE = Pattern.compile(
             "\\b(quando\\s+(?:una\\s+)?corsa\\s+(?:parte|parta|arriva|arrivi|e\\s+in\\s+ritardo|risulta\\s+in\\s+ritardo|cambia)|quando\\s+(?:un\\s+)?treno\\s+(?:parte|parta|arriva|arrivi|e\\s+in\\s+ritardo|risulta\\s+in\\s+ritardo|cambia)|quando\\s+viene\\s+cambiato\\s+il\\s+binario|quando\\s+(?:una\\s+)?corsa\\s+viene\\s+cancellata|quando\\s+cambia\\s+destinazione\\s+(?:una\\s+)?corsa|quando\\s+(?:una\\s+)?corsa\\s+sopprime\\s+la\\s+fermata|quando\\s+viene\\s+cancellata\\s+la\\s+fermata|quando\\s+(?:una\\s+)?corsa\\s+diventa\\s+sostitutiva|quando\\s+viene\\s+generata\\s+una\\s+sostituzione|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+(?:departs|arrives|is\\s+delayed|has\\s+a\\s+delay|changes)|when\\s+platform\\s+changes|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+is\\s+cancelled|when\\s+(?:a\\s+)?(?:train|journey|service)\\s+becomes\\s+(?:a\\s+)?replacement|when\\s+a\\s+replacement\\s+is\\s+generated)\\b");
+    private static final Pattern EVENT_NOTIFICATION_OCCURRENCE = Pattern.compile(
+            "\\b(?:avvisami|avvertimi|fammi\\s+sapere|notify\\s+me|tell\\s+me)\\s+quando\\b.*\\b(?:c[' ]?e|ci\\s+sono|there\\s+is|there\\s+are)\\b.*\\b(?:treno|treni|corsa|corse|train|trains|journey|journeys)\\b.*\\b(?:in\\s+arrivo|arriva|arrivo|arriving|arrival|in\\s+partenza|parte|partenza|departing|departure|soppress|cancell|cancelled|canceled|suppressed|ritardo|delay|delayed)\\b");
+    private static final Pattern PASSIVE_CANCELLATION_OCCURRENCE = Pattern.compile(
+            "\\b(?:avvisami|avvertimi|fammi\\s+sapere|notify\\s+me|tell\\s+me)\\s+quando\\b.*\\b(?:viene|is)\\b.*\\b(?:soppress|cancell|cancelled|canceled|suppressed)\\b.*\\b(?:treno|treni|corsa|corse|train|trains|journey|journeys)\\b");
     private static final Pattern ALL_LOCATIONS = Pattern.compile(
             "\\b(tutte le localita|tutte le fermate|tutte le stazioni|all locations|all stop points|every stop point|all stops|every station)\\b");
     private static final Pattern WEATHER = Pattern.compile(
@@ -75,7 +79,13 @@ public record AlertRouteUnderstandingHints(
         boolean platform = PLATFORM.matcher(normalized).find();
         boolean platformChange = PLATFORM_CHANGE.matcher(normalized).find();
         boolean changeCancellationExclusion = CHANGE_CANCELLATION_EXCLUSION.matcher(normalized).find();
-        boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find();
+        boolean passiveCancellationOccurrence = containsAny(normalized, "avvisami quando", "avvertimi quando", "notify me when", "tell me when")
+                && containsAny(normalized, "soppress", "cancell", "cancelled", "canceled", "suppressed")
+                && containsAny(normalized, "treno", "treni", "corsa", "corse", "train", "trains", "journey", "journeys");
+        boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find()
+                || EVENT_NOTIFICATION_OCCURRENCE.matcher(normalized).find()
+                || PASSIVE_CANCELLATION_OCCURRENCE.matcher(normalized).find()
+                || passiveCancellationOccurrence;
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean threshold = THRESHOLD.matcher(normalized).find();
         boolean attributeThreshold = ATTRIBUTE_THRESHOLD.matcher(normalized).find();
@@ -133,6 +143,8 @@ public record AlertRouteUnderstandingHints(
 
                 Treat these as backend observations. They are not a technicalSpecification.
                 If aggregate snapshot/cardinality hints are true, prefer SCHEDULED_INTERPRETER over EVENT_INTERPRETER.
+                Multiple alternative monitored locations do not imply aggregation or polling by themselves.
+                Snapshot-like state words do not dominate when the prompt is an on-match event notification without polling/count/report/cross-location semantics.
                 Numeric attribute thresholds such as delay >= N minutes or platform > N are not journey cardinality.
                 Platform expressions are ServiceData event constraints and do not imply SCHEDULED_INTERPRETER by themselves.
                 A number attached to a platform/binario/track/quay expression is a platform value/property, not a count of journeys.
@@ -160,5 +172,14 @@ public record AlertRouteUnderstandingHints(
         return Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}", "")
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean containsAny(String value, String... tokens) {
+        for (String token : tokens) {
+            if (value.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

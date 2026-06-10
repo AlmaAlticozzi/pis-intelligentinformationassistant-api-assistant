@@ -126,6 +126,25 @@ class AlertRouteUnderstandingServiceTest {
     }
 
     @Test
+    void normalizesScheduledLlmResponseToEventForAlternativeMultiLocationEventMonitoring() {
+        AlertRouteUnderstandingResult result = serviceWithResponse(scheduledResponse())
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Event Arrival Suppressed Journeys Extra",
+                        "Verify scheduled snapshot routing for a recurring count of arrival suppressed at Lecco.",
+                        "Avvertimi quando a Bignami o San Siro stadio o Bologna c'e un treno in arrivo con una soppressione in partenza"));
+
+        assertThat(result.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(result.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(result.intentKind()).isEqualTo(AlertRouteIntentKind.EVENT_OCCURRENCE);
+        assertThat(result.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(result.requiresPolling()).isFalse();
+        assertThat(result.requiresServiceDataApi()).isFalse();
+        assertThat(result.requiresKafkaEvent()).isTrue();
+        assertThat(result.hasAggregation()).isFalse();
+    }
+
+    @Test
     void normalizesEventLlmResponseToScheduledForSnapshotCountAndPollingPrompts() {
         for (String prompt : java.util.List.of(
                 "Ci sono corse a Garibaldi FS con ritardo di almeno 5 min",
