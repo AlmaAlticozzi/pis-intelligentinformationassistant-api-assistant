@@ -193,6 +193,82 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void reclassifiesGenericJourneyCancellationAtLocationToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Lecco viene soppresso un treno",
+                cancellationUnderstanding("Lecco", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        AlertVerificationLocationContext.LocationResolution lecco = context.resolutions().getFirst();
+        assertThat(lecco.semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+        assertThat(lecco.targetFieldHints())
+                .containsAnyOf(
+                        "payload.stopPointJourney.stopPoint.id",
+                        "payload.ongroundServiceEvent.stopPoint.id")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "CANCELLATION");
+    }
+
+    @Test
+    void reclassifiesCancelledJourneyAtNamedLocationToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando a Genova P.P viene cancellata una corsa",
+                cancellationUnderstanding("Genova P.P", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .contains("payload.stopPointJourney.stopPoint.id")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+    }
+
+    @Test
+    void keepsCancelledStopInsideJourneyAsCancelledCallLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha la fermata Lecco soppressa",
+                cancellationUnderstanding("Lecco", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("CANCELLED_CALL_LOCATION");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .containsExactly("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+    }
+
+    @Test
+    void keepsCancelledStopAtLocationAsCancelledCallLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa ha una fermata soppressa a Lecco",
+                cancellationUnderstanding("Lecco", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("CANCELLED_CALL_LOCATION");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .containsExactly("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+    }
+
+    @Test
+    void reclassifiesArrivalSuppressedTrainsAtLocationToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando a Lecco ci sono treni soppressi in arrivo",
+                cancellationUnderstanding("Lecco", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .contains("payload.stopPointJourney.stopPoint.id")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "CANCELLATION");
+    }
+
+    @Test
+    void reclassifiesDepartureOnlySuppressedTrainsAtLocationToMainEventLocation() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando a Lecco ci sono treni soppressi solo in partenza",
+                cancellationUnderstanding("Lecco", AlertLocationRole.CANCELLED_CALL_LOCATION));
+
+        assertThat(context.resolutions().getFirst().semanticRole()).isEqualTo("MAIN_EVENT_LOCATION");
+        assertThat(context.resolutions().getFirst().targetFieldHints())
+                .contains("payload.stopPointJourney.stopPoint.id")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+        assertConstraint(context, "MAIN_EVENT_INTENT", "CANCELLATION");
+    }
+
+    @Test
     void normalizesProgressiveDepartureFromOriginToMainEventLocation() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Dimmi quando una corsa e in partenza da Garibaldi e passera da Venezia",
@@ -800,6 +876,19 @@ class AlertServiceLocationUnderstandingContextTest {
                 "it",
                 new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.90),
                 List.of(locations),
+                List.of(),
+                List.of());
+    }
+
+    private AlertLocationUnderstandingResult cancellationUnderstanding(String rawText, AlertLocationRole role) {
+        AlertLocationRelation relation = role == AlertLocationRole.CANCELLED_CALL_LOCATION
+                ? AlertLocationRelation.CANCELLED_CALL_CONSTRAINT
+                : AlertLocationRelation.EVENT_STOP_POINT;
+        return new AlertLocationUnderstandingResult(
+                true,
+                "it",
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.CANCELLATION, 0.90),
+                List.of(location(rawText, role, relation, "G1")),
                 List.of(),
                 List.of());
     }

@@ -94,7 +94,21 @@ class AlertLocationUnderstandingPromptBuilderTest {
                 .contains("DESTINATION_LOCATION requires explicit journey-destination wording")
                 .contains("ROUTE_OR_NEXT_CALL_LOCATION is for future route/call wording")
                 .contains("TRANSIT_LOCATION is only for explicit transit wording")
-                .contains("CANCELLED_CALL_LOCATION is for cancelled/suppressed stop wording");
+                .contains("Use CANCELLED_CALL_LOCATION only when the wording explicitly says the stop/call itself is cancelled");
+    }
+
+    @Test
+    void promptDistinguishesCancelledJourneyFromCancelledStopCallLocation() {
+        LlmRequest request = builder.build("Notify me when a train is cancelled at Lecco", "ALRT1");
+
+        assertThat(request.userPrompt())
+                .contains("Cancellation/suppression of a journey at a location means the named location is the monitored/current event location")
+                .contains("Cancellation/suppression of a stop/call inside the journey means the named location is a cancelled/skipped call constraint")
+                .contains("Do not classify \"cancelled journey/train/service at X\"")
+                .contains("a train is cancelled at X")
+                .contains("X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_STOP_POINT")
+                .contains("a journey has stop X cancelled/skipped")
+                .contains("X: role CANCELLED_CALL_LOCATION, relationToMainEvent CANCELLED_CALL_CONSTRAINT");
     }
 
     @Test

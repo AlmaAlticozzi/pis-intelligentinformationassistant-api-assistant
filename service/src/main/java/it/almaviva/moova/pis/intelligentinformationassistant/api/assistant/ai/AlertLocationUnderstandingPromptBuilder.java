@@ -64,7 +64,10 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - ROUTE_OR_NEXT_CALL_LOCATION is for future route/call wording such as "passera da X", "passa da X" when it is not the current event stop, "via X", "fermera a X", "will pass through X" and "will call at X".
                 - Route-only prompts such as "will pass through X", "will pass through X and then Y", "via X" or "passera da X" use ROUTE_OR_NEXT_CALL_LOCATION or TRANSIT_LOCATION locations and should not create an unmappable required main event.
                 - TRANSIT_LOCATION is only for explicit transit wording such as "in transito da X", "transitera da X" or "passing through X as transit".
-                - CANCELLED_CALL_LOCATION is for cancelled/suppressed stop wording such as "soppressa a X", "cancellata a X" or "fermata cancellata a X" when X is not the current event location.
+                - Cancellation/suppression of a journey at a location means the named location is the monitored/current event location: use MAIN_EVENT_LOCATION with relation EVENT_STOP_POINT.
+                - Cancellation/suppression of a stop/call inside the journey means the named location is a cancelled/skipped call constraint: use CANCELLED_CALL_LOCATION with relation CANCELLED_CALL_CONSTRAINT.
+                - Do not classify "cancelled journey/train/service at X", "suppressed journey/train/service at X", or equivalent cross-language wording as CANCELLED_CALL_LOCATION. Those are journey cancellation at the monitored stop X.
+                - Use CANCELLED_CALL_LOCATION only when the wording explicitly says the stop/call itself is cancelled, suppressed or skipped inside the journey, such as "cancelled stop X", "skipped stop X", "cancelled call X", "stop X is cancelled/skipped", "fermata X soppressa", "fermata soppressa a X", "call soppressa a X" or "next cancelled call at X".
                 - Infer main event phase from wording: progressive departure ("e in partenza", "sta partendo", "in partenza", "is departing", "about to depart") -> PROGRESSIVE/DEPARTING.
                 - Infer main event phase from wording: completed departure ("parte", "e partita", "ha lasciato", "departs", "has departed") -> COMPLETED/DEPARTED.
                 - Infer main event phase from wording: progressive arrival ("e in arrivo", "sta arrivando", "in arrivo", "is arriving", "about to arrive") -> PROGRESSIVE/ARRIVING.
@@ -175,6 +178,12 @@ public class AlertLocationUnderstandingPromptBuilder {
                   X: role ORIGIN_LOCATION, relationToMainEvent ORIGIN_CONSTRAINT
                   Z: role DESTINATION_LOCATION, relationToMainEvent DESTINATION_CONSTRAINT
                   Do not invent a MAIN_EVENT_LOCATION when no current event location is present.
+                - Prompt pattern: "a train is cancelled at X" or "there is a cancelled journey at X"
+                  mainEvent.eventIntent: CANCELLATION
+                  X: role MAIN_EVENT_LOCATION, relationToMainEvent EVENT_STOP_POINT
+                - Prompt pattern: "a journey has stop X cancelled/skipped" or "next cancelled call at X"
+                  mainEvent.eventIntent: CANCELLATION
+                  X: role CANCELLED_CALL_LOCATION, relationToMainEvent CANCELLED_CALL_CONSTRAINT
                 """.formatted(escapeForPrompt(prompt));
     }
 

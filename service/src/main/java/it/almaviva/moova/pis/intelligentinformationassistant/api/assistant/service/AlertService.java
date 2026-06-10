@@ -1935,8 +1935,14 @@ public class AlertService {
         }
         List<AlertLocationUnderstandingLocation> normalizedLocations = new ArrayList<>();
         boolean changed = false;
+        boolean singleCancelledCallLocation = understanding.locations().size() == 1
+                && understanding.locations().getFirst().role() == AlertLocationRole.CANCELLED_CALL_LOCATION;
         for (AlertLocationUnderstandingLocation location : understanding.locations()) {
-            AlertLocationUnderstandingLocation normalized = normalizeLocationRole(prompt, understanding.mainEvent(), location);
+            AlertLocationUnderstandingLocation normalized = normalizeLocationRole(
+                    prompt,
+                    understanding.mainEvent(),
+                    location,
+                    singleCancelledCallLocation);
             normalizedLocations.add(normalized);
             changed = changed || normalized != location;
         }
@@ -1955,7 +1961,8 @@ public class AlertService {
     private AlertLocationUnderstandingLocation normalizeLocationRole(
             String prompt,
             AlertLocationUnderstandingMainEvent mainEvent,
-            AlertLocationUnderstandingLocation location) {
+            AlertLocationUnderstandingLocation location,
+            boolean singleCancelledCallLocation) {
         if (prompt == null || mainEvent == null || location == null || location.rawText().isBlank()) {
             return location;
         }
@@ -1973,6 +1980,18 @@ public class AlertService {
                 && !hasExplicitDestinationWordingForLocation(prompt, location.rawText())) {
             return normalizedMainEventLocation(location,
                     "current arrival wording indicates event stop, not journey destination");
+        }
+        if (intent == AlertLocationMainEventIntent.CANCELLATION
+                && location.role() == AlertLocationRole.CANCELLED_CALL_LOCATION) {
+            if (hasExplicitCancelledCallStopWording(prompt, location.rawText())) {
+                System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][CANCELLATION_ROLE_NORMALIZATION] "
+                        + "action=KEPT_CANCELLED_CALL rawText=" + location.rawText()
+                        + " reason=explicit-cancelled-call-stop");
+                return location;
+            }
+            if (singleCancelledCallLocation) {
+                return normalizedMainEventLocationFromCancelledCall(location);
+            }
         }
         if (location.polarity() == AlertLocationPolarity.EXCLUDE
                 && location.role() != AlertLocationRole.DESTINATION_LOCATION
@@ -2001,6 +2020,23 @@ public class AlertService {
                 + " originalRelation=" + location.relationToMainEvent()
                 + " normalizedRelation=" + normalized.relationToMainEvent()
                 + " reason=" + reason);
+        return normalized;
+    }
+
+    private AlertLocationUnderstandingLocation normalizedMainEventLocationFromCancelledCall(
+            AlertLocationUnderstandingLocation location) {
+        AlertLocationUnderstandingLocation normalized = new AlertLocationUnderstandingLocation(
+                location.rawText(),
+                location.normalizedText(),
+                AlertLocationRole.MAIN_EVENT_LOCATION,
+                AlertLocationRelation.EVENT_STOP_POINT,
+                true,
+                location.polarity(),
+                location.logicalGroup(),
+                location.confidence());
+        System.out.println("[IIA][ALERT_LOCATION_UNDERSTANDING][CANCELLATION_ROLE_NORMALIZATION] "
+                + "action=RECLASSIFIED_CANCELLED_CALL_TO_MAIN_EVENT rawText=" + location.rawText()
+                + " reason=journey-cancellation-at-monitored-stop");
         return normalized;
     }
 
@@ -2084,6 +2120,32 @@ public class AlertService {
                 "destination is not",
                 "not destination",
                 "must not have destination");
+    }
+
+    private boolean hasExplicitCancelledCallStopWording(String prompt, String rawText) {
+        String normalized = normalizeText(prompt);
+        String location = normalizeText(rawText);
+        if (normalized == null || location == null) {
+            return false;
+        }
+        return containsAnyNearLocation(normalized, location,
+                "fermata soppressa",
+                "fermata cancellata",
+                "soppressione fermata",
+                "call soppressa",
+                "stop cancellato",
+                "fermata",
+                "cancelled stop",
+                "canceled stop",
+                "skipped stop",
+                "cancelled call",
+                "canceled call",
+                "skipped call",
+                "stop is cancelled",
+                "stop is canceled",
+                "stop is skipped",
+                "next cancelled call",
+                "next canceled call");
     }
 
     private boolean containsAnyNearLocation(String prompt, String location, String... cues) {

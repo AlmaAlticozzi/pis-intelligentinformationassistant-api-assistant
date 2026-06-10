@@ -1690,6 +1690,38 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsFlattenedSiblingAnyElementsForNextCancelledCallsCorrelation() {
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", detailsPath,
+                                        "conditions", Map.of("all", List.of(Map.of(
+                                                "field", "arrivalStatuses[].status",
+                                                "operator", "CONTAINS",
+                                                "value", "ARRIVAL_CANCELLATION"))))),
+                        Map.of(
+                                "anyElement", Map.of(
+                                        "path", detailsPath + ".nextCancelledCalls[]",
+                                        "conditions", Map.of("all", List.of(Map.of(
+                                                "field", "stopPoint.id",
+                                                "operator", "EQUALS",
+                                                "value", RHO_FIERAMILANO_ID)))))));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                condition,
+                coverageFor(
+                        detailsPath + ".arrivalStatuses[].status",
+                        detailsPath + ".nextCancelledCalls[].stopPoint.id")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("nested anyElement is required")
+                .contains("same stopPointsJourneyDetails element");
+    }
+
+    @Test
     void rejectsExistsOnNestedTransitPassingTime() {
         Map<String, Object> condition = nestedTransitPassingTimeExistsCondition();
 
