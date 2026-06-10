@@ -27,7 +27,7 @@ class ScheduledAlertJourneyCancellationHintsExtractorTest {
     }
 
     @Test
-    void extractsArrivalOnlyCancellation() {
+    void extractsArrivalCancellation() {
         ScheduledAlertJourneyCancellationHints hints = extractor.extract("corse con soppressione in arrivo");
 
         assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
@@ -50,12 +50,34 @@ class ScheduledAlertJourneyCancellationHintsExtractorTest {
     }
 
     @Test
-    void extractsDepartureOnlyCancellation() {
+    void extractsArrivalOnlyCancellation() {
+        ScheduledAlertJourneyCancellationHints hints = extractor.extract("corse con soppressione solo in arrivo");
+
+        assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
+        assertThat(hints.constraints()).anySatisfy(constraint -> {
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_JOURNEY_CANCELLATION);
+            assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL);
+        });
+    }
+
+    @Test
+    void extractsDepartureCancellation() {
         ScheduledAlertJourneyCancellationHints hints = extractor.extract("corse con soppressione in partenza");
 
         assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
         assertThat(hints.constraints()).anySatisfy(constraint -> {
             assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION);
+            assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE);
+        });
+    }
+
+    @Test
+    void extractsExclusiveDepartureOnlyCancellation() {
+        ScheduledAlertJourneyCancellationHints hints = extractor.extract("corse con soppressione solo in partenza");
+
+        assertThat(hints.hasJourneyCancellationConstraint()).isTrue();
+        assertThat(hints.constraints()).anySatisfy(constraint -> {
+            assertThat(constraint.cancellationIntent()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_JOURNEY_CANCELLATION);
             assertThat(constraint.direction()).isEqualTo(ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE);
         });
     }

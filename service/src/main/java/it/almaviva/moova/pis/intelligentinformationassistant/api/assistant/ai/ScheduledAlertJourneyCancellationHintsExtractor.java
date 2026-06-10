@@ -12,10 +12,14 @@ public class ScheduledAlertJourneyCancellationHintsExtractor {
 
     private static final Pattern NEGATIVE = Pattern.compile(
             "\\b(non|senza|without|not)\\b.{0,30}\\b(cancellat\\w*|soppress\\w*|cancellazione|cancelled|cancellation|suppressed)\\b");
-    private static final Pattern ARRIVAL_ONLY = Pattern.compile(
-            "\\b(soppressione\\s+in\\s+arrivo|soppress\\w+\\s+in\\s+arrivo|cancellazione\\s+in\\s+arrivo|cancellat\\w+\\s+in\\s+arrivo|arrival\\s+cancellation|arrival\\s+suppressed|arrival\\s+cancelled|arrival-only\\s+cancellation|cancelled\\s+on\\s+arrival)\\b");
-    private static final Pattern DEPARTURE_ONLY = Pattern.compile(
-            "\\b(soppressione\\s+in\\s+partenza|soppress\\w+\\s+in\\s+partenza|cancellazione\\s+in\\s+partenza|cancellat\\w+\\s+in\\s+partenza|departure\\s+cancellation|departure\\s+suppressed|departure\\s+cancelled|departure-only\\s+cancellation|cancelled\\s+on\\s+departure)\\b");
+    private static final Pattern ARRIVAL_DIRECTION = Pattern.compile(
+            "\\b(soppressione\\s+in\\s+arrivo|soppress\\w+\\s+in\\s+arrivo|cancellazione\\s+in\\s+arrivo|cancellat\\w+\\s+in\\s+arrivo|arrival\\s+cancellation|arrival\\s+suppressed|arrival\\s+cancelled|cancelled\\s+on\\s+arrival|suppressed\\s+on\\s+arrival)\\b");
+    private static final Pattern DEPARTURE_DIRECTION = Pattern.compile(
+            "\\b(soppressione\\s+in\\s+partenza|soppress\\w+\\s+in\\s+partenza|cancellazione\\s+in\\s+partenza|cancellat\\w+\\s+in\\s+partenza|departure\\s+cancellation|departure\\s+suppressed|departure\\s+cancelled|cancelled\\s+on\\s+departure|suppressed\\s+on\\s+departure)\\b");
+    private static final Pattern ARRIVAL_EXCLUSIVE = Pattern.compile(
+            "\\b(solo\\s+[^.]{0,40}(arrivo|arrival)|arrival-only|only\\s+[^.]{0,40}(arrival|on\\s+arrival)|arrivo\\s+soltanto|arrival\\s+only)\\b");
+    private static final Pattern DEPARTURE_EXCLUSIVE = Pattern.compile(
+            "\\b(solo\\s+[^.]{0,40}(partenza|departure)|departure-only|only\\s+[^.]{0,40}(departure|on\\s+departure)|partenza\\s+soltanto|departure\\s+only)\\b");
     private static final Pattern GENERIC = Pattern.compile(
             "\\b(corse?\\s+soppress\\w*|treni\\s+soppress\\w*|corse?\\s+cancellat\\w*|treni\\s+cancellat\\w*|cancelled\\s+journeys|suppressed\\s+journeys|cancelled\\s+trains|suppressed\\s+trains)\\b");
 
@@ -28,20 +32,26 @@ public class ScheduledAlertJourneyCancellationHintsExtractor {
         ScheduledAlertJourneyCancellationConstraint.Polarity polarity = NEGATIVE.matcher(normalized).find()
                 ? ScheduledAlertJourneyCancellationConstraint.Polarity.EXCLUDE
                 : ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE;
-        if (ARRIVAL_ONLY.matcher(normalized).find()) {
+        if (ARRIVAL_DIRECTION.matcher(normalized).find() || ARRIVAL_EXCLUSIVE.matcher(normalized).find()) {
+            boolean exclusive = ARRIVAL_EXCLUSIVE.matcher(normalized).find();
             ScheduledAlertJourneyCancellationConstraint constraint = new ScheduledAlertJourneyCancellationConstraint(
                     prompt,
-                    ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_JOURNEY_CANCELLATION,
+                    exclusive
+                            ? ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_JOURNEY_CANCELLATION
+                            : ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_JOURNEY_CANCELLATION,
                     ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL,
                     polarity,
                     0.9);
             logDerivation(constraint);
             return hints(constraint);
         }
-        if (DEPARTURE_ONLY.matcher(normalized).find()) {
+        if (DEPARTURE_DIRECTION.matcher(normalized).find() || DEPARTURE_EXCLUSIVE.matcher(normalized).find()) {
+            boolean exclusive = DEPARTURE_EXCLUSIVE.matcher(normalized).find();
             ScheduledAlertJourneyCancellationConstraint constraint = new ScheduledAlertJourneyCancellationConstraint(
                     prompt,
-                    ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION,
+                    exclusive
+                            ? ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_JOURNEY_CANCELLATION
+                            : ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION,
                     ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE,
                     polarity,
                     0.9);

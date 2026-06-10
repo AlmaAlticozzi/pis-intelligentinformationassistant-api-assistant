@@ -289,17 +289,31 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
-    void acceptsArrivalJourneyCancellationWhenOppositeStatusIsNegated() {
+    void acceptsArrivalJourneyCancellationWhenOnlyArrivalStatusIsPresent() {
         assertVerifiedWithJourneyCancellationHints(
                 arrivalJourneyCancellationCondition(),
                 arrivalJourneyCancellationHints());
     }
 
     @Test
-    void acceptsDepartureJourneyCancellationWhenOppositeStatusIsNegated() {
+    void acceptsArrivalOnlyJourneyCancellationWhenOppositeStatusIsNegated() {
+        assertVerifiedWithJourneyCancellationHints(
+                arrivalOnlyJourneyCancellationCondition(),
+                arrivalOnlyJourneyCancellationHints());
+    }
+
+    @Test
+    void acceptsDepartureJourneyCancellationWhenOnlyDepartureStatusIsPresent() {
         assertVerifiedWithJourneyCancellationHints(
                 departureJourneyCancellationCondition(),
                 departureJourneyCancellationHints());
+    }
+
+    @Test
+    void acceptsDepartureOnlyJourneyCancellationWhenOppositeStatusIsNegated() {
+        assertVerifiedWithJourneyCancellationHints(
+                departureOnlyJourneyCancellationCondition(),
+                departureOnlyJourneyCancellationHints());
     }
 
     @Test
@@ -2356,10 +2370,28 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 0.9)), List.of());
     }
 
+    private ScheduledAlertJourneyCancellationHints arrivalOnlyJourneyCancellationHints() {
+        return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
+                "corse soppresse solo in arrivo",
+                ScheduledAlertJourneyCancellationConstraint.CancellationIntent.ARRIVAL_ONLY_JOURNEY_CANCELLATION,
+                ScheduledAlertJourneyCancellationConstraint.Direction.ARRIVAL,
+                ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
+                0.9)), List.of());
+    }
+
     private ScheduledAlertJourneyCancellationHints departureJourneyCancellationHints() {
         return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
                 "corse soppresse in partenza",
                 ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_JOURNEY_CANCELLATION,
+                ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE,
+                ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
+                0.9)), List.of());
+    }
+
+    private ScheduledAlertJourneyCancellationHints departureOnlyJourneyCancellationHints() {
+        return new ScheduledAlertJourneyCancellationHints(true, List.of(new ScheduledAlertJourneyCancellationConstraint(
+                "corse soppresse solo in partenza",
+                ScheduledAlertJourneyCancellationConstraint.CancellationIntent.DEPARTURE_ONLY_JOURNEY_CANCELLATION,
                 ScheduledAlertJourneyCancellationConstraint.Direction.DEPARTURE,
                 ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
                 0.9)), List.of());
@@ -2583,11 +2615,23 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     private Map<String, Object> arrivalJourneyCancellationCondition() {
         return conditionAnyElement("stopPointsJourneyDetails[]",
                 Map.of("all", List.of(
+                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"))));
+    }
+
+    private Map<String, Object> arrivalOnlyJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
                         leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
                         leaf("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION"))));
     }
 
     private Map<String, Object> departureJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("all", List.of(
+                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+    }
+
+    private Map<String, Object> departureOnlyJourneyCancellationCondition() {
         return conditionAnyElement("stopPointsJourneyDetails[]",
                 Map.of("all", List.of(
                         leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"),

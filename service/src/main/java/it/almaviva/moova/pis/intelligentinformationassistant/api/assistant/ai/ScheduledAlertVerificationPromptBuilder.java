@@ -160,9 +160,11 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Valid condition mappedBy examples: stopPointsJourneyDetails[].changes, stopPointsJourneyDetails[].arrivalStatuses[].status, stopPointsJourneyDetails[].departureStatuses[].status, stopPointsJourneyDetails[].departureDelay.delay, stopPointsJourneyDetails[].arrivalDelay.delay.
                 - Do not put JSON structural paths in mappedBy, such as snapshotEvaluation.condition.anyElement.path, snapshotEvaluation.condition.anyElement.conditions, snapshotEvaluation.condition.anyElement.conditions.all[].field, technicalSpecification.condition or agentBlueprintPreview.parameters.
                 - Generic cancelled/suppressed journey semantics must use arrivalStatuses[].status, departureStatuses[].status and passingType; do not use changes CANCELLATION/PARTIALLY_CANCELLATION for generic cancelled/suppressed journey reports.
-                - Arrival-only cancellation must use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION and departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION; do not include passingType or departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
-                - Departure-only cancellation must use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION and arrivalStatuses[].status NOT_CONTAINS ARRIVAL_CANCELLATION; do not include passingType or arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
-                - Do not use changes for generic, arrival-only or departure-only journey cancellation semantics.
+                - Arrival cancellation / suppressed on arrival is non-exclusive: use only arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION. Do not add departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION unless the semantic hint is exclusive arrival / only suppressed on arrival.
+                - Exclusive arrival cancellation / only suppressed on arrival must use arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION and departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION.
+                - Departure cancellation / suppressed on departure is non-exclusive: use only departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION. Do not add arrivalStatuses[].status NOT_CONTAINS ARRIVAL_CANCELLATION unless the semantic hint is exclusive departure / only suppressed on departure.
+                - Exclusive departure cancellation / only suppressed on departure must use departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION and arrivalStatuses[].status NOT_CONTAINS ARRIVAL_CANCELLATION.
+                - Do not use changes for generic, arrival, departure, exclusive arrival or exclusive departure journey cancellation semantics.
                 - Query/control fields such as snapshotEvaluation.mode and outputPolicy.emit are not ServiceData fields and must not be used in snapshotEvaluation.condition.
                 - condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
                 - Use one anyElement path stopPointsJourneyDetails[] to correlate constraints on the same journey.
@@ -938,15 +940,21 @@ public class ScheduledAlertVerificationPromptBuilder {
                   arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION;
                   OR arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND passingType EQUALS DESTINATION;
                   OR departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION AND passingType EQUALS ORIGIN.
-                - Arrival-only cancellation ("soppresse in arrivo", "arrival cancellation", "arrival suppressed journeys") must use:
+                - Arrival cancellation / suppressed on arrival is non-exclusive and must use:
+                  arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
+                  Do not add departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION for non-exclusive arrival cancellation.
+                - Exclusive arrival cancellation / only suppressed on arrival must use:
                   arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION.
                   Do not include passingType ORIGIN/DESTINATION and do not include departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
-                - Departure-only cancellation ("soppresse in partenza", "departure cancellation", "departure suppressed journeys") must use:
+                - Departure cancellation / suppressed on departure is non-exclusive and must use:
+                  departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
+                  Do not add arrivalStatuses[].status NOT_CONTAINS ARRIVAL_CANCELLATION for non-exclusive departure cancellation.
+                - Exclusive departure cancellation / only suppressed on departure must use:
                   departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION AND arrivalStatuses[].status NOT_CONTAINS ARRIVAL_CANCELLATION.
                   Do not include passingType ORIGIN/DESTINATION and do not include arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
-                - Do not use the generic cancellation OR structure for arrival-only or departure-only prompts.
+                - Do not use the generic cancellation OR structure for arrival/departure directional prompts.
                 - Do not use changes CONTAINS CANCELLATION or changes CONTAINS PARTIALLY_CANCELLATION for generic "corsa soppressa" / "cancelled journey" count/report alerts.
-                - Do not use changes for generic, arrival-only or departure-only journey cancellation semantics.
+                - Do not use changes for generic, arrival, departure, exclusive arrival or exclusive departure journey cancellation semantics.
                 - Use changes only for explicit change/intention prompts such as cambio origine, cambio destinazione, cambio percorso, variazione, changes, changed origin, changed destination.
                 - Negative cancellation/change wording must use only catalog-supported negative operators.
                 - Do not use NOT_CONTAINS_NORMALIZED on enum fields.

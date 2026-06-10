@@ -516,19 +516,24 @@ public class ScheduledAlertVerificationOutcomeValidator {
                     || containsLeaf(leaves, "changes", "CONTAINS", "PARTIALLY_CANCELLATION")) {
                 return "Journey cancellation must not be mapped with changes CANCELLATION or PARTIALLY_CANCELLATION; use arrival/departure statuses.";
             }
-            boolean represented = switch (constraint.direction()) {
-                case ARRIVAL -> containsCanonicalArrivalJourneyCancellation(leaves);
-                case DEPARTURE -> containsCanonicalDepartureJourneyCancellation(leaves);
-                case UNSPECIFIED -> containsCanonicalGenericJourneyCancellation(condition);
+            boolean represented = switch (constraint.cancellationIntent()) {
+                case ARRIVAL_JOURNEY_CANCELLATION -> containsCanonicalArrivalJourneyCancellation(leaves);
+                case ARRIVAL_ONLY_JOURNEY_CANCELLATION -> containsCanonicalArrivalOnlyJourneyCancellation(leaves);
+                case DEPARTURE_JOURNEY_CANCELLATION -> containsCanonicalDepartureJourneyCancellation(leaves);
+                case DEPARTURE_ONLY_JOURNEY_CANCELLATION -> containsCanonicalDepartureOnlyJourneyCancellation(leaves);
+                case GENERIC_JOURNEY_CANCELLATION -> containsCanonicalGenericJourneyCancellation(condition);
             };
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][HINT_COVERAGE] journeyCancellation required=true direction="
                     + constraint.direction()
+                    + " intent=" + constraint.cancellationIntent()
                     + " represented=" + represented);
             if (!represented) {
-                return switch (constraint.direction()) {
-                    case ARRIVAL -> "Arrival journey cancellation was requested but not represented with arrival cancellation and departure NOT_CONTAINS cancellation statuses.";
-                    case DEPARTURE -> "Departure journey cancellation was requested but not represented with departure cancellation and arrival NOT_CONTAINS cancellation statuses.";
-                    case UNSPECIFIED -> "Generic journey cancellation was requested but not represented with arrival/departure cancellation statuses plus passingType.";
+                return switch (constraint.cancellationIntent()) {
+                    case ARRIVAL_JOURNEY_CANCELLATION -> "Arrival journey cancellation was requested but not represented with arrival cancellation status.";
+                    case ARRIVAL_ONLY_JOURNEY_CANCELLATION -> "Exclusive arrival journey cancellation was requested but not represented with arrival cancellation and departure NOT_CONTAINS cancellation statuses.";
+                    case DEPARTURE_JOURNEY_CANCELLATION -> "Departure journey cancellation was requested but not represented with departure cancellation status.";
+                    case DEPARTURE_ONLY_JOURNEY_CANCELLATION -> "Exclusive departure journey cancellation was requested but not represented with departure cancellation and arrival NOT_CONTAINS cancellation statuses.";
+                    case GENERIC_JOURNEY_CANCELLATION -> "Generic journey cancellation was requested but not represented with arrival/departure cancellation statuses plus passingType.";
                 };
             }
         }
@@ -537,6 +542,14 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private boolean containsCanonicalArrivalJourneyCancellation(List<ConditionLeaf> leaves) {
         return containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                && !containsLeaf(leaves, "departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")
+                && !containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "ORIGIN")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "DESTINATION");
+    }
+
+    private boolean containsCanonicalArrivalOnlyJourneyCancellation(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
                 && containsLeaf(leaves, "departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")
                 && !containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
                 && !containsLeaf(leaves, "passingType", "EQUALS", "ORIGIN")
@@ -544,6 +557,14 @@ public class ScheduledAlertVerificationOutcomeValidator {
     }
 
     private boolean containsCanonicalDepartureJourneyCancellation(List<ConditionLeaf> leaves) {
+        return containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                && !containsLeaf(leaves, "arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")
+                && !containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "ORIGIN")
+                && !containsLeaf(leaves, "passingType", "EQUALS", "DESTINATION");
+    }
+
+    private boolean containsCanonicalDepartureOnlyJourneyCancellation(List<ConditionLeaf> leaves) {
         return containsLeaf(leaves, "departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
                 && containsLeaf(leaves, "arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")
                 && !containsLeaf(leaves, "arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")

@@ -243,11 +243,89 @@ class ScheduledAlertVerificationServiceTest {
         String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
         assertThat(snapshot)
                 .contains("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
-                .contains("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")
                 .doesNotContain("passingType")
                 .doesNotContain("field=changes")
+                .doesNotContain("NOT_CONTAINS")
                 .doesNotContain("operator=CONTAINS, value=DEPARTURE_CANCELLATION");
+        assertThat(conditionFromBlueprint(outcome.agentBlueprintPreview()))
+                .isEqualTo(conditionFromTechnicalSpecification(outcome.technicalSpecification()));
         assertThat(map(outcome.technicalSpecification().get("outputPolicy"))).containsEntry("emit", "EVERY_RUN");
+    }
+
+    @Test
+    void canonicalizesArrivalOnlyCancellationWithOppositeNotContains() {
+        ScheduledServiceDataLocationContext context = leccoContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Arrival Only Cancellation",
+                "Verify exclusive arrival cancellation.",
+                "Avvertimi ogni 10 min sulle corse soppresse solo in arrivo a Lecco",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshot)
+                .contains("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                .contains("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION")
+                .doesNotContain("passingType")
+                .doesNotContain("operator=CONTAINS, value=DEPARTURE_CANCELLATION");
+    }
+
+    @Test
+    void canonicalizesDepartureCancellationNonExclusiveWithoutOppositeNotContains() {
+        ScheduledServiceDataLocationContext context = leccoContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("changes", "CONTAINS", "CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Departure Cancellation",
+                "Verify departure cancellation.",
+                "Avvertimi ogni 10 min sulle corse soppresse in partenza a Lecco",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshot)
+                .contains("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                .doesNotContain("arrivalStatuses[].status")
+                .doesNotContain("NOT_CONTAINS")
+                .doesNotContain("passingType")
+                .doesNotContain("field=changes");
+    }
+
+    @Test
+    void canonicalizesDepartureOnlyCancellationWithOppositeNotContains() {
+        ScheduledServiceDataLocationContext context = leccoContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Departure Only Cancellation",
+                "Verify exclusive departure cancellation.",
+                "Avvertimi ogni 10 min sulle corse soppresse solo in partenza a Lecco",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
+        assertThat(snapshot)
+                .contains("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                .contains("arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")
+                .doesNotContain("passingType")
+                .doesNotContain("operator=CONTAINS, value=ARRIVAL_CANCELLATION");
     }
 
     @Test
@@ -838,6 +916,10 @@ class ScheduledAlertVerificationServiceTest {
                 .contains("passingType", "DESTINATION", "ORIGIN")
                 .doesNotContain("field=changes")
                 .doesNotContain("PARTIALLY_CANCELLATION");
+        assertThat(conditionFromTechnicalSpecification(outcome.technicalSpecification()))
+                .isEqualTo(genericJourneyCancellationCondition());
+        assertThat(conditionFromBlueprint(outcome.agentBlueprintPreview()))
+                .isEqualTo(conditionFromTechnicalSpecification(outcome.technicalSpecification()));
         assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
                 .containsEntry("emit", "EVERY_RUN")
                 .containsEntry("includeCount", true);
@@ -950,9 +1032,9 @@ class ScheduledAlertVerificationServiceTest {
         String snapshot = String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation"));
         assertThat(snapshot)
                 .contains("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
-                .contains("arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION")
                 .doesNotContain("passingType")
                 .doesNotContain("field=changes")
+                .doesNotContain("NOT_CONTAINS")
                 .doesNotContain("operator=CONTAINS, value=ARRIVAL_CANCELLATION");
     }
 
@@ -1655,6 +1737,17 @@ class ScheduledAlertVerificationServiceTest {
         Map<String, Object> condition = map(snapshotEvaluation.get("condition"));
         Map<String, Object> anyElement = map(condition.get("anyElement"));
         return (Map<String, Object>) anyElement.get("conditions");
+    }
+
+    private Map<String, Object> conditionFromTechnicalSpecification(Map<String, Object> technicalSpecification) {
+        Map<String, Object> snapshotEvaluation = map(technicalSpecification.get("snapshotEvaluation"));
+        return map(snapshotEvaluation.get("condition"));
+    }
+
+    private Map<String, Object> conditionFromBlueprint(Map<String, Object> agentBlueprintPreview) {
+        Map<String, Object> parameters = map(agentBlueprintPreview.get("parameters"));
+        Map<String, Object> snapshotEvaluation = map(parameters.get("snapshotEvaluation"));
+        return map(snapshotEvaluation.get("condition"));
     }
 
     private ScheduledServiceDataLocationContext explicitContext() {

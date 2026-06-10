@@ -25,10 +25,13 @@ public record ScheduledAlertJourneyCancellationHints(
                 - warnings: %s
 
                 Journey cancellation hint rules:
-                - Generic cancelled/suppressed journeys are full journey cancellation semantics, not generic changes.
+                - Generic cancellation / suppressed journey / cancelled journey are full journey cancellation semantics, not generic changes.
                 - Generic cancelled/suppressed journey conditions must use arrivalStatuses[].status, departureStatuses[].status and passingType.
+                - Arrival cancellation / suppressed on arrival is non-exclusive and requires only arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION.
+                - Departure cancellation / suppressed on departure is non-exclusive and requires only departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION.
+                - Exclusive arrival cancellation / only suppressed on arrival requires arrival cancellation and departure NOT_CONTAINS departure cancellation.
+                - Exclusive departure cancellation / only suppressed on departure requires departure cancellation and arrival NOT_CONTAINS arrival cancellation.
                 - Do not use changes CONTAINS CANCELLATION or changes CONTAINS PARTIALLY_CANCELLATION for generic cancelled/suppressed journey count/report alerts.
-                - Arrival-only or departure-only cancellation requires NOT_CONTAINS on the opposite status field.
                 """.formatted(hasJourneyCancellationConstraint, constraints, warnings);
     }
 }
