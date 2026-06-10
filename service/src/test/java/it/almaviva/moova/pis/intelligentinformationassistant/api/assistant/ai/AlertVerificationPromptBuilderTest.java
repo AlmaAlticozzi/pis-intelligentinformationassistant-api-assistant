@@ -266,6 +266,23 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptExplainsRealtimeCancellationSemanticWorkflow() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(request.userPrompt())
+                .contains("first identify the monitored stop/location, then the main realtime event, then journey state filters")
+                .contains("Realtime cancellation workflow is language-independent")
+                .contains("Generic cancellation / suppressed journey / cancelled journey at the monitored stop")
+                .contains("payload.ongroundServiceEvent.eventsType CONTAINS_ANY [\"CANCELLATION\",\"ARRIVAL_CANCELLATION\",\"DEPARTURE_CANCELLATION\"]")
+                .contains("Arrival cancellation / suppressed on arrival is a journey state filter")
+                .contains("Do not add departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION for non-exclusive arrival cancellation")
+                .contains("Exclusive arrival cancellation / only suppressed on arrival")
+                .contains("Departure cancellation / suppressed on departure is a journey state filter")
+                .contains("Exclusive departure cancellation / only suppressed on departure")
+                .contains("do not replace DEPARTING with ARRIVAL_CANCELLATION");
+    }
+
+    @Test
     void promptContainsPlatformFieldComparisonAndMovementSemantics() {
         LlmRequest request = builder().build(promptData());
 

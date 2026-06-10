@@ -2233,6 +2233,183 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsEventGenericCancellationAtMonitoredStop() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("CANCELLATION", "ARRIVAL_CANCELLATION", "DEPARTURE_CANCELLATION")),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", genericCancellationBranches())))),
+                coverageFor(
+                        stopPointField,
+                        eventField,
+                        detailsPath + ".arrivalStatuses[].status",
+                        detailsPath + ".departureStatuses[].status",
+                        detailsPath + ".passingType")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsEventArrivalCancellationNonExclusive() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("ARRIVAL_CANCELLATION", "CANCELLATION")),
+                        cancellationAnyElement(detailsPath, Map.of(
+                                "field", "arrivalStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION")))),
+                coverageFor(stopPointField, eventField, detailsPath + ".arrivalStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
+    void acceptsEventArrivalOnlyCancellation() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVAL_CANCELLATION"),
+                        cancellationAnyElement(detailsPath, Map.of("all", List.of(
+                                Map.of(
+                                        "field", "arrivalStatuses[].status",
+                                        "operator", "CONTAINS",
+                                        "value", "ARRIVAL_CANCELLATION"),
+                                Map.of(
+                                        "field", "departureStatuses[].status",
+                                        "operator", "NOT_CONTAINS",
+                                        "value", "DEPARTURE_CANCELLATION")))))),
+                coverageFor(
+                        stopPointField,
+                        eventField,
+                        detailsPath + ".arrivalStatuses[].status",
+                        detailsPath + ".departureStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsEventDepartureCancellationNonExclusive() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS_ANY",
+                                "values", List.of("DEPARTURE_CANCELLATION", "CANCELLATION")),
+                        cancellationAnyElement(detailsPath, Map.of(
+                                "field", "departureStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_CANCELLATION")))),
+                coverageFor(stopPointField, eventField, detailsPath + ".departureStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
+    void acceptsEventDepartureOnlyCancellation() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("field", eventField, "operator", "CONTAINS", "value", "DEPARTURE_CANCELLATION"),
+                        cancellationAnyElement(detailsPath, Map.of("all", List.of(
+                                Map.of(
+                                        "field", "departureStatuses[].status",
+                                        "operator", "CONTAINS",
+                                        "value", "DEPARTURE_CANCELLATION"),
+                                Map.of(
+                                        "field", "arrivalStatuses[].status",
+                                        "operator", "NOT_CONTAINS",
+                                        "value", "ARRIVAL_CANCELLATION")))))),
+                coverageFor(
+                        stopPointField,
+                        eventField,
+                        detailsPath + ".departureStatuses[].status",
+                        detailsPath + ".arrivalStatuses[].status")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsDepartingMainEventWithArrivalCancellationStateAndDelayThreshold() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("DELAY_EVENT_TYPE", "DEPARTURE_DELAY"),
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "DELAY_THRESHOLD",
+                                "operator=GREATER_THAN;value=300;unit=SECONDS")),
+                resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", RHO_FIERAMILANO_ID));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "all", List.of(
+                                Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                                Map.of("field", eventField, "operator", "CONTAINS", "value", "DEPARTING"),
+                                cancellationAnyElement(detailsPath, Map.of("all", List.of(
+                                        Map.of(
+                                                "field", "arrivalStatuses[].status",
+                                                "operator", "CONTAINS",
+                                                "value", "ARRIVAL_CANCELLATION"),
+                                        Map.of(
+                                                "field", "departureDelay.delay",
+                                                "operator", "GREATER_THAN",
+                                                "value", 300)))))),
+                        coverageFor(
+                                stopPointField,
+                                eventField,
+                                detailsPath + ".arrivalStatuses[].status",
+                                detailsPath + ".departureDelay.delay")),
+                "Prompt",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
     void rejectsEqualPlatformWithoutValue() {
         assertPlatformConditionIsRejected(
                 Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "EQUAL_PLATFORM"),
@@ -2636,6 +2813,43 @@ class AlertVerificationOutcomeValidatorTest {
                         .map(field -> coverageRequirement(field, field))
                         .toList(),
                 "allRequiredRequirementsMapped", true);
+    }
+
+    private Map<String, Object> cancellationAnyElement(String detailsPath, Map<String, Object> conditions) {
+        return Map.of("anyElement", Map.of(
+                "path", detailsPath,
+                "conditions", conditions));
+    }
+
+    private Map<String, Object> genericCancellationBranches() {
+        return Map.of("any", List.of(
+                Map.of("all", List.of(
+                        Map.of(
+                                "field", "arrivalStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION"),
+                        Map.of(
+                                "field", "departureStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_CANCELLATION"))),
+                Map.of("all", List.of(
+                        Map.of(
+                                "field", "arrivalStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION"),
+                        Map.of(
+                                "field", "passingType",
+                                "operator", "EQUALS",
+                                "value", "DESTINATION"))),
+                Map.of("all", List.of(
+                        Map.of(
+                                "field", "departureStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_CANCELLATION"),
+                        Map.of(
+                                "field", "passingType",
+                                "operator", "EQUALS",
+                                "value", "ORIGIN")))));
     }
 
     private Map<String, Object> coverageRequirement(String text, String field) {

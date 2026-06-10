@@ -151,6 +151,31 @@ class ServiceDataCapabilityCatalogTest {
     }
 
     @Test
+    void catalogSupportsRealtimeCancellationEventsAndExclusiveStatusPredicates() {
+        assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(
+                "payload.ongroundServiceEvent.eventsType",
+                "CANCELLATION"))
+                .isTrue();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(
+                "payload.ongroundServiceEvent.eventsType",
+                "ARRIVAL_CANCELLATION"))
+                .isTrue();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedEnumValue(
+                "payload.ongroundServiceEvent.eventsType",
+                "DEPARTURE_CANCELLATION"))
+                .isTrue();
+
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                "NOT_CONTAINS"))
+                .isTrue();
+        assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(
+                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                "NOT_CONTAINS"))
+                .isTrue();
+    }
+
+    @Test
     void catalogRejectsTextOperatorsOnAllStopPointIdFields() {
         assertThat(STOP_POINT_ID_FIELDS).allSatisfy(field -> {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();

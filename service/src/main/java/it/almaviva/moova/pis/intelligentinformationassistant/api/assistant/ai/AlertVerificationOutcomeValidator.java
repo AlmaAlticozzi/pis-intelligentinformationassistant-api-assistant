@@ -299,6 +299,10 @@ public class AlertVerificationOutcomeValidator {
         if (context.failureReason != null) {
             return;
         }
+        validateEventCancellationSemantics(context);
+        if (context.failureReason != null) {
+            return;
+        }
         int technicalTemporalConditionCount = context.temporalConditions.size();
         if (technicalTemporalConditionCount > 0 || containsPotentialTemporalOperator(context.agentBlueprintPreview)) {
             validateBlueprintTemporalCondition(context);
@@ -1673,6 +1677,124 @@ public class AlertVerificationOutcomeValidator {
                 || "DEPARTED".equals(eventType)
                 || "ARRIVING".equals(eventType)
                 || "ARRIVED".equals(eventType);
+    }
+
+    private void validateEventCancellationSemantics(ValidationContext context) {
+        List<String> events = actualEventsTypeValues(context);
+        boolean hasCancellationEvent = events.stream().anyMatch(this::isCancellationEventType);
+        boolean hasOperationalMainEvent = events.stream().anyMatch(this::isOperationalMainEventType);
+        boolean arrivalContains = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                "CONTAINS",
+                "ARRIVAL_CANCELLATION");
+        boolean arrivalContainsAny = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                "CONTAINS_ANY",
+                "ARRIVAL_CANCELLATION");
+        boolean departureContains = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                "CONTAINS",
+                "DEPARTURE_CANCELLATION");
+        boolean departureContainsAny = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                "CONTAINS_ANY",
+                "DEPARTURE_CANCELLATION");
+        boolean arrivalNotContains = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                "NOT_CONTAINS",
+                "ARRIVAL_CANCELLATION");
+        boolean departureNotContains = hasStatusLeaf(context,
+                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                "NOT_CONTAINS",
+                "DEPARTURE_CANCELLATION");
+
+        boolean hasArrivalCancellation = arrivalContains || arrivalContainsAny;
+        boolean hasDepartureCancellation = departureContains || departureContainsAny;
+        boolean hasCancellationState = hasArrivalCancellation || hasDepartureCancellation
+                || arrivalNotContains || departureNotContains;
+        if (!hasCancellationEvent && !hasCancellationState) {
+            return;
+        }
+
+        String mainEvent = events.stream()
+                .filter(this::isOperationalMainEventType)
+                .findFirst()
+                .orElseGet(() -> events.stream()
+                        .filter(this::isCancellationEventType)
+                        .findFirst()
+                        .orElse(null));
+        String cancellationState = cancellationState(
+                hasArrivalCancellation,
+                hasDepartureCancellation,
+                arrivalNotContains,
+                departureNotContains);
+        boolean exclusive = arrivalNotContains || departureNotContains;
+        System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_SEMANTIC] mainEvent="
+                + mainEvent + " cancellationState=" + cancellationState + " exclusive=" + exclusive);
+        System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_CONDITION] statusConditionApplied="
+                + hasCancellationState);
+
+        if (hasCancellationEvent && !hasCancellationState) {
+            String warning = "Cancellation realtime event is present without a stopPointsJourneyDetails cancellation status filter.";
+            System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_CONDITION][WARN] " + warning);
+            context.warn(warning);
+        }
+        if (hasOperationalMainEvent && hasCancellationEvent && hasCancellationState) {
+            String warning = "Operational main event and cancellation event are both bound; keep cancellation as journey state filter when a distinct main event exists.";
+            System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_CONDITION][WARN] " + warning);
+            context.warn(warning);
+        }
+        if (arrivalNotContains && !hasDepartureCancellation) {
+            String warning = "arrivalStatuses NOT_CONTAINS ARRIVAL_CANCELLATION appears without departure cancellation state.";
+            System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_CONDITION][WARN] " + warning);
+            context.warn(warning);
+        }
+        if (departureNotContains && !hasArrivalCancellation) {
+            String warning = "departureStatuses NOT_CONTAINS DEPARTURE_CANCELLATION appears without arrival cancellation state.";
+            System.out.println("[IIA][ALERT_VERIFY][EVENT_CANCELLATION_CONDITION][WARN] " + warning);
+            context.warn(warning);
+        }
+    }
+
+    private boolean hasStatusLeaf(
+            ValidationContext context,
+            String field,
+            String operator,
+            String value) {
+        return context.conditionLeaves.stream()
+                .filter(leaf -> field.equals(leaf.field()))
+                .filter(leaf -> operator.equals(leaf.operator()))
+                .anyMatch(leaf -> value.equals(stringValue(leaf.value()))
+                        || leaf.values().contains(value));
+    }
+
+    private String cancellationState(
+            boolean hasArrivalCancellation,
+            boolean hasDepartureCancellation,
+            boolean arrivalNotContains,
+            boolean departureNotContains) {
+        if (hasArrivalCancellation && departureNotContains) {
+            return "ARRIVAL_ONLY_JOURNEY_CANCELLATION";
+        }
+        if (hasDepartureCancellation && arrivalNotContains) {
+            return "DEPARTURE_ONLY_JOURNEY_CANCELLATION";
+        }
+        if (hasArrivalCancellation && hasDepartureCancellation) {
+            return "GENERIC_JOURNEY_CANCELLATION";
+        }
+        if (hasArrivalCancellation) {
+            return "ARRIVAL_JOURNEY_CANCELLATION";
+        }
+        if (hasDepartureCancellation) {
+            return "DEPARTURE_JOURNEY_CANCELLATION";
+        }
+        return "UNKNOWN";
+    }
+
+    private boolean isCancellationEventType(String eventType) {
+        return "CANCELLATION".equals(eventType)
+                || "ARRIVAL_CANCELLATION".equals(eventType)
+                || "DEPARTURE_CANCELLATION".equals(eventType);
     }
 
     private boolean hasRequiredMainEventLocation(ValidationContext context) {

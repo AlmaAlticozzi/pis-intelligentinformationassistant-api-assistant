@@ -170,6 +170,22 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void arrivalOnlyCancellationPreviewIsRuntimeSupported() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(arrivalOnlyCancellationPreviewData(), null);
+
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("field: payload.ongroundServiceEvent.eventsType")
+                .contains("operator: CONTAINS")
+                .contains("value: ARRIVAL_CANCELLATION")
+                .contains("field: arrivalStatuses[].status")
+                .contains("value: ARRIVAL_CANCELLATION")
+                .contains("field: departureStatuses[].status")
+                .contains("operator: NOT_CONTAINS")
+                .contains("value: DEPARTURE_CANCELLATION");
+    }
+
+    @Test
     void dslPreviewRendersStopPointIdEquals() {
         AgentGenerationPreviewResponse response = mapper.toResponse(stopPointIdEqualsPreviewData(), null);
 
@@ -574,6 +590,48 @@ class AgentGenerationPreviewMapperTest {
                         "type", "CANDIDATE_SUGGESTION",
                         "reasonTemplate", "Journey ${payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName} is cancelled at Milano Malpensa T1.",
                         "operatorAdviceTemplate", "Check journey cancellation and passenger information procedures."));
+        return dataWithArtifacts(technicalSpecification, blueprint);
+    }
+
+    private AlertAgentGenerationPreviewData arrivalOnlyCancellationPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of(
+                                "field", "payload.stopPointJourney.stopPoint.id",
+                                "operator", "EQUALS",
+                                "value", "TNPNTS00000000005467"),
+                        Map.of(
+                                "field", "payload.ongroundServiceEvent.eventsType",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION"),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of("all", List.of(
+                                        Map.of(
+                                                "field", "arrivalStatuses[].status",
+                                                "operator", "CONTAINS",
+                                                "value", "ARRIVAL_CANCELLATION"),
+                                        Map.of(
+                                                "field", "departureStatuses[].status",
+                                                "operator", "NOT_CONTAINS",
+                                                "value", "DEPARTURE_CANCELLATION")))))));
+        Map<String, Object> technicalSpecification = Map.of(
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "condition", condition);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ServiceDataFieldMatchAlertAgent",
+                "description", "Arrival-only cancellation.",
+                "triggerType", "EVENT",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of("conditionType", "SERVICE_DATA_FIELD_MATCH", "condition", condition),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
         return dataWithArtifacts(technicalSpecification, blueprint);
     }
 
