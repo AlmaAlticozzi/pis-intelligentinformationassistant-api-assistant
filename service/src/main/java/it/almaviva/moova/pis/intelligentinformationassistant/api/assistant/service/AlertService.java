@@ -1835,8 +1835,10 @@ public class AlertService {
             if (semanticContext.isPresent()) {
                 AlertVerificationLocationContext context = semanticContext.get();
                 System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] finalContext=" + context);
-                System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] compactPromptSection="
-                        + context.compactPromptSection());
+                System.out.println("[IIA][ALERT_VERIFY][LOCATION_CONTEXT] compactMode=v2 length="
+                        + context.compactRuntimePromptSectionV2().length()
+                        + " locationCount=" + context.resolutions().size()
+                        + " nonLocationConstraintCount=" + context.nonLocationConstraints().size());
                 return context;
             }
             System.out.println("[IIA][ALERT_VERIFY][LOCATION_UNDERSTANDING] falling back to legacy extractor alertId="
@@ -1905,7 +1907,9 @@ public class AlertService {
         AlertVerificationLocationContext context = toPromptLocationContext(extraction, resolutions);
         System.out.println("[IIA][ALERT_VERIFY][LOCATION] hasMentions="
                 + context.hasLocationMentions() + " resolutions=" + context.resolutions().size());
-        System.out.println("[IIA][ALERT_VERIFY][LOCATION] promptSection=" + context.compactPromptSection());
+        System.out.println("[IIA][ALERT_VERIFY][LOCATION] compactMode=v2 length="
+                + context.compactRuntimePromptSectionV2().length()
+                + " nonLocationConstraintCount=" + context.nonLocationConstraints().size());
         return context;
     }
 

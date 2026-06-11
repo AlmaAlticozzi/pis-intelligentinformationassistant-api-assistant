@@ -23,24 +23,31 @@ class AlertVerificationPromptBuilderTest {
         String template = new PromptTemplateLoader().load(SYSTEM_TEMPLATE_PATH);
 
         assertThat(template)
-                .contains("## Mission")
-                .contains("## Fixed contract")
+                .contains("## Mission and fixed contract")
+                .contains("## EVENT_INTERPRETER evaluation phases")
+                .contains("Phase 1 - Current event scope")
+                .contains("Phase 2 - Current event binding")
+                .contains("Phase 3 - Journey state predicates")
+                .contains("Phase 4 - Correlation")
+                .contains("Phase 5 - Minimal verifiability")
                 .contains("## ServiceDataV2 model")
-                .contains("## Current event semantics")
-                .contains("## Location semantics")
-                .contains("## Platform semantics")
-                .contains("## Temporal predicates")
-                .contains("## Array correlation and anyElement")
-                .contains("## Changes, cancellations, replacement")
+                .contains("## Location rules compact")
+                .contains("## Platform rules compact")
+                .contains("## Temporal compact")
                 .contains("## DSL construction rules")
-                .contains("## Unsupported constraints")
+                .contains("## Unsupported compact")
                 .contains("## JSON output contract")
+                .contains("EXPECTED_MAIN_EVENT_TYPE is authoritative")
+                .contains("platform is not a location")
+                .contains("Never invent stop point ids")
                 .contains("EVENT_INTERPRETER")
                 .contains("ServiceDataV2")
                 .contains("STATELESS_EVENT_MATCH")
                 .contains("payload.ongroundServiceEvent")
                 .contains("payload.stopPointJourney")
                 .contains("{{SERVICE_DATA_CAPABILITY_CATALOG}}")
+                .doesNotContain("## Generic examples")
+                .doesNotContain("Expected condition:")
                 .doesNotContain("{{MISSION_AND_SAFETY}}")
                 .doesNotContain("{{EVENT_MVP_CONTRACT}}")
                 .doesNotContain("{{OUTPUT_JSON_CONTRACT}}");
@@ -180,7 +187,7 @@ class AlertVerificationPromptBuilderTest {
                 .contains("IN_PLATFORMS")
                 .contains("NOT_IN_PLATFORMS")
                 .contains("Do not use CONTAINS for platform")
-                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"IN\",\"values\":[\"<resolvedGaribaldiStopPointIds>\"]")
+                .contains("Use stopPoint.id for resolved locations")
                 .contains("\"field\":\"timetabledArrivalPlatform.dsc\",\"operator\":\"EQUAL_PLATFORM\",\"value\":\"1\"")
                 .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"IN_PLATFORMS\",\"values\":[\"1\",\"4\"]")
                 .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"NOT_IN_PLATFORMS\",\"values\":[\"1\",\"12\"]");
@@ -260,7 +267,7 @@ class AlertVerificationPromptBuilderTest {
                 .contains("type: MAIN_EVENT_INTENT")
                 .contains("rawText: \"ARRIVAL\"")
                 .contains("If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL")
-                .contains("Do not generate DEPARTING/DEPARTED or departure platform fields")
+                .contains("do not generate DEPARTING/DEPARTED or departure platform fields")
                 .contains("use timetabledArrivalPlatform.dsc with EQUAL_PLATFORM")
                 .contains("\"field\":\"timetabledArrivalPlatform.dsc\",\"operator\":\"EQUAL_PLATFORM\",\"value\":\"1\"");
     }
@@ -314,11 +321,11 @@ class AlertVerificationPromptBuilderTest {
                 .contains("DELAY_ROLE=PRIMARY_DELAY_EVENT means DELAY_EVENT_TYPE governs payload.ongroundServiceEvent.eventsType")
                 .contains("DELAY_ROLE=ACCESSORY_DELAY_PREDICATE means the delay is only an extra predicate")
                 .contains("OR over arrivalDelay.delay and departureDelay.delay with the threshold")
-                .contains("Positive example - generic delay threshold with no location")
-                .contains("Prompt: \"Avvisami quando una corsa ha piu di N minuti di ritardo\"")
                 .contains("\"operator\":\"CONTAINS_ANY\",\"values\":[\"ARRIVAL_DELAY\",\"DEPARTURE_DELAY\"]")
                 .contains("\"field\":\"arrivalDelay.delay\",\"operator\":\"GREATER_THAN\"")
-                .contains("\"field\":\"departureDelay.delay\",\"operator\":\"GREATER_THAN\"");
+                .contains("\"field\":\"departureDelay.delay\",\"operator\":\"GREATER_THAN\"")
+                .doesNotContain("Positive example - generic delay threshold with no location")
+                .doesNotContain("Expected condition:");
     }
 
     @Test
@@ -467,11 +474,10 @@ class AlertVerificationPromptBuilderTest {
                 .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTING\"")
                 .contains("\"field\":\"actualDeparturePlatform.platform.dsc\",\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5")
                 .contains("\"field\":\"actualArrivalPlatform.platform.dsc\",\"operator\":\"PLATFORM_NUMBER_BETWEEN\",\"value\":{\"min\":3,\"max\":8}")
-                .contains("Prompt: \"Notify me when a train departs from a platform with a letter\"")
-                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTED\"")
-                .contains("Prompt: \"Avvertimi quando una corsa parte da un binario pari a Lunigiana\"")
-                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"IN\",\"values\":[\"<resolvedLunigianaStopPointIds>\"]")
-                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5");
+                .contains("\"operator\":\"PLATFORM_HAS_LETTER_SUFFIX\"")
+                .contains("\"field\":\"timetabledDeparturePlatform.dsc\",\"operator\":\"PLATFORM_NUMBER_GREATER_THAN\",\"value\":5")
+                .doesNotContain("Prompt: \"Notify me when a train departs from a platform with a letter\"")
+                .doesNotContain("Prompt: \"Avvertimi quando una corsa parte da un binario pari a Lunigiana\"");
     }
 
     @Test
@@ -485,8 +491,8 @@ class AlertVerificationPromptBuilderTest {
                 .contains("For a platform change requirement, mappedBy must include payload.ongroundServiceEvent.eventsType")
                 .contains("For a movement requirement such as \"spostato dal binario X al binario Y\", mappedBy must include payload.ongroundServiceEvent.eventsType")
                 .contains("Excluded locations remain mappable=true when their resolved stopPoint ids are represented with NOT_IN")
-                .contains("\"field\":\"payload.stopPointJourney.stopPoint.id\",\"operator\":\"NOT_IN\"")
-                .contains("\"field\":\"payload.ongroundServiceEvent.eventsType\",\"operator\":\"CONTAINS\",\"value\":\"DEPARTED\"");
+                .contains("excluded resolved ids -> NOT_IN with values")
+                .contains("MAIN_EVENT_PHASE=COMPLETED, use the completed current event value: DEPARTURE -> DEPARTED");
     }
 
     @Test
@@ -553,10 +559,10 @@ class AlertVerificationPromptBuilderTest {
                 .contains("\"corsa sostitutiva\" can be represented as isReplacementOf NOT_EMPTY")
                 .contains("\"fermata sostitutiva in partenza\" can be represented with replacement.stopPointReplacements[]")
                 .contains("\"nei feriali\" on a replacement departure means LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY on replacement.stopPointReplacements[].departureTime")
-                .contains("Prompt: \"Avvertimi quando una corsa sostitutiva ha una fermata sostitutiva in partenza nei feriali\"")
                 .contains("{\"field\":\"isReplacementOf\",\"operator\":\"NOT_EMPTY\"}")
-                .contains("{\"field\":\"replacementType\",\"operator\":\"IN\",\"values\":[\"DEPARTURE\",\"ARRIVALDEPARTURE\"]}")
-                .contains("{\"field\":\"departureTime\",\"operator\":\"LOCAL_DAY_OF_WEEK_NOT_IN\"");
+                .contains("replacementType IN DEPARTURE/ARRIVALDEPARTURE")
+                .contains("LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY on replacement.stopPointReplacements[].departureTime")
+                .doesNotContain("Prompt: \"Avvertimi quando una corsa sostitutiva ha una fermata sostitutiva in partenza nei feriali\"");
     }
 
     @Test
