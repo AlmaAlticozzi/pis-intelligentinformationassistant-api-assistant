@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateDiagnostics;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateLoader;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
@@ -19,15 +20,6 @@ public class AlertVerificationPromptBuilder {
     private static final String SYSTEM_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/event/system.md";
     private static final String USER_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/event/user-template.md";
     private static final String DEFAULT_PROMPT_TEMPLATE_VERSION = "event-file-v1";
-    private static final String REMAINING_DYNAMIC_PLACEHOLDERS = String.join(",",
-            "SERVICE_DATA_CAPABILITY_CATALOG",
-            "DEFAULT_TEMPORAL_ZONE",
-            "ALERT_INPUT",
-            "ROUTE_CONTEXT_JSON",
-            "LOCATION_CONTEXT_JSON",
-            "TEMPORAL_CONTEXT_JSON",
-            "BACKEND_DERIVED_NON_LOCATION_CONSTRAINTS_JSON",
-            "OUTPUT_INSTRUCTIONS");
 
     @Inject
     AiConfiguration aiConfiguration;
@@ -44,14 +36,27 @@ public class AlertVerificationPromptBuilder {
     @ConfigProperty(name = "iia.alert-verification.event.prompt-template-version", defaultValue = DEFAULT_PROMPT_TEMPLATE_VERSION)
     String promptTemplateVersion = DEFAULT_PROMPT_TEMPLATE_VERSION;
 
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-total-length", defaultValue = "25000")
+    int warnTotalLength = 25000;
+
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-system-length", defaultValue = "20000")
+    int warnSystemLength = 20000;
+
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-user-length", defaultValue = "10000")
+    int warnUserLength = 10000;
+
     public LlmRequest build(AlertVerificationPromptData alert) {
         AiConfiguration.AlertVerify alertVerifyConfiguration = aiConfiguration.alertVerify();
         String defaultTemporalZone = defaultTemporalZone();
         String model = alertVerifyConfiguration.model();
         Double temperature = alertVerifyConfiguration.temperature();
         Integer maxOutputTokens = alertVerifyConfiguration.maxOutputTokens();
-        String systemPrompt = systemPrompt(defaultTemporalZone);
-        String userPrompt = userPrompt(alert, defaultTemporalZone);
+        PromptTemplateDiagnostics systemDiagnostics = systemPrompt(defaultTemporalZone);
+        PromptTemplateDiagnostics userDiagnostics = userPrompt(alert, defaultTemporalZone);
+        String systemPrompt = systemDiagnostics.renderedText();
+        String userPrompt = userDiagnostics.renderedText();
+        int totalLength = systemPrompt.length() + userPrompt.length();
+        String totalPromptHash = PromptTemplateDiagnostics.shortSha256(systemPrompt + "\n" + userPrompt);
         System.out.println("[IIA][ALERT_VERIFY][CONFIG] model="
                 + model
                 + " temperature="
@@ -66,14 +71,16 @@ public class AlertVerificationPromptBuilder {
         System.out.println("[IIA][ALERT_VERIFY][PROMPT][SECTIONS] structured prompt sections built");
         System.out.println("[IIA][ALERT_EVENT_VERIFY][PROMPT_TEMPLATE] systemPath="
                 + SYSTEM_PROMPT_TEMPLATE_PATH + " userPath=" + USER_PROMPT_TEMPLATE_PATH);
-        System.out.println("[IIA][ALERT_EVENT_VERIFY][PROMPT_TEMPLATE] promptVersion="
-                + defaultString(promptTemplateVersion, DEFAULT_PROMPT_TEMPLATE_VERSION));
         System.out.println("[IIA][ALERT_EVENT_VERIFY][PROMPT_TEMPLATE] staticBlocksMovedToFile=true");
-        System.out.println("[IIA][ALERT_EVENT_VERIFY][PROMPT_TEMPLATE] remainingDynamicPlaceholders="
-                + REMAINING_DYNAMIC_PLACEHOLDERS);
-        System.out.println("[IIA][ALERT_EVENT_VERIFY][PROMPT_TEMPLATE] systemLength="
-                + systemPrompt.length() + " userLength=" + userPrompt.length()
-                + " total=" + (systemPrompt.length() + userPrompt.length()));
+        logTemplateDiagnostics(
+                "ALERT_EVENT_VERIFY",
+                systemDiagnostics,
+                userDiagnostics,
+                totalPromptHash,
+                totalLength);
+        warnPromptLength("system", systemPrompt.length(), warnSystemLength);
+        warnPromptLength("user", userPrompt.length(), warnUserLength);
+        warnPromptLength("total", totalLength, warnTotalLength);
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
                 systemPrompt,
@@ -84,14 +91,14 @@ public class AlertVerificationPromptBuilder {
                 alert.alertId());
     }
 
-    private String systemPrompt(String defaultTemporalZone) {
+    private PromptTemplateDiagnostics systemPrompt(String defaultTemporalZone) {
         Map<String, String> variables = new LinkedHashMap<>();
         variables.put("SERVICE_DATA_CAPABILITY_CATALOG", ServiceDataCapabilityCatalog.compactPromptCatalog());
         variables.put("DEFAULT_TEMPORAL_ZONE", defaultTemporalZone);
-        return promptTemplateLoader().render(SYSTEM_PROMPT_TEMPLATE_PATH, variables);
+        return promptTemplateLoader().renderWithDiagnostics(SYSTEM_PROMPT_TEMPLATE_PATH, variables);
     }
 
-    private String userPrompt(AlertVerificationPromptData alert, String defaultTemporalZone) {
+    private PromptTemplateDiagnostics userPrompt(AlertVerificationPromptData alert, String defaultTemporalZone) {
         System.out.println("[IIA][ALERT_VERIFY][CATALOG] allowedFields="
                 + ServiceDataCapabilityCatalog.allowedFieldCount());
         Map<String, String> variables = new LinkedHashMap<>();
@@ -101,7 +108,44 @@ public class AlertVerificationPromptBuilder {
         variables.put("TEMPORAL_CONTEXT_JSON", temporalContextSection(defaultTemporalZone));
         variables.put("BACKEND_DERIVED_NON_LOCATION_CONSTRAINTS_JSON", nonLocationConstraintsSection(alert));
         variables.put("OUTPUT_INSTRUCTIONS", outputInstructionsSection());
-        return promptTemplateLoader().render(USER_PROMPT_TEMPLATE_PATH, variables);
+        return promptTemplateLoader().renderWithDiagnostics(USER_PROMPT_TEMPLATE_PATH, variables);
+    }
+
+    private void logTemplateDiagnostics(
+            String logScope,
+            PromptTemplateDiagnostics systemDiagnostics,
+            PromptTemplateDiagnostics userDiagnostics,
+            String totalPromptHash,
+            int totalLength) {
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] declaredSystemPlaceholders="
+                + systemDiagnostics.declaredPlaceholdersLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] declaredUserPlaceholders="
+                + userDiagnostics.declaredPlaceholdersLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] unresolvedSystemPlaceholdersAfterRender="
+                + systemDiagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] unresolvedUserPlaceholdersAfterRender="
+                + userDiagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] unusedSystemVariables="
+                + systemDiagnostics.unusedVariablesLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] unusedUserVariables="
+                + userDiagnostics.unusedVariablesLogValue());
+        System.out.println("[IIA][" + logScope + "][PROMPT_TEMPLATE] promptVersion="
+                + defaultString(promptTemplateVersion, DEFAULT_PROMPT_TEMPLATE_VERSION)
+                + " rawSystemTemplateHash=" + systemDiagnostics.templateHash()
+                + " renderedSystemHash=" + systemDiagnostics.renderedHash()
+                + " staticSystemHash=" + systemDiagnostics.renderedHash()
+                + " renderedUserHash=" + userDiagnostics.renderedHash()
+                + " totalPromptHash=" + totalPromptHash
+                + " systemLength=" + systemDiagnostics.renderedLength()
+                + " userLength=" + userDiagnostics.renderedLength()
+                + " total=" + totalLength);
+    }
+
+    private void warnPromptLength(String label, int length, int threshold) {
+        if (threshold > 0 && length > threshold) {
+            System.out.println("[IIA][PROMPT_TEMPLATE][WARN] " + label
+                    + " prompt length exceeds threshold: " + length + " > " + threshold);
+        }
     }
 
     private String alertInputSection(AlertVerificationPromptData alert) {

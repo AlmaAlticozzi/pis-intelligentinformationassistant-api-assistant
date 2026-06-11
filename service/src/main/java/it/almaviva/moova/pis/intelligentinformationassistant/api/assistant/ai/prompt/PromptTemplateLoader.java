@@ -1,28 +1,33 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @ApplicationScoped
 public class PromptTemplateLoader {
 
-    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{([A-Z0-9_]+)}}");
-
     private final Map<String, String> cache = new ConcurrentHashMap<>();
+
+    @ConfigProperty(name = "iia.ai.prompt-template.fail-on-unresolved-placeholders", defaultValue = "false")
+    boolean failOnUnresolvedPlaceholders = false;
 
     public String load(String classpathLocation) {
         return cache.computeIfAbsent(classpathLocation, this::loadFromClasspath);
     }
 
     public String render(String classpathLocation, Map<String, String> variables) {
-        String rendered = load(classpathLocation);
+        return renderWithDiagnostics(classpathLocation, variables).renderedText();
+    }
+
+    public PromptTemplateDiagnostics renderWithDiagnostics(String classpathLocation, Map<String, String> variables) {
+        String template = load(classpathLocation);
+        String rendered = template;
         Map<String, String> safeVariables = variables == null ? Map.of() : variables;
         for (Map.Entry<String, String> entry : safeVariables.entrySet()) {
             String value = entry.getValue();
@@ -34,14 +39,35 @@ public class PromptTemplateLoader {
             rendered = rendered.replace("{{" + entry.getKey() + "}}", value);
         }
 
-        Matcher matcher = PLACEHOLDER_PATTERN.matcher(rendered);
-        while (matcher.find()) {
-            System.out.println("[IIA][PROMPT_TEMPLATE][WARN] missing placeholder path="
-                    + classpathLocation + " name=" + matcher.group(1));
-        }
+        PromptTemplateDiagnostics diagnostics = PromptTemplateDiagnostics.fromRender(
+                classpathLocation,
+                template,
+                safeVariables,
+                rendered);
         System.out.println("[IIA][PROMPT_TEMPLATE] render path=" + classpathLocation
-                + " renderedLength=" + rendered.length());
-        return rendered;
+                + " templateLength=" + diagnostics.templateLength()
+                + " renderedLength=" + diagnostics.renderedLength()
+                + " templateHash=" + diagnostics.templateHash()
+                + " renderedHash=" + diagnostics.renderedHash());
+        System.out.println("[IIA][PROMPT_TEMPLATE] declaredPlaceholders="
+                + diagnostics.declaredPlaceholdersLogValue());
+        System.out.println("[IIA][PROMPT_TEMPLATE] providedVariables="
+                + diagnostics.providedVariablesLogValue());
+        System.out.println("[IIA][PROMPT_TEMPLATE] unresolvedPlaceholdersAfterRender="
+                + diagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        System.out.println("[IIA][PROMPT_TEMPLATE] unusedVariables="
+                + diagnostics.unusedVariablesLogValue());
+        if (!diagnostics.unresolvedPlaceholdersAfterRender().isEmpty()) {
+            if (failOnUnresolvedPlaceholders) {
+                throw new IllegalStateException("Unresolved prompt template placeholders path="
+                        + classpathLocation + " placeholders="
+                        + diagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+            }
+            System.out.println("[IIA][PROMPT_TEMPLATE][WARN] unresolvedPlaceholdersAfterRender path="
+                    + classpathLocation + " placeholders="
+                    + diagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        }
+        return diagnostics;
     }
 
     private String loadFromClasspath(String classpathLocation) {

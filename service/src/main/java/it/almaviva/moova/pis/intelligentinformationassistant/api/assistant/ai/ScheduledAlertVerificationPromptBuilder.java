@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateDiagnostics;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateLoader;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
@@ -23,20 +24,6 @@ public class ScheduledAlertVerificationPromptBuilder {
     private static final String SYSTEM_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/scheduled/system.md";
     private static final String USER_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/scheduled/user-template.md";
     private static final String DEFAULT_PROMPT_TEMPLATE_VERSION = "scheduled-file-v1";
-    private static final String REMAINING_DYNAMIC_PLACEHOLDERS = String.join(",",
-            "SCHEDULED_SERVICE_DATA_CAPABILITY_CATALOG",
-            "ALERT_INPUT",
-            "ROUTE_CONTEXT_JSON",
-            "TEMPORAL_HINTS_JSON",
-            "PLATFORM_HINTS_JSON",
-            "CHANGE_HINTS_JSON",
-            "CANCELLED_CALL_HINTS_JSON",
-            "REPLACEMENT_HINTS_JSON",
-            "LOCATION_CONTEXT_JSON",
-            "RESOLVED_LOCATION_BINDINGS_JSON",
-            "SERVICE_DATA_QUERY_CONTEXT_JSON",
-            "UNSUPPORTED_CONSTRAINTS_JSON",
-            "OUTPUT_INSTRUCTIONS");
 
     @Inject
     AiConfiguration aiConfiguration;
@@ -56,20 +43,30 @@ public class ScheduledAlertVerificationPromptBuilder {
     @ConfigProperty(name = "iia.alert-verification.scheduled.prompt-template-version", defaultValue = DEFAULT_PROMPT_TEMPLATE_VERSION)
     String promptTemplateVersion = DEFAULT_PROMPT_TEMPLATE_VERSION;
 
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-total-length", defaultValue = "25000")
+    int warnTotalLength = 25000;
+
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-system-length", defaultValue = "20000")
+    int warnSystemLength = 20000;
+
+    @ConfigProperty(name = "iia.ai.prompt-template.warn-user-length", defaultValue = "10000")
+    int warnUserLength = 10000;
+
     public LlmRequest build(ScheduledAlertVerificationPromptData data) {
         ScheduledVerifyConfiguration configuration = scheduledVerifyConfiguration();
-        String systemPrompt = systemPrompt(data);
-        String userPrompt = userPrompt(data);
+        PromptTemplateDiagnostics systemDiagnostics = systemPrompt(data);
+        PromptTemplateDiagnostics userDiagnostics = userPrompt(data);
+        String systemPrompt = systemDiagnostics.renderedText();
+        String userPrompt = userDiagnostics.renderedText();
+        int totalLength = systemPrompt.length() + userPrompt.length();
+        String totalPromptHash = PromptTemplateDiagnostics.shortSha256(systemPrompt + "\n" + userPrompt);
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] systemPath="
                 + SYSTEM_PROMPT_TEMPLATE_PATH + " userPath=" + USER_PROMPT_TEMPLATE_PATH);
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] systemLength="
-                + systemPrompt.length() + " userLength=" + userPrompt.length()
-                + " total=" + (systemPrompt.length() + userPrompt.length()));
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] promptVersion="
-                + defaultString(promptTemplateVersion, DEFAULT_PROMPT_TEMPLATE_VERSION));
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] staticBlocksMovedToFile=true");
-        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] remainingDynamicPlaceholders="
-                + REMAINING_DYNAMIC_PLACEHOLDERS);
+        logTemplateDiagnostics(systemDiagnostics, userDiagnostics, totalPromptHash, totalLength);
+        warnPromptLength("system", systemPrompt.length(), warnSystemLength);
+        warnPromptLength("user", userPrompt.length(), warnUserLength);
+        warnPromptLength("total", totalLength, warnTotalLength);
         return new LlmRequest(
                 AiUseCase.ALERT_SCHEDULED_VERIFY,
                 systemPrompt,
@@ -101,24 +98,21 @@ public class ScheduledAlertVerificationPromptBuilder {
         return new ScheduledVerifyConfiguration("gpt-4.1-mini", 0.1, 3500);
     }
 
-    private String systemPrompt(ScheduledAlertVerificationPromptData data) {
+    private PromptTemplateDiagnostics systemPrompt(ScheduledAlertVerificationPromptData data) {
         Map<String, String> variables = new LinkedHashMap<>();
         variables.put("SCHEDULED_SERVICE_DATA_CAPABILITY_CATALOG", scheduledCapabilityCatalogSection(data));
-        return promptTemplateLoader().render(SYSTEM_PROMPT_TEMPLATE_PATH, variables);
+        return promptTemplateLoader().renderWithDiagnostics(SYSTEM_PROMPT_TEMPLATE_PATH, variables);
     }
 
-    private String userPrompt(ScheduledAlertVerificationPromptData data) {
+    private PromptTemplateDiagnostics userPrompt(ScheduledAlertVerificationPromptData data) {
         if (useCompactDynamicPrompt(data)) {
             return renderCompactUserPrompt(data);
         }
         return renderFullUserPrompt(data);
     }
 
-    private String renderFullUserPrompt(ScheduledAlertVerificationPromptData data) {
+    private PromptTemplateDiagnostics renderFullUserPrompt(ScheduledAlertVerificationPromptData data) {
         Map<String, String> variables = new LinkedHashMap<>();
-        variables.put("ALERT_NAME", data == null ? "" : value(data.name()));
-        variables.put("ALERT_DESCRIPTION", data == null ? "" : value(data.description()));
-        variables.put("ALERT_PROMPT", data == null ? "" : value(data.originalPrompt()));
         variables.put("ALERT_INPUT", alertInputSection(data));
         variables.put("ROUTE_CONTEXT_JSON", routeSection(data == null ? null : data.route()));
         variables.put("TEMPORAL_HINTS_JSON", temporalHintsSection(data == null ? null : data.temporalHints()));
@@ -133,14 +127,11 @@ public class ScheduledAlertVerificationPromptBuilder {
         variables.put("SERVICE_DATA_QUERY_CONTEXT_JSON", serviceDataQueryRuntimeSection(data));
         variables.put("UNSUPPORTED_CONSTRAINTS_JSON", unsupportedConstraintsRuntimeSection());
         variables.put("OUTPUT_INSTRUCTIONS", outputInstructionsRuntimeSection());
-        return promptTemplateLoader().render(USER_PROMPT_TEMPLATE_PATH, variables);
+        return promptTemplateLoader().renderWithDiagnostics(USER_PROMPT_TEMPLATE_PATH, variables);
     }
 
-    private String renderCompactUserPrompt(ScheduledAlertVerificationPromptData data) {
+    private PromptTemplateDiagnostics renderCompactUserPrompt(ScheduledAlertVerificationPromptData data) {
         Map<String, String> variables = new LinkedHashMap<>();
-        variables.put("ALERT_NAME", data == null ? "" : value(data.name()));
-        variables.put("ALERT_DESCRIPTION", data == null ? "" : value(data.description()));
-        variables.put("ALERT_PROMPT", data == null ? "" : value(data.originalPrompt()));
         variables.put("ALERT_INPUT", alertInputSection(data));
         variables.put("ROUTE_CONTEXT_JSON", routeSection(data == null ? null : data.route()));
         variables.put("TEMPORAL_HINTS_JSON", temporalHintsSection(data == null ? null : data.temporalHints()));
@@ -155,7 +146,43 @@ public class ScheduledAlertVerificationPromptBuilder {
         variables.put("SERVICE_DATA_QUERY_CONTEXT_JSON", serviceDataQueryRuntimeSection(data));
         variables.put("UNSUPPORTED_CONSTRAINTS_JSON", unsupportedConstraintsRuntimeSection());
         variables.put("OUTPUT_INSTRUCTIONS", outputInstructionsRuntimeSection());
-        return promptTemplateLoader().render(USER_PROMPT_TEMPLATE_PATH, variables);
+        return promptTemplateLoader().renderWithDiagnostics(USER_PROMPT_TEMPLATE_PATH, variables);
+    }
+
+    private void logTemplateDiagnostics(
+            PromptTemplateDiagnostics systemDiagnostics,
+            PromptTemplateDiagnostics userDiagnostics,
+            String totalPromptHash,
+            int totalLength) {
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] declaredSystemPlaceholders="
+                + systemDiagnostics.declaredPlaceholdersLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] declaredUserPlaceholders="
+                + userDiagnostics.declaredPlaceholdersLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] unresolvedSystemPlaceholdersAfterRender="
+                + systemDiagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] unresolvedUserPlaceholdersAfterRender="
+                + userDiagnostics.unresolvedPlaceholdersAfterRenderLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] unusedSystemVariables="
+                + systemDiagnostics.unusedVariablesLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] unusedUserVariables="
+                + userDiagnostics.unusedVariablesLogValue());
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] promptVersion="
+                + defaultString(promptTemplateVersion, DEFAULT_PROMPT_TEMPLATE_VERSION)
+                + " rawSystemTemplateHash=" + systemDiagnostics.templateHash()
+                + " renderedSystemHash=" + systemDiagnostics.renderedHash()
+                + " staticSystemHash=" + systemDiagnostics.renderedHash()
+                + " renderedUserHash=" + userDiagnostics.renderedHash()
+                + " totalPromptHash=" + totalPromptHash
+                + " systemLength=" + systemDiagnostics.renderedLength()
+                + " userLength=" + userDiagnostics.renderedLength()
+                + " total=" + totalLength);
+    }
+
+    private void warnPromptLength(String label, int length, int threshold) {
+        if (threshold > 0 && length > threshold) {
+            System.out.println("[IIA][PROMPT_TEMPLATE][WARN] " + label
+                    + " prompt length exceeds threshold: " + length + " > " + threshold);
+        }
     }
 
     private String serviceDataQueryRuntimeSection(ScheduledAlertVerificationPromptData data) {

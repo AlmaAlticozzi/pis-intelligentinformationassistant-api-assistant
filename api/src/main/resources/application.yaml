@@ -75,6 +75,11 @@ iia:
     persist-validated-llm-preview: ${IIA_AGENT_GENERATION_PREVIEW_PERSIST_VALIDATED_LLM_PREVIEW:false}
   ai:
     provider: openai
+    prompt-template:
+      fail-on-unresolved-placeholders: ${IIA_AI_PROMPT_TEMPLATE_FAIL_ON_UNRESOLVED_PLACEHOLDERS:false}
+      warn-total-length: ${IIA_AI_PROMPT_TEMPLATE_WARN_TOTAL_LENGTH:25000}
+      warn-system-length: ${IIA_AI_PROMPT_TEMPLATE_WARN_SYSTEM_LENGTH:20000}
+      warn-user-length: ${IIA_AI_PROMPT_TEMPLATE_WARN_USER_LENGTH:10000}
     text-improve:
       enabled: true
       model: gpt-4.1-mini
