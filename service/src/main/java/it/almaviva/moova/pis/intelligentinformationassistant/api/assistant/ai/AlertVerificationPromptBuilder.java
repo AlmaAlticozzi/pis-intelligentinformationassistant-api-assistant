@@ -161,7 +161,13 @@ public class AlertVerificationPromptBuilder {
     }
 
     private String locationResolutionSection(AlertVerificationPromptData alert) {
-        return alert.locationResolutionContext().compactPromptSection();
+        AlertVerificationLocationContext context = alert.locationResolutionContext();
+        String section = context.compactRuntimePromptSectionV2();
+        System.out.println("[IIA][ALERT_EVENT_VERIFY][LOCATION_CONTEXT] compactMode=v2 length=" + section.length());
+        System.out.println("[IIA][ALERT_EVENT_VERIFY][LOCATION_CONTEXT] locationCount="
+                + context.resolutions().size()
+                + " nonLocationConstraintCount=" + context.nonLocationConstraints().size());
+        return section;
     }
 
     private String nonLocationConstraintsSection(AlertVerificationPromptData alert) {

@@ -73,7 +73,7 @@ class AlertVerificationPromptBuilderTest {
                 .contains("payload.ongroundServiceEvent")
                 .contains("payload.stopPointJourney")
                 .contains("Avvertimi quando una corsa parte da Rho Fieramilano")
-                .contains("PIS location resolution")
+                .contains("PIS location runtime context v2")
                 .contains("Rho Fieramilano")
                 .contains("ServiceData Capability Catalog")
                 .doesNotContainPattern("\\{\\{[A-Z0-9_]+}}");
@@ -109,6 +109,20 @@ class AlertVerificationPromptBuilderTest {
                 .contains("stopPoint.id")
                 .contains("EVENT_INTERPRETER")
                 .contains("ServiceDataV2");
+        assertThat(request.userPrompt())
+                .contains("selectedPointIds: [TNPNTS00000000005467]")
+                .contains("targetFieldHints: [payload.stopPointJourney.stopPoint.id, payload.ongroundServiceEvent.stopPoint.id]")
+                .contains("type: PLATFORM")
+                .contains("rawText: \"binario 1\"")
+                .contains("type: MAIN_EVENT_INTENT")
+                .contains("rawText: \"DEPARTURE\"")
+                .contains("type: MAIN_EVENT_PHASE")
+                .contains("rawText: \"COMPLETED\"")
+                .contains("type: EXPECTED_MAIN_EVENT_TYPE")
+                .contains("rawText: \"DEPARTED\"")
+                .doesNotContain("Minimal examples")
+                .doesNotContain("Positive resolved single candidate")
+                .doesNotContain("Rules:");
     }
 
     @Test
@@ -217,15 +231,10 @@ class AlertVerificationPromptBuilderTest {
         assertThat(fullPrompt(request))
                 .contains("polarity: EXCLUDE")
                 .contains("status: UNRESOLVED")
-                .contains("fallback: use nameLong/nameShort NOT_CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
+                .contains("fallbackToNameLong: true")
+                .contains("fallbackAllowed: true")
+                .contains("warningReason: \"Location unresolved; textual fallback is allowed with lower confidence.\"")
                 .contains("For polarity=EXCLUDE and UNRESOLVED locations, use NOT_CONTAINS_NORMALIZED on the correct nameLong/nameShort field when the catalog supports it")
-                .contains("Use NOT_EQUALS_NORMALIZED only when the user wording requires exact normalized inequality")
-                .contains("Never use NOT_EQUAL or NOT_EQUALS on stopPoint.nameLong/nameShort")
-                .contains("Expected fallback when catalog-supported: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED \"Bologna\"")
-                .contains("canonicalNegativeFallback: timetabledCallEnd.stopPoint.nameLong NOT_CONTAINS_NORMALIZED with rawText")
-                .contains("Do not create any/OR branches across multiple negative textual fallback fields")
-                .contains("Do not generate any/OR between timetabledCallEnd.stopPoint.nameLong")
-                .contains("Expected warning and lower confidence; requirementCoverage must mention negative fallback text matching")
                 .doesNotContain("Expected decision: REJECTED when no safe negative textual fallback exists")
                 .doesNotContain("Excluded destination location 'Bologna' could not be resolved to stopPoint ids");
     }
@@ -248,7 +257,8 @@ class AlertVerificationPromptBuilderTest {
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
         assertThat(fullPrompt(request))
-                .contains("type: MAIN_EVENT_INTENT, rawText: \"ARRIVAL\"")
+                .contains("type: MAIN_EVENT_INTENT")
+                .contains("rawText: \"ARRIVAL\"")
                 .contains("If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL")
                 .contains("Do not generate DEPARTING/DEPARTED or departure platform fields")
                 .contains("use timetabledArrivalPlatform.dsc with EQUAL_PLATFORM")
@@ -568,13 +578,14 @@ class AlertVerificationPromptBuilderTest {
                         false,
                         0.90)))));
 
-        assertThat(fullPrompt(request))
-                .contains("PIS location resolution")
+        assertThat(request.userPrompt())
+                .contains("PIS location runtime context v2")
                 .contains("rawText: \"Rho Fieramilano\"")
                 .contains("semanticRole: DEPARTURE_EVENT_STOP_POINT")
-                .contains("id: TNPNTS00000000005467")
-                .contains("If a location has one resolved candidate, use stopPoint.id with EQUALS")
-                .contains("Do not use stopPoint.nameLong/nameShort for resolved locations");
+                .contains("selectedPointIds: [TNPNTS00000000005467]")
+                .doesNotContain("Minimal examples")
+                .doesNotContain("Positive resolved single candidate")
+                .doesNotContain("Rules:");
     }
 
     @Test
@@ -610,7 +621,9 @@ class AlertVerificationPromptBuilderTest {
                 .contains("status: RESOLVED_AMBIGUOUS")
                 .contains("TNPNTS00000000000028")
                 .contains("TNPNTS00000000000029")
-                .contains("If a location has multiple selected candidates, use stopPoint.id with IN");
+                .contains("selectedCandidates:")
+                .contains("nameLong: \"MALPENSA AEROPORTO T.1\"")
+                .contains("nameLong: \"MALPENSA AEROPORTO T.2\"");
     }
 
     @Test
@@ -628,19 +641,21 @@ class AlertVerificationPromptBuilderTest {
         assertThat(fullPrompt(request))
                 .contains("rawText: \"Genova Nervi\"")
                 .contains("status: UNRESOLVED")
-                .contains("fallback: use nameLong/nameShort CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
-                .contains("If an INCLUDE location is unresolved, use nameLong CONTAINS_NORMALIZED as fallback and lower confidence");
+                .contains("fallbackToNameLong: true")
+                .contains("fallbackAllowed: true");
     }
 
     @Test
     void promptBuilderSaysDoNotInventLocationWhenNoMentions() {
         LlmRequest request = builder().build(promptDataWithLocation(AlertVerificationLocationContext.empty()));
 
-        assertThat(fullPrompt(request))
-                .contains("No PIS location mentions were detected")
-                .contains("If the user did not mention a location, do not add any location condition")
+        assertThat(request.userPrompt())
+                .contains("hasLocationMentions: false")
+                .contains("resolutions:\n  []")
                 .contains("Never invent stopPoint ids")
-                .contains("Never use stopPoint ids not listed in the resolved candidates section");
+                .doesNotContain("Minimal examples")
+                .doesNotContain("Positive resolved single candidate")
+                .doesNotContain("Rules:");
     }
 
     @Test
@@ -679,11 +694,10 @@ class AlertVerificationPromptBuilderTest {
                 .contains("targetFieldHints: [payload.stopPointJourney.stopPoint.id, payload.ongroundServiceEvent.stopPoint.id]")
                 .contains("targetFieldHints: [payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id]")
                 .contains("targetFieldHints: [payload.stopPointJourney.stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id, payload.stopPointJourney.stopPointsJourneyDetails[].callEnd.stopPoint.id]")
-                .contains("Every location with requiredCoverage=true must be represented in technicalSpecification")
-                .contains("Do not put every location on the current stop")
-                .contains("If a required location or role needs data absent from the catalog, return REJECTED")
-                .contains("Recognized non-location constraints")
-                .contains("type: PLATFORM, rawText: \"binario 1\"");
+                .contains("Every required resolved location must be represented in technicalSpecification")
+                .contains("nonLocationConstraints:")
+                .contains("type: PLATFORM")
+                .contains("rawText: \"binario 1\"");
     }
 
     @Test
@@ -710,61 +724,61 @@ class AlertVerificationPromptBuilderTest {
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
         assertThat(fullPrompt(request))
-                .contains("\"partenza da X\", \"parte da X\", \"arrivo a X\" and \"arriva a X\" mean X is the current/event stop")
-                .contains("Do not use callStart/timetabledCallStart for \"parte da X\" when X is MAIN_EVENT_LOCATION")
-                .contains("Garibaldi MAIN_EVENT_LOCATION")
-                .contains("Venezia ROUTE_OR_NEXT_CALL_LOCATION")
-                .contains("payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id for Garibaldi")
-                .contains("nextCalls[].stopPoint.id for Venezia")
-                .contains("Do not put Garibaldi on callStart.stopPoint.id or timetabledCallStart.stopPoint.id")
+                .contains("For current ARRIVED, ARRIVING, DEPARTED or DEPARTING events, the user location is the monitored current stop")
+                .contains("Do not use timetabledCallStart.stopPoint.id for a current departure stop")
+                .contains("rawText: \"Garibaldi\"")
+                .contains("semanticRole: MAIN_EVENT_LOCATION")
+                .contains("rawText: \"Venezia\"")
+                .contains("semanticRole: ROUTE_OR_NEXT_CALL_LOCATION")
+                .contains("payload.stopPointJourney.stopPoint.id")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[].stopPoint.id")
                 .contains("MAIN_EVENT_PHASE=COMPLETED, use the completed current event value: DEPARTURE -> DEPARTED");
     }
 
     @Test
-    void builderContainsPositiveExampleForRhoStopPointId() {
+    void eventRuntimeLocationContextDoesNotRepeatPositiveRhoFewShot() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 
-        assertThat(fullPrompt(request))
-                .contains("Positive resolved single candidate")
-                .contains("User prompt: \"Avvertimi quando una corsa parte da Rho Fieramilano\"")
-                .contains("Resolved location: Rho Fieramilano -> TNPNTS00000000005467")
-                .contains("payload.ongroundServiceEvent.eventsType CONTAINS DEPARTED")
-                .contains("payload.ongroundServiceEvent.stopPoint.id EQUALS TNPNTS00000000005467")
-                .contains("requirementCoverage: location constraint mappedBy [payload.ongroundServiceEvent.stopPoint.id]");
+        assertThat(request.userPrompt())
+                .contains("PIS location runtime context v2")
+                .contains("selectedPointIds: [TNPNTS00000000005467]")
+                .doesNotContain("Positive resolved single candidate")
+                .doesNotContain("User prompt: \"Avvertimi quando una corsa parte da Rho Fieramilano\"")
+                .doesNotContain("Resolved location: Rho Fieramilano -> TNPNTS00000000005467");
     }
 
     @Test
-    void builderContainsPositiveExampleForMalpensaInStopPointIds() {
+    void eventRuntimeLocationContextPreservesAmbiguousSelectedCandidatesWithoutExamples() {
         LlmRequest request = builder().build(promptDataWithLocation(malpensaContext()));
 
-        assertThat(fullPrompt(request))
-                .contains("Positive resolved multiple candidates")
-                .contains("Resolved locations: Malpensa -> TNPNTS00000000000028, TNPNTS00000000000029")
-                .contains("payload.ongroundServiceEvent.stopPoint.id IN [TNPNTS00000000000028, TNPNTS00000000000029]")
-                .contains("RESOLVED_AMBIGUOUS with multiple selected candidates -> use IN on the correct stopPoint.id field");
+        assertThat(request.userPrompt())
+                .contains("status: RESOLVED_AMBIGUOUS")
+                .contains("selectedPointIds: [TNPNTS00000000000028, TNPNTS00000000000029]")
+                .contains("selectedCandidates:")
+                .doesNotContain("Positive resolved multiple candidates")
+                .doesNotContain("payload.ongroundServiceEvent.stopPoint.id IN");
     }
 
     @Test
-    void builderContainsFallbackExampleForUnresolvedLocation() {
+    void eventRuntimeLocationContextPreservesUnresolvedFallbackFlagsWithoutFallbackExample() {
         LlmRequest request = builder().build(promptDataWithLocation(unresolvedGenovaNerviContext()));
 
-        assertThat(fullPrompt(request))
-                .contains("Fallback unresolved location")
-                .contains("User prompt: \"Avvertimi quando un treno passa da Genova Nervi\"")
-                .contains("Location unresolved.")
-                .contains("Expected condition may use nameLong CONTAINS_NORMALIZED \"Genova Nervi\"")
-                .contains("Expected warning and low confidence; requirementCoverage must mention fallback text matching")
-                .contains("UNRESOLVED INCLUDE -> fallback to nameLong CONTAINS_NORMALIZED and lower confidence");
+        assertThat(request.userPrompt())
+                .contains("rawText: \"Genova Nervi\"")
+                .contains("status: UNRESOLVED")
+                .contains("fallbackToNameLong: true")
+                .contains("fallbackAllowed: true")
+                .doesNotContain("Fallback unresolved location")
+                .doesNotContain("Expected condition may use nameLong CONTAINS_NORMALIZED");
     }
 
     @Test
-    void builderContainsNegativeRuleAgainstNameLongForResolvedLocation() {
+    void eventRuntimeLocationContextDoesNotRepeatNegativeResolvedLocationExample() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 
-        assertThat(fullPrompt(request))
-                .contains("Negative resolved location")
-                .contains("If a location was resolved, do not emit payload.ongroundServiceEvent.stopPoint.nameLong CONTAINS_NORMALIZED \"Rho Fieramilano\"")
-                .contains("Do not use stopPoint.nameLong/nameShort for resolved locations");
+        assertThat(request.userPrompt())
+                .doesNotContain("Negative resolved location")
+                .doesNotContain("If a location was resolved, do not emit payload.ongroundServiceEvent.stopPoint.nameLong CONTAINS_NORMALIZED \"Rho Fieramilano\"");
     }
 
     private AlertVerificationPromptBuilder builder() {

@@ -103,6 +103,81 @@ public record AlertVerificationLocationContext(
         return section.toString();
     }
 
+    public String compactRuntimePromptSectionV2() {
+        StringBuilder section = new StringBuilder("PIS location runtime context v2:\n");
+        section.append("Use these backend-resolved locations as authoritative runtime context. ")
+                .append("Static mapping rules are defined in the system prompt. Never invent stopPoint ids.\n");
+        section.append("hasLocationMentions: ").append(hasLocationMentions).append('\n');
+        section.append("resolutions:\n");
+        if (resolutions.isEmpty()) {
+            section.append("  []\n");
+        } else {
+            for (LocationResolution resolution : resolutions) {
+                appendResolutionV2(section, resolution);
+            }
+        }
+        section.append("nonLocationConstraints:\n");
+        if (nonLocationConstraints.isEmpty()) {
+            section.append("  []\n");
+        } else {
+            for (NonLocationConstraint constraint : nonLocationConstraints) {
+                section.append("  - type: ").append(nullToEmpty(constraint.type())).append('\n');
+                section.append("    rawText: \"").append(escape(nullToEmpty(constraint.rawText()))).append("\"\n");
+            }
+        }
+        if (!warnings.isEmpty()) {
+            section.append("warnings:\n");
+            for (String warning : warnings) {
+                section.append("  - \"").append(escape(nullToEmpty(warning))).append("\"\n");
+            }
+        }
+        return section.toString();
+    }
+
+    private static void appendResolutionV2(StringBuilder section, LocationResolution resolution) {
+        List<String> selectedPointIds = selectedPointIds(resolution);
+        section.append("  - rawText: \"").append(escape(resolution.rawText())).append("\"\n");
+        section.append("    normalizedText: \"").append(escape(resolution.normalizedText())).append("\"\n");
+        section.append("    semanticRole: ").append(resolution.semanticRole()).append('\n');
+        section.append("    relationToMainEvent: ").append(resolution.relationToMainEvent()).append('\n');
+        section.append("    requiredCoverage: ").append(resolution.requiredCoverage()).append('\n');
+        section.append("    polarity: ").append(resolution.polarity()).append('\n');
+        section.append("    logicalGroup: ").append(resolution.logicalGroup()).append('\n');
+        section.append("    status: ").append(resolution.status()).append('\n');
+        section.append("    selectedPointIds: ").append(selectedPointIds).append('\n');
+        section.append("    targetFieldHints: ").append(resolution.targetFieldHints()).append('\n');
+        section.append("    fallbackToNameLong: ").append(resolution.fallbackToNameLong()).append('\n');
+        section.append("    fallbackAllowed: ").append(resolution.fallbackAllowed()).append('\n');
+        if (!resolution.warningReason().isBlank()) {
+            section.append("    warningReason: \"").append(escape(resolution.warningReason())).append("\"\n");
+        }
+        if (shouldPrintSelectedCandidates(resolution, selectedPointIds)) {
+            section.append("    selectedCandidates:\n");
+            for (LocationCandidate candidate : resolution.candidates()) {
+                if (candidate.selected()) {
+                    section.append("      - id: ").append(candidate.id()).append('\n');
+                    section.append("        nameLong: \"").append(escape(nullToEmpty(candidate.nameLong()))).append("\"\n");
+                    section.append("        selected: true\n");
+                }
+            }
+        }
+    }
+
+    private static boolean shouldPrintSelectedCandidates(LocationResolution resolution, List<String> selectedPointIds) {
+        return "RESOLVED_AMBIGUOUS".equals(resolution.status()) || selectedPointIds.size() > 1;
+    }
+
+    private static List<String> selectedPointIds(LocationResolution resolution) {
+        if (!resolution.selectedPointIds().isEmpty()) {
+            return resolution.selectedPointIds();
+        }
+        return resolution.candidates().stream()
+                .filter(LocationCandidate::selected)
+                .map(LocationCandidate::id)
+                .filter(id -> !nullToEmpty(id).isBlank())
+                .toList();
+    }
+
     private static void appendRules(StringBuilder section) {
         section.append("- Locations were already semantically understood by the backend and resolved against points.json when possible.\n");
         section.append("- Every location with requiredCoverage=true must be represented in technicalSpecification.\n");
@@ -184,6 +259,12 @@ public record AlertVerificationLocationContext(
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private static String escape(String value) {
+        return nullToEmpty(value)
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
     }
 
     public record LocationResolution(
