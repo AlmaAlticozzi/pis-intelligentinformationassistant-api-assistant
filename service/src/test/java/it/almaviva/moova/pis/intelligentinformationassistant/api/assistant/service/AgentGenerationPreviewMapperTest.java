@@ -64,6 +64,49 @@ class AgentGenerationPreviewMapperTest {
     }
 
     @Test
+    void scheduledVerifiedArtifactsProduceDeterministicPreviewWithScheduledDsl() {
+        AgentGenerationPreviewResponse response = mapper.toResponse(scheduledPreviewData(), null);
+
+        assertThat(response.getCanGenerate()).isTrue();
+        assertThat(response.getRecommendedGenerationMode()).isEqualTo(AgentGenerationMode.DSL);
+        assertThat(response.getRequiredSources()).containsExactly(AgentDataSource.SERVICE_DATA);
+        assertThat(response.getRequiredPermissions()).containsExactly("READ_SERVICE_DATA");
+        assertThat(response.getBlueprint().getTargetTypes())
+                .containsExactly(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE);
+        assertThat(response.getBlueprint().getParameters())
+                .containsKeys("serviceDataQuery", "snapshotEvaluation", "outputPolicy", "schedule", "conditionType");
+        assertThat(response.getDslPreview().getSupportedByRuntime()).isTrue();
+        assertThat(response.getDslPreview().getDsl())
+                .contains("trigger:\n  type: SCHEDULE")
+                .contains("frequencySeconds: 600")
+                .contains("operation: POST /v2/stoppointjourneys")
+                .contains("inputModel: ServiceDataStopPointJourneysV2")
+                .contains("- TNPNTS00000000000009")
+                .contains("lookaheadMinutes: 180")
+                .contains("evaluationMode: SCHEDULED_SNAPSHOT_MATCH")
+                .contains("journeyPath: stopPointsJourneyDetails[]")
+                .contains("mode: REPORT_COUNT")
+                .contains("conditionType: SERVICE_DATA_SCHEDULED_FIELD_MATCH")
+                .contains("field: callStart.stopPoint.id")
+                .contains("operator: EQUALS")
+                .contains("value: TNPNTS00000000000122")
+                .contains("requiresScheduler: true")
+                .contains("supportedByRuntime: true");
+        assertThat(metadata(response, "runtimeContract"))
+                .containsEntry("executionModel", "SCHEDULED_POLLING")
+                .containsEntry("triggerType", "SCHEDULE")
+                .containsEntry("source", "SERVICE_DATA")
+                .containsEntry("inputModel", "ServiceDataStopPointJourneysV2")
+                .containsEntry("outputModel", "AgentOutput.CANDIDATE_SUGGESTION")
+                .containsEntry("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH")
+                .containsEntry("requiresScheduler", true)
+                .containsEntry("requiresState", false)
+                .containsEntry("requiresExternalTools", false)
+                .containsEntry("requiredPermissions", List.of("READ_SERVICE_DATA"))
+                .containsEntry("allowedSources", List.of("SERVICE_DATA"));
+    }
+
+    @Test
     void javaTemplatePreferenceDoesNotGenerateJavaAndOptionalSectionsCanBeExcluded() {
         AgentGenerationPreviewRequest request = new AgentGenerationPreviewRequest()
                 .preferredGenerationMode(AgentGenerationMode.JAVA_TEMPLATE)
@@ -552,6 +595,87 @@ class AgentGenerationPreviewMapperTest {
                 List.of("JOURNEY_CANCELLED"),
                 List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData scheduledPreviewData() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                "all", List.of(Map.of(
+                        "field", "callStart.stopPoint.id",
+                        "operator", "EQUALS",
+                        "value", "TNPNTS00000000000122")));
+        Map<String, Object> serviceDataQuery = Map.of(
+                "operation", "POST /v2/stoppointjourneys",
+                "stopPoints", List.of("TNPNTS00000000000009"),
+                "timeWindow", Map.of(
+                        "startMode", "NOW_TRUNCATED_TO_MINUTE",
+                        "endMode", "NOW_PLUS_DURATION",
+                        "rawText", "nelle prossime 3 ore",
+                        "defaulted", false,
+                        "lookaheadMinutes", 180),
+                "monitoringScope", "EXPLICIT_STOP_POINTS",
+                "requiresAllKnownStopPoints", false);
+        Map<String, Object> snapshotEvaluation = new LinkedHashMap<>();
+        snapshotEvaluation.put("mode", "REPORT_COUNT");
+        snapshotEvaluation.put("journeyPath", "stopPointsJourneyDetails[]");
+        snapshotEvaluation.put("condition", condition);
+        snapshotEvaluation.put("threshold", null);
+        Map<String, Object> outputPolicy = Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", false);
+        Map<String, Object> schedule = Map.of(
+                "rawText", "Ogni 10 minuti",
+                "defaulted", false,
+                "frequencySeconds", 600);
+        Map<String, Object> technicalSpecification = new LinkedHashMap<>();
+        technicalSpecification.put("source", "SERVICE_DATA");
+        technicalSpecification.put("schedule", schedule);
+        technicalSpecification.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        technicalSpecification.put("inputModel", "ServiceDataStopPointJourneysV2");
+        technicalSpecification.put("outputModel", "AgentOutput.CANDIDATE_SUGGESTION");
+        technicalSpecification.put("triggerType", "SCHEDULE");
+        technicalSpecification.put("outputPolicy", outputPolicy);
+        technicalSpecification.put("schemaVersion", "iia.alert.technical-specification/v2");
+        technicalSpecification.put("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH");
+        technicalSpecification.put("interpreterType", "SCHEDULED_INTERPRETER");
+        technicalSpecification.put("serviceDataQuery", serviceDataQuery);
+        technicalSpecification.put("snapshotEvaluation", snapshotEvaluation);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ScheduledServiceDataSnapshotAlertAgent",
+                "description", "Reports scheduled journeys from a ServiceData snapshot.",
+                "triggerType", "SCHEDULE",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "targetTypes", List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "parameters", Map.of(
+                        "serviceDataQuery", serviceDataQuery,
+                        "snapshotEvaluation", snapshotEvaluation,
+                        "outputPolicy", outputPolicy,
+                        "schedule", schedule),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT_SCHEDULED",
+                "Scheduled count",
+                "VERIFIED",
+                "VERIFIED",
+                false,
+                null,
+                1,
+                "Ogni 10 minuti dimmi quante corse a Garibaldi FS hanno origine Monza nelle prossime 3 ore",
+                "Verified.",
+                null,
+                null,
+                "SCHEDULED_INTERPRETER",
+                "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                technicalSpecification,
+                blueprint,
+                List.of("SERVICE_DATA_SCHEDULED_FIELD_MATCH"),
+                List.of(),
+                List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE));
     }
 
     private AlertAgentGenerationPreviewData cancellationPreviewData() {

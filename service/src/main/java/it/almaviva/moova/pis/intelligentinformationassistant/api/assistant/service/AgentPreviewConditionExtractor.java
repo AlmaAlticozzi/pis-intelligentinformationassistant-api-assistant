@@ -41,11 +41,19 @@ class AgentPreviewConditionExtractor {
         if (condition.isEmpty()) {
             condition = mapValue(data.technicalSpecification().get("condition"));
         }
+        if (condition.isEmpty()) {
+            condition = mapValue(mapValue(parameters.get("snapshotEvaluation")).get("condition"));
+        }
+        if (condition.isEmpty()) {
+            condition = mapValue(mapValue(data.technicalSpecification().get("snapshotEvaluation")).get("condition"));
+        }
 
         String conditionType = firstString(
                 parameters.get("conditionType"),
                 condition.get("type"),
-                data.technicalSpecification().get("conditionType"));
+                data.technicalSpecification().get("conditionType"),
+                mapValue(mapValue(parameters.get("snapshotEvaluation")).get("condition")).get("type"),
+                mapValue(mapValue(data.technicalSpecification().get("snapshotEvaluation")).get("condition")).get("type"));
         List<ConditionLeaf> leaves = new ArrayList<>();
         List<ArrayElementCondition> arrayConditions = new ArrayList<>();
         List<RenderIssue> renderIssues = new ArrayList<>();

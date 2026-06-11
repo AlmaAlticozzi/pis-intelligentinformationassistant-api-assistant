@@ -42,6 +42,11 @@ class AgentGenerationPromptBuilderTest {
                 .contains("no Agent Run")
                 .contains("no Suggestion")
                 .contains("AgentBlueprintValidator")
+                .contains("SERVICE_DATA_JOURNEY_AGGREGATE")
+                .contains("SERVICE_DATA_SCHEDULED_FIELD_MATCH")
+                .contains("snapshotEvaluation")
+                .contains("serviceDataQuery")
+                .contains("outputPolicy")
                 .contains("{{AGENT_GENERATION_CAPABILITY_CATALOG}}")
                 .doesNotContain("{{MISSION}}")
                 .doesNotContain("{{SAFETY_RULES}}")
@@ -104,6 +109,27 @@ class AgentGenerationPromptBuilderTest {
                 .contains("Create a suggestion when a journey is cancelled.")
                 .contains("\"alertId\":\"ALRT1\"")
                 .contains("\"conditionType\":\"SERVICE_DATA_FIELD_MATCH\"")
+                .doesNotContainPattern("\\{\\{[A-Z0-9_]+}}");
+    }
+
+    @Test
+    void agentPreviewPromptSupportsScheduledRuntimeWithoutForcingEventSemantics() {
+        LlmRequest request = builder().build(scheduledPreviewData(), request());
+        String fullPrompt = request.systemPrompt() + "\n" + request.userPrompt();
+
+        assertThat(fullPrompt)
+                .contains("For SCHEDULED_INTERPRETER / SCHEDULED_SNAPSHOT_MATCH")
+                .contains("Do not use fixed Event values for a Scheduled preview")
+                .contains("Do not force Scheduled snapshotEvaluation into Event condition")
+                .contains("SERVICE_DATA_JOURNEY_AGGREGATE")
+                .contains("SERVICE_DATA_SCHEDULED_FIELD_MATCH")
+                .contains("\"interpreterType\":\"SCHEDULED_INTERPRETER\"")
+                .contains("\"triggerType\":\"SCHEDULE\"")
+                .contains("\"evaluationMode\":\"SCHEDULED_SNAPSHOT_MATCH\"")
+                .contains("\"inputModel\":\"ServiceDataStopPointJourneysV2\"")
+                .contains("\"serviceDataQuery\"")
+                .contains("\"snapshotEvaluation\"")
+                .contains("\"outputPolicy\"")
                 .doesNotContainPattern("\\{\\{[A-Z0-9_]+}}");
     }
 
@@ -203,5 +229,73 @@ class AgentGenerationPromptBuilderTest {
                 List.of("SERVICE_DATA_FIELD_MATCH"),
                 List.of(),
                 List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AlertAgentGenerationPreviewData scheduledPreviewData() {
+        Map<String, Object> scheduledCondition = Map.of(
+                "type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "field", "callStart.stopPoint.id",
+                                "operator", "EQUALS",
+                                "value", "TNPNTS00000000000122")));
+        Map<String, Object> serviceDataQuery = Map.of(
+                "operation", "POST /v2/stoppointjourneys",
+                "stopPoints", List.of("TNPNTS00000000000009"),
+                "timeWindow", Map.of("lookaheadMinutes", 180));
+        Map<String, Object> snapshotEvaluation = Map.of(
+                "mode", "REPORT_COUNT",
+                "journeyPath", "stopPointsJourneyDetails[]",
+                "condition", scheduledCondition);
+        Map<String, Object> outputPolicy = Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", true);
+        Map<String, Object> technicalSpecification = Map.of(
+                "source", "SERVICE_DATA",
+                "interpreterType", "SCHEDULED_INTERPRETER",
+                "triggerType", "SCHEDULE",
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "inputModel", "ServiceDataStopPointJourneysV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "targetTypes", List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
+                "serviceDataQuery", serviceDataQuery,
+                "snapshotEvaluation", snapshotEvaluation,
+                "outputPolicy", outputPolicy);
+        Map<String, Object> blueprint = Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "agentName", "ScheduledServiceDataSnapshotAlertAgent",
+                "description", "Reports scheduled journeys from a ServiceData snapshot.",
+                "triggerType", "SCHEDULE",
+                "requiredSources", List.of("SERVICE_DATA"),
+                "targetTypes", List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "parameters", Map.of(
+                        "serviceDataQuery", serviceDataQuery,
+                        "snapshotEvaluation", snapshotEvaluation,
+                        "outputPolicy", outputPolicy),
+                "stateRequirements", Map.of("requiresState", false),
+                "output", Map.of("type", "CANDIDATE_SUGGESTION"));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT_SCHEDULED",
+                "Scheduled count",
+                "VERIFIED",
+                "VERIFIED",
+                false,
+                null,
+                1,
+                "Ogni 10 minuti dimmi quante corse a Garibaldi FS hanno origine Monza nelle prossime 3 ore",
+                "Verified.",
+                null,
+                null,
+                "SCHEDULED_INTERPRETER",
+                "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                technicalSpecification,
+                blueprint,
+                List.of("SERVICE_DATA_SCHEDULED_FIELD_MATCH"),
+                List.of(),
+                List.of());
     }
 }

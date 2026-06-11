@@ -29,6 +29,69 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void acceptsScheduledSnapshotBlueprintShape() {
+        AlertAgentGenerationPreviewData data = scheduledPreviewData();
+
+        AgentBlueprintValidationResult result = validate(
+                data,
+                scheduledBlueprint(data, Map.of()),
+                List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedTargetTypes()).contains("SERVICE_DATA_JOURNEY_AGGREGATE");
+        assertThat(result.detectedDslOperators()).contains("EQUALS");
+    }
+
+    @Test
+    void rejectsScheduledBlueprintWithoutServiceDataQuery() {
+        AlertAgentGenerationPreviewData data = scheduledPreviewData();
+        AgentBlueprint blueprint = scheduledBlueprint(data, Map.of("serviceDataQuery", Map.of()));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint, List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("Scheduled blueprint parameters.serviceDataQuery is missing.");
+    }
+
+    @Test
+    void rejectsScheduledBlueprintWithoutSnapshotEvaluation() {
+        AlertAgentGenerationPreviewData data = scheduledPreviewData();
+        AgentBlueprint blueprint = scheduledBlueprint(data, Map.of("snapshotEvaluation", Map.of()));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint, List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("Scheduled blueprint parameters.snapshotEvaluation is missing.");
+    }
+
+    @Test
+    void rejectsScheduledBlueprintWithInventedSnapshotConditionType() {
+        AlertAgentGenerationPreviewData data = scheduledPreviewData("INVENTED_CONDITION_TYPE");
+
+        AgentBlueprintValidationResult result = validate(
+                data,
+                scheduledBlueprint(data, Map.of()),
+                List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors())
+                .contains("Scheduled blueprint snapshotEvaluation.condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.");
+    }
+
+    @Test
+    void rejectsScheduledBlueprintWithInventedTargetType() {
+        AlertAgentGenerationPreviewData data = scheduledPreviewData();
+        AgentBlueprint blueprint = scheduledBlueprint(data, Map.of())
+                .targetTypes(List.of(SuggestionTargetType.GENERIC));
+
+        AgentBlueprintValidationResult result = validate(data, blueprint, List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("Unsupported targetType: GENERIC");
+    }
+
+    @Test
     void acceptsContainsIgnoreCaseBlueprintWithValue() {
         AlertAgentGenerationPreviewData data = previewData(delayCondition(false));
 
@@ -550,6 +613,80 @@ class AgentBlueprintValidatorTest {
                 "ALRT1", "Alert", "VERIFIED", "VERIFIED", false, null, 1, "Prompt", "Verified",
                 null, null, "EVENT_INTERPRETER", "ServiceDataV2", "AgentOutput.CANDIDATE_SUGGESTION",
                 technical, blueprint, List.of(), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY));
+    }
+
+    private AgentBlueprint scheduledBlueprint(AlertAgentGenerationPreviewData data, Map<String, Object> overrides) {
+        Map<String, Object> technical = data.technicalSpecification();
+        java.util.LinkedHashMap<String, Object> parameters = new java.util.LinkedHashMap<>();
+        parameters.put("serviceDataQuery", technical.get("serviceDataQuery"));
+        parameters.put("snapshotEvaluation", technical.get("snapshotEvaluation"));
+        parameters.put("outputPolicy", technical.get("outputPolicy"));
+        parameters.put("schedule", technical.get("schedule"));
+        parameters.put("conditionType", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+        parameters.putAll(overrides);
+        return new AgentBlueprint()
+                .agentName("ScheduledServiceDataSnapshotAlertAgent")
+                .description("Reports scheduled journeys.")
+                .triggerType(AgentBlueprint.TriggerTypeEnum.SCHEDULE)
+                .requiredSources(List.of(AgentDataSource.SERVICE_DATA))
+                .targetTypes(List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE))
+                .parameters(parameters)
+                .stateRequirements(Map.of("requiresState", false))
+                .suggestionIntent(Map.of())
+                .putAdditionalProperty("schemaVersion", "iia.agent.blueprint/v1")
+                .putAdditionalProperty("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH")
+                .putAdditionalProperty("output", Map.of("type", "CANDIDATE_SUGGESTION"));
+    }
+
+    private AlertAgentGenerationPreviewData scheduledPreviewData() {
+        return scheduledPreviewData("SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+    }
+
+    private AlertAgentGenerationPreviewData scheduledPreviewData(String conditionType) {
+        Map<String, Object> condition = Map.of(
+                "type", conditionType,
+                "all", List.of(Map.of(
+                        "field", "callStart.stopPoint.id",
+                        "operator", "EQUALS",
+                        "value", "TNPNTS00000000000122")));
+        Map<String, Object> serviceDataQuery = Map.of(
+                "operation", "POST /v2/stoppointjourneys",
+                "stopPoints", List.of("TNPNTS00000000000009"),
+                "timeWindow", Map.of(
+                        "startMode", "NOW_TRUNCATED_TO_MINUTE",
+                        "endMode", "NOW_PLUS_DURATION",
+                        "lookaheadMinutes", 180));
+        Map<String, Object> snapshotEvaluation = Map.of(
+                "mode", "REPORT_COUNT",
+                "journeyPath", "stopPointsJourneyDetails[]",
+                "condition", condition);
+        Map<String, Object> outputPolicy = Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", false);
+        java.util.LinkedHashMap<String, Object> technical = new java.util.LinkedHashMap<>();
+        technical.put("source", "SERVICE_DATA");
+        technical.put("schedule", Map.of("frequencySeconds", 600, "defaulted", false, "rawText", "Ogni 10 minuti"));
+        technical.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        technical.put("inputModel", "ServiceDataStopPointJourneysV2");
+        technical.put("outputModel", "AgentOutput.CANDIDATE_SUGGESTION");
+        technical.put("triggerType", "SCHEDULE");
+        technical.put("outputPolicy", outputPolicy);
+        technical.put("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH");
+        technical.put("interpreterType", "SCHEDULED_INTERPRETER");
+        technical.put("serviceDataQuery", serviceDataQuery);
+        technical.put("snapshotEvaluation", snapshotEvaluation);
+        Map<String, Object> blueprint = Map.of(
+                "parameters", Map.of(
+                        "serviceDataQuery", serviceDataQuery,
+                        "snapshotEvaluation", snapshotEvaluation,
+                        "outputPolicy", outputPolicy,
+                        "schedule", technical.get("schedule")));
+        return new AlertAgentGenerationPreviewData(
+                "ALRT_SCHEDULED", "Scheduled", "VERIFIED", "VERIFIED", false, null, 1, "Prompt", "Verified",
+                null, null, "SCHEDULED_INTERPRETER", "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                technical, blueprint, List.of(), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE));
     }
 
     private Map<String, Object> condition(String statusOperator, boolean values) {

@@ -98,15 +98,18 @@ class AgentDefinitionDraftBuilder {
             List<String> requiredPermissions,
             AgentBlueprintValidationResult validationResult) {
         Map<String, Object> result = new LinkedHashMap<>();
+        boolean scheduled = "SCHEDULE".equals(validationResult.detectedTriggerType())
+                || "SCHEDULED".equals(validationResult.detectedTriggerType())
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(validationResult.detectedEvaluationMode());
         result.put("schemaVersion", "iia.agent.runtime-contract/v1");
-        result.put("executionModel", "EVENT_DRIVEN");
+        result.put("executionModel", scheduled ? "SCHEDULED_POLLING" : "EVENT_DRIVEN");
         result.put("triggerType", validationResult.detectedTriggerType());
         result.put("source", firstOrNull(requiredSources));
         result.put("inputModel", validationResult.detectedInputModel());
         result.put("outputModel", canonicalOutputModel(validationResult.detectedOutputModel()));
         result.put("evaluationMode", validationResult.detectedEvaluationMode());
         result.put("requiresState", validationResult.detectedRequiresState());
-        result.put("requiresScheduler", false);
+        result.put("requiresScheduler", scheduled);
         result.put("requiresExternalTools", false);
         result.put("requiresNetworkAccess", false);
         result.put("requiresFilesystemAccess", false);

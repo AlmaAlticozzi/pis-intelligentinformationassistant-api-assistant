@@ -139,7 +139,7 @@ public class AgentGenerationPromptBuilder {
                 - evaluationModes: [STATELESS_EVENT_MATCH, SCHEDULED_SNAPSHOT_MATCH]
                 - inputModels: [ServiceDataV2, ServiceDataStopPointJourneysV2]
                 - outputTypes: [CANDIDATE_SUGGESTION, AgentOutput.CANDIDATE_SUGGESTION]
-                - targetTypes: [SERVICE_DATA_JOURNEY]
+                - targetTypes: [SERVICE_DATA_JOURNEY, SERVICE_DATA_JOURNEY_AGGREGATE]
                 - requiresState: false
                 """.formatted(
                 capabilityCatalog.supportedSources(),

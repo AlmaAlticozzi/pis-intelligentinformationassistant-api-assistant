@@ -40,6 +40,10 @@ class AgentDslPreviewBuilder {
         List<String> targetTypes = blueprint.getTargetTypes() == null
                 ? List.of()
                 : blueprint.getTargetTypes().stream().map(String::valueOf).toList();
+        if (isScheduled(triggerType, evaluationMode)) {
+            return buildScheduled(data, blueprint, conditionSummary, sources, validationResult, inputModel, outputType,
+                    yamlOutputType, requiresState);
+        }
         StringBuilder dsl = new StringBuilder()
                 .append("schemaVersion: iia.agent.dsl/v1\n")
                 .append("agent:\n")
@@ -77,6 +81,92 @@ class AgentDslPreviewBuilder {
         String summary = supportedByRuntime
                 ? "Deterministic DSL preview for a stateless ServiceData event-match Agent."
                 : "Read-only DSL preview derived from verified Alert artifacts.";
+        return new BuildResult(
+                new AgentDslPreview()
+                        .schemaVersion("iia.agent.dsl/v1")
+                        .summary(summary)
+                        .dsl(dsl.toString())
+                        .supportedByRuntime(supportedByRuntime),
+                partial,
+                supportedByRuntime,
+                new java.util.LinkedHashSet<>(validationResult.unsupportedCapabilities()));
+    }
+
+    private BuildResult buildScheduled(
+            AlertAgentGenerationPreviewData data,
+            AgentBlueprint blueprint,
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
+            List<String> sources,
+            AgentBlueprintValidationResult validationResult,
+            String inputModel,
+            String outputType,
+            String yamlOutputType,
+            boolean requiresState) {
+        Map<String, Object> parameters = mapValue(blueprint.getParameters());
+        Map<String, Object> technical = data.technicalSpecification();
+        Map<String, Object> serviceDataQuery = mapValue(firstNonEmpty(parameters.get("serviceDataQuery"),
+                technical.get("serviceDataQuery")));
+        Map<String, Object> snapshotEvaluation = mapValue(firstNonEmpty(parameters.get("snapshotEvaluation"),
+                technical.get("snapshotEvaluation")));
+        Map<String, Object> outputPolicy = mapValue(firstNonEmpty(parameters.get("outputPolicy"),
+                technical.get("outputPolicy")));
+        Map<String, Object> schedule = mapValue(firstNonEmpty(parameters.get("schedule"), technical.get("schedule")));
+        Map<String, Object> timeWindow = mapValue(serviceDataQuery.get("timeWindow"));
+
+        StringBuilder dsl = new StringBuilder()
+                .append("schemaVersion: iia.agent.dsl/v1\n")
+                .append("agent:\n")
+                .append("  name: ").append(blueprint.getAgentName()).append("\n")
+                .append("trigger:\n")
+                .append("  type: SCHEDULE\n");
+        appendOptionalScalar(dsl, "  frequencySeconds: ", schedule.get("frequencySeconds"));
+        dsl.append("source:\n")
+                .append("  type: ").append(sources.isEmpty() ? "SERVICE_DATA" : sources.getFirst()).append("\n");
+        appendOptionalScalar(dsl, "  operation: ", serviceDataQuery.get("operation"));
+        dsl.append("  inputModel: ").append(inputModel).append("\n");
+        if (serviceDataQuery.get("stopPoints") instanceof List<?> stopPoints && !stopPoints.isEmpty()) {
+            dsl.append("  stopPoints:\n");
+            stopPoints.forEach(stopPoint -> appendLine(dsl, 4, "- " + stopPoint));
+        }
+        if (!timeWindow.isEmpty()) {
+            dsl.append("  timeWindow:\n");
+            for (String key : List.of("startMode", "endMode", "lookaheadMinutes", "rawText", "defaulted")) {
+                if (timeWindow.containsKey(key)) {
+                    appendRenderedValue(dsl, 4, key, timeWindow.get(key));
+                }
+            }
+        }
+        dsl.append("match:\n")
+                .append("  evaluationMode: SCHEDULED_SNAPSHOT_MATCH\n");
+        appendOptionalScalar(dsl, "  journeyPath: ", snapshotEvaluation.get("journeyPath"));
+        appendOptionalScalar(dsl, "  mode: ", snapshotEvaluation.get("mode"));
+        if (hasText(conditionSummary.conditionType())) {
+            dsl.append("  conditionType: ").append(conditionSummary.conditionType()).append("\n");
+        }
+        boolean partial = conditionSummary.partial();
+        if (conditionSummary.condition().isEmpty()) {
+            partial = true;
+        } else {
+            partial |= !renderRootCondition(dsl, conditionSummary.condition(), Map.of());
+        }
+        boolean supportedByRuntime = validationResult.valid()
+                && validationResult.runtimeSupported()
+                && !partial
+                && validationResult.unsupportedCapabilities().isEmpty();
+        dsl.append("output:\n")
+                .append("  type: ").append(yamlOutputType).append("\n");
+        if (!outputPolicy.isEmpty()) {
+            dsl.append("  policy:\n");
+            outputPolicy.forEach((key, value) -> appendRenderedValue(dsl, 4, key, value));
+        }
+        dsl.append("runtime:\n")
+                .append("  requiresScheduler: true\n")
+                .append("  requiresState: ").append(requiresState).append("\n")
+                .append("  supportedByRuntime: ").append(supportedByRuntime).append("\n");
+
+        String summary = supportedByRuntime
+                ? "Deterministic DSL preview for a scheduled ServiceData snapshot Agent."
+                : "Read-only scheduled DSL preview derived from verified Alert artifacts.";
         return new BuildResult(
                 new AgentDslPreview()
                         .schemaVersion("iia.agent.dsl/v1")
@@ -311,6 +401,19 @@ class AgentDslPreviewBuilder {
             }
         }
         return null;
+    }
+
+    private boolean isScheduled(String triggerType, String evaluationMode) {
+        return "SCHEDULE".equals(triggerType)
+                || "SCHEDULED".equals(triggerType)
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode);
+    }
+
+    private Object firstNonEmpty(Object first, Object second) {
+        if (first instanceof Map<?, ?> map && !map.isEmpty()) {
+            return first;
+        }
+        return first == null ? second : first;
     }
 
     private boolean hasText(String value) {

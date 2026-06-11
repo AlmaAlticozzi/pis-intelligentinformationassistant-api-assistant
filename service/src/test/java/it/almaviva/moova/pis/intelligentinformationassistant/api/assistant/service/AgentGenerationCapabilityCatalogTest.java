@@ -82,6 +82,50 @@ class AgentGenerationCapabilityCatalogTest {
     }
 
     @Test
+    void acceptsScheduledServiceDataSnapshotRuntimeProfile() {
+        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
+                List.of("SERVICE_DATA"),
+                List.of("READ_SERVICE_DATA"),
+                "SCHEDULE",
+                "SCHEDULED_SNAPSHOT_MATCH",
+                "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                List.of("SERVICE_DATA_JOURNEY_AGGREGATE"),
+                Set.of("EQUALS"),
+                true,
+                "AUTO",
+                "DSL");
+
+        AgentGenerationCapabilityCatalog.RuntimeSupportEvaluation result =
+                catalog.evaluateRuntimeSupport(snapshot);
+
+        assertThat(result.supported()).isTrue();
+        assertThat(result.unsupportedCapabilities()).isEmpty();
+    }
+
+    @Test
+    void rejectsInventedTargetType() {
+        AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
+                List.of("SERVICE_DATA"),
+                List.of("READ_SERVICE_DATA"),
+                "SCHEDULE",
+                "SCHEDULED_SNAPSHOT_MATCH",
+                "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                List.of("INVENTED_TARGET"),
+                Set.of("EQUALS"),
+                true,
+                "AUTO",
+                "DSL");
+
+        AgentGenerationCapabilityCatalog.RuntimeSupportEvaluation result =
+                catalog.evaluateRuntimeSupport(snapshot);
+
+        assertThat(result.supported()).isFalse();
+        assertThat(result.unsupportedCapabilities()).containsExactly("INVENTED_TARGET");
+    }
+
+    @Test
     void reportsUnsupportedOperatorWithoutBlockingPreviewContract() {
         AgentGenerationCapabilitySnapshot snapshot = new AgentGenerationCapabilitySnapshot(
                 List.of("SERVICE_DATA"),

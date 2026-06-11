@@ -21,7 +21,7 @@ public class AgentGenerationCapabilityCatalog {
     private static final Set<String> EVALUATION_MODES = orderedSet("STATELESS_EVENT_MATCH", "SCHEDULED_SNAPSHOT_MATCH");
     private static final Set<String> INPUT_MODELS = orderedSet("ServiceDataV2", "ServiceDataStopPointJourneysV2");
     private static final Set<String> OUTPUT_MODELS = orderedSet("AgentOutput.CANDIDATE_SUGGESTION", "CANDIDATE_SUGGESTION");
-    private static final Set<String> TARGET_TYPES = orderedSet("SERVICE_DATA_JOURNEY");
+    private static final Set<String> TARGET_TYPES = orderedSet("SERVICE_DATA_JOURNEY", "SERVICE_DATA_JOURNEY_AGGREGATE");
     private static final Set<String> GENERATION_MODES = orderedSet("AUTO", "DSL");
     private static final Set<String> PREVIEW_ONLY_GENERATION_MODES = orderedSet("JAVA_TEMPLATE");
     private static final Set<String> COMPLEXITIES = orderedSet("LOW", "MEDIUM", "HIGH", "UNSUPPORTED");

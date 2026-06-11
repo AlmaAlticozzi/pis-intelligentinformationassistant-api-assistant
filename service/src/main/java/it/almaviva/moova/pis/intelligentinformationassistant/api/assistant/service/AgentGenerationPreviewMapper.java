@@ -247,7 +247,7 @@ public class AgentGenerationPreviewMapper {
                         persisted.get("triggerType"), data.technicalSpecification().get("triggerType"), "EVENT")))
                 .requiredSources(requiredSources)
                 .targetTypes(resolveTargetTypes(data, persisted))
-                .parameters(mapValue(persisted.get("parameters")))
+                .parameters(normalizedParameters(data, persisted))
                 .stateRequirements(mapValue(persisted.get("stateRequirements")))
                 .suggestionIntent(suggestionIntent);
 
@@ -259,6 +259,32 @@ public class AgentGenerationPreviewMapper {
             }
         });
         return blueprint;
+    }
+
+    private Map<String, Object> normalizedParameters(
+            AlertAgentGenerationPreviewData data,
+            Map<String, Object> persisted) {
+        Map<String, Object> parameters = mapValue(persisted.get("parameters"));
+        if (!isScheduled(data, persisted)) {
+            return parameters;
+        }
+        Map<String, Object> technical = data.technicalSpecification();
+        putIfPresent(parameters, "serviceDataQuery", technical.get("serviceDataQuery"));
+        putIfPresent(parameters, "snapshotEvaluation", technical.get("snapshotEvaluation"));
+        putIfPresent(parameters, "outputPolicy", technical.get("outputPolicy"));
+        putIfPresent(parameters, "schedule", technical.get("schedule"));
+        Map<String, Object> snapshotEvaluation = mapValue(parameters.get("snapshotEvaluation"));
+        Map<String, Object> condition = mapValue(snapshotEvaluation.get("condition"));
+        if (!parameters.containsKey("conditionType") && condition.get("type") != null) {
+            parameters.put("conditionType", condition.get("type"));
+        }
+        return parameters;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (!target.containsKey(key) && value != null) {
+            target.put(key, value);
+        }
     }
 
     private Map<String, Object> normalizedOutput(
@@ -315,7 +341,20 @@ public class AgentGenerationPreviewMapper {
                     .toList();
             return result;
         }
+        if (isScheduled(data, persisted)) {
+            return List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE);
+        }
         return data.targetTypes() == null ? List.of() : data.targetTypes();
+    }
+
+    private boolean isScheduled(AlertAgentGenerationPreviewData data, Map<String, Object> persisted) {
+        String triggerType = firstString(persisted.get("triggerType"), data.technicalSpecification().get("triggerType"));
+        String evaluationMode = firstString(
+                persisted.get("evaluationMode"),
+                data.technicalSpecification().get("evaluationMode"));
+        return "SCHEDULE".equals(triggerType)
+                || "SCHEDULED".equals(triggerType)
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode);
     }
 
     private List<String> resolveSourceNames(AlertAgentGenerationPreviewData data) {

@@ -28,7 +28,10 @@ The preview must be compatible with a future Agent Orchestrator/Runtime, but it 
 ## Runtime contract
 
 The current MVP supports SERVICE_DATA as the source and READ_SERVICE_DATA as the permission.
-The supported target type is SERVICE_DATA_JOURNEY.
+For EVENT_INTERPRETER / STATELESS_EVENT_MATCH, targetTypes normally include SERVICE_DATA_JOURNEY.
+For SCHEDULED_INTERPRETER / SCHEDULED_SNAPSHOT_MATCH, targetTypes normally include SERVICE_DATA_JOURNEY_AGGREGATE.
+Preserve targetTypes and evaluation semantics from the verified technicalSpecification when already present.
+Do not invent targetTypes outside the Agent Generation Capability Catalog.
 The output is CANDIDATE_SUGGESTION / AgentOutput.CANDIDATE_SUGGESTION.
 The blueprint must declare stateRequirements.requiresState=false unless the backend technicalSpecification explicitly supports another mode.
 Do not introduce external tools, additional data sources, long-running state, network access, database access, filesystem access or arbitrary code.
@@ -51,13 +54,21 @@ Never invent sources, permissions, trigger types, evaluation modes, input models
 
 ## Blueprint rules
 
-Preserve every verified condition from the technicalSpecification in blueprint.parameters.condition.
-The conditionType must be SERVICE_DATA_FIELD_MATCH.
-Use the same triggerType, evaluationMode, inputModel and output model semantics as the technicalSpecification.
+Preserve the verified condition tree from the current technicalSpecification.
+For Event technicalSpecification.condition, preserve condition.type, normally SERVICE_DATA_FIELD_MATCH.
+For Scheduled technicalSpecification.snapshotEvaluation.condition, preserve snapshotEvaluation.condition.type, normally SERVICE_DATA_SCHEDULED_FIELD_MATCH.
+Do not force Scheduled snapshotEvaluation into Event condition.
+Use the same triggerType, evaluationMode, inputModel, output model and target type semantics as the technicalSpecification.
 requiredSources must include SERVICE_DATA.
 requiredPermissions must include READ_SERVICE_DATA.
-targetTypes must include SERVICE_DATA_JOURNEY.
 stateRequirements must explicitly set requiresState=false.
+For Event alerts, blueprint.parameters.condition should mirror technicalSpecification.condition.
+For Event alerts, blueprint.parameters.conditionType should match technicalSpecification.condition.type.
+For Scheduled alerts, blueprint.parameters.serviceDataQuery should mirror technicalSpecification.serviceDataQuery.
+For Scheduled alerts, blueprint.parameters.snapshotEvaluation should mirror technicalSpecification.snapshotEvaluation.
+For Scheduled alerts, blueprint.parameters.outputPolicy should mirror technicalSpecification.outputPolicy.
+For Scheduled alerts, blueprint.parameters.conditionType, if present, must match snapshotEvaluation.condition.type.
+Do not drop schedule, serviceDataQuery, snapshotEvaluation or outputPolicy for Scheduled alerts.
 Do not output dslPreview or validationPlan; the backend builds them deterministically.
 Do not output runtime activation data, deployment data, Agent Definition identifiers, Agent Run identifiers or Suggestion identifiers.
 
@@ -93,7 +104,12 @@ The backend validator remains authoritative and may reject the candidate even if
 
 ## JSON output contract
 
-Return exactly one raw JSON object with this shape:
+Return exactly one raw JSON object.
+triggerType, evaluationMode, inputModel, outputModel and targetTypes must be copied or coherently derived from the runtime selectors and technicalSpecification.
+Do not use fixed Event values for a Scheduled preview.
+For Scheduled output, blueprint.parameters must include serviceDataQuery, snapshotEvaluation and outputPolicy when they are present in the verified technicalSpecification.
+
+Example for Event only:
 
 {
   "canGenerate": true,
@@ -127,4 +143,23 @@ Return exactly one raw JSON object with this shape:
     }
   },
   "warnings": []
+}
+
+Minimal Scheduled parameters example:
+
+{
+  "blueprint": {
+    "triggerType": "SCHEDULE",
+    "targetTypes": ["SERVICE_DATA_JOURNEY_AGGREGATE"],
+    "evaluationMode": "SCHEDULED_SNAPSHOT_MATCH",
+    "parameters": {
+      "serviceDataQuery": {},
+      "snapshotEvaluation": {
+        "condition": {
+          "type": "SERVICE_DATA_SCHEDULED_FIELD_MATCH"
+        }
+      },
+      "outputPolicy": {}
+    }
+  }
 }

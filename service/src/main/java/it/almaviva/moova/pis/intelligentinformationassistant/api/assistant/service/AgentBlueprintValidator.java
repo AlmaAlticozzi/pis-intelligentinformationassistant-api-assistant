@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
@@ -103,6 +104,7 @@ public class AgentBlueprintValidator {
         String outputModel = firstString(output.get("type"), data.outputModel(), data.technicalSpecification().get("outputModel"));
         boolean requiresState = Boolean.TRUE.equals(blueprint.getStateRequirements().get("requiresState"));
         boolean explicitlyStateless = Boolean.FALSE.equals(blueprint.getStateRequirements().get("requiresState"));
+        boolean scheduled = isScheduled(triggerType, evaluationMode);
 
         System.out.println("[IIA][AGENT_BLUEPRINT_VALIDATOR] Detected capabilities alertId=" + alertId
                 + ", sources=" + detectedSources
@@ -142,7 +144,9 @@ public class AgentBlueprintValidator {
         if (!hasText(firstString(output.get("type")))) {
             errors.add("Blueprint output.type is missing.");
         }
-        if (!"SERVICE_DATA_FIELD_MATCH".equals(conditionSummary.conditionType())) {
+        if (scheduled) {
+            validateScheduledBlueprintShape(blueprint, data, inputModel, detectedTargets, conditionSummary, errors);
+        } else if (!"SERVICE_DATA_FIELD_MATCH".equals(conditionSummary.conditionType())) {
             errors.add("Unsupported or missing conditionType: " + conditionSummary.conditionType());
         }
         if (conditionSummary.condition().isEmpty() || conditionSummary.partial()) {
@@ -173,8 +177,12 @@ public class AgentBlueprintValidator {
         if (!temporalOperators.isEmpty()) {
             System.out.println("[IIA][AGENT_PREVIEW][TEMPORAL] operators found=" + temporalOperators);
         }
-        validateConditionCapabilities(conditionSummary.condition(), "condition", null, errors);
-        validatePlatformNumericEventBinding(conditionSummary.condition(), errors);
+        if (scheduled) {
+            validateScheduledConditionCapabilities(conditionSummary.condition(), "snapshotEvaluation.condition", null, data, errors);
+        } else {
+            validateConditionCapabilities(conditionSummary.condition(), "condition", null, errors);
+            validatePlatformNumericEventBinding(conditionSummary.condition(), errors);
+        }
 
         Set<String> forbidden = new LinkedHashSet<>();
         findForbidden(blueprint, forbidden);
@@ -229,6 +237,171 @@ public class AgentBlueprintValidator {
                 evaluationMode,
                 inputModel,
                 outputModel);
+    }
+
+    private boolean isScheduled(String triggerType, String evaluationMode) {
+        return "SCHEDULE".equals(triggerType)
+                || "SCHEDULED".equals(triggerType)
+                || "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode);
+    }
+
+    private void validateScheduledBlueprintShape(
+            AgentBlueprint blueprint,
+            AlertAgentGenerationPreviewData data,
+            String inputModel,
+            Set<String> detectedTargets,
+            AgentPreviewConditionExtractor.ConditionSummary conditionSummary,
+            List<String> errors) {
+        Map<String, Object> parameters = mapValue(blueprint.getParameters());
+        Map<String, Object> technical = data.technicalSpecification();
+        Map<String, Object> snapshotEvaluation = mapValue(firstNonEmpty(
+                parameters.get("snapshotEvaluation"),
+                technical.get("snapshotEvaluation")));
+        Map<String, Object> snapshotCondition = mapValue(snapshotEvaluation.get("condition"));
+        Map<String, Object> serviceDataQuery = mapValue(firstNonEmpty(
+                parameters.get("serviceDataQuery"),
+                technical.get("serviceDataQuery")));
+        Map<String, Object> outputPolicy = mapValue(firstNonEmpty(
+                parameters.get("outputPolicy"),
+                technical.get("outputPolicy")));
+
+        if (!"ServiceDataStopPointJourneysV2".equals(inputModel)) {
+            errors.add("Scheduled blueprint inputModel must be ServiceDataStopPointJourneysV2.");
+        }
+        if (!detectedTargets.contains("SERVICE_DATA_JOURNEY_AGGREGATE")) {
+            errors.add("Scheduled blueprint targetTypes must contain SERVICE_DATA_JOURNEY_AGGREGATE.");
+        }
+        if (serviceDataQuery.isEmpty()) {
+            errors.add("Scheduled blueprint parameters.serviceDataQuery is missing.");
+        }
+        if (snapshotEvaluation.isEmpty()) {
+            errors.add("Scheduled blueprint parameters.snapshotEvaluation is missing.");
+        }
+        if (snapshotCondition.isEmpty()) {
+            errors.add("Scheduled blueprint parameters.snapshotEvaluation.condition is missing.");
+        }
+        String snapshotConditionType = stringValue(snapshotCondition.get("type"));
+        String conditionType = firstString(snapshotConditionType, parameters.get("conditionType"), conditionSummary.conditionType());
+        if (!"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(snapshotConditionType)
+                || !"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(conditionType)) {
+            errors.add("Scheduled blueprint snapshotEvaluation.condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.");
+        }
+        if (outputPolicy.isEmpty()) {
+            errors.add("Scheduled blueprint parameters.outputPolicy is missing.");
+        }
+    }
+
+    private void validateScheduledConditionCapabilities(
+            Map<String, Object> node,
+            String path,
+            String arrayPath,
+            AlertAgentGenerationPreviewData data,
+            List<String> errors) {
+        if (node == null || node.isEmpty()) {
+            return;
+        }
+        if (node.containsKey("anyElement")) {
+            Map<String, Object> anyElement = mapValue(node.get("anyElement"));
+            String rawPath = stringValue(anyElement.get("path"));
+            String resolvedPath = resolveScheduledArrayPath(rawPath, arrayPath, data);
+            if (!hasText(resolvedPath)) {
+                errors.add(path + ".anyElement: Scheduled anyElement path is not supported: " + rawPath);
+                return;
+            }
+            validateScheduledConditionCapabilities(
+                    mapValue(anyElement.get("conditions")),
+                    path + ".anyElement.conditions",
+                    resolvedPath,
+                    data,
+                    errors);
+            return;
+        }
+        if (node.containsKey("field") || node.containsKey("operator")) {
+            validateScheduledConditionLeaf(node, path, arrayPath, data, errors);
+            return;
+        }
+        for (String group : List.of("all", "any")) {
+            if (!(node.get(group) instanceof List<?> children)) {
+                continue;
+            }
+            for (int index = 0; index < children.size(); index++) {
+                if (children.get(index) instanceof Map<?, ?> child) {
+                    validateScheduledConditionCapabilities(
+                            mapValue(child),
+                            path + "." + group + "[" + index + "]",
+                            arrayPath,
+                            data,
+                            errors);
+                }
+            }
+        }
+    }
+
+    private void validateScheduledConditionLeaf(
+            Map<String, Object> leaf,
+            String path,
+            String arrayPath,
+            AlertAgentGenerationPreviewData data,
+            List<String> errors) {
+        String field = resolveScheduledField(stringValue(leaf.get("field")), arrayPath, data);
+        String operator = stringValue(leaf.get("operator"));
+        if (!ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+            errors.add(path + ": Scheduled field is not supported: " + field);
+            return;
+        }
+        if (!ScheduledServiceDataCapabilityCatalog.isAllowedOperator(field, operator)) {
+            errors.add(path + ": operator is not supported on Scheduled field " + field + ": " + operator);
+        }
+    }
+
+    private String resolveScheduledField(String field, String arrayPath, AlertAgentGenerationPreviewData data) {
+        if (!hasText(field)) {
+            return field;
+        }
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(field)) {
+            return field;
+        }
+        String prefix = hasText(arrayPath) ? arrayPath : scheduledJourneyPath(data);
+        if (!hasText(prefix)) {
+            return field;
+        }
+        String normalizedPrefix = prefix.endsWith(".") ? prefix.substring(0, prefix.length() - 1) : prefix;
+        if (field.startsWith(normalizedPrefix + ".")) {
+            return field;
+        }
+        return normalizedPrefix + "." + field;
+    }
+
+    private String resolveScheduledArrayPath(String rawPath, String parentArrayPath, AlertAgentGenerationPreviewData data) {
+        if (!hasText(rawPath)) {
+            return null;
+        }
+        if (ScheduledServiceDataCapabilityCatalog.isAllowedField(rawPath)) {
+            return rawPath;
+        }
+        if ("stopPointsJourneyDetails[]".equals(rawPath)) {
+            return rawPath;
+        }
+        if (hasText(parentArrayPath) && ScheduledServiceDataCapabilityCatalog.isAllowedField(parentArrayPath + "." + rawPath)) {
+            return parentArrayPath + "." + rawPath;
+        }
+        String journeyPath = scheduledJourneyPath(data);
+        if (hasText(journeyPath) && ScheduledServiceDataCapabilityCatalog.isAllowedField(journeyPath + "." + rawPath)) {
+            return journeyPath + "." + rawPath;
+        }
+        return rawPath;
+    }
+
+    private String scheduledJourneyPath(AlertAgentGenerationPreviewData data) {
+        Map<String, Object> snapshotEvaluation = mapValue(data.technicalSpecification().get("snapshotEvaluation"));
+        return firstString(snapshotEvaluation.get("journeyPath"), "stopPointsJourneyDetails[]");
+    }
+
+    private Object firstNonEmpty(Object first, Object second) {
+        if (first instanceof Map<?, ?> map && !map.isEmpty()) {
+            return first;
+        }
+        return first == null ? second : first;
     }
 
     private void validateConditionCapabilities(
