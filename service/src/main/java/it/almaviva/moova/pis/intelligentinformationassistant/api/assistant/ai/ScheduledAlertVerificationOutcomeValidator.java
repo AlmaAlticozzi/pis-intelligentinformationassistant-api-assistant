@@ -7,6 +7,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataResolvedLocation;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.text.Normalizer;
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalTime;
@@ -915,16 +916,17 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 continue;
             }
             String text = stringValue(requirement.get("text"));
-            if (!unsupportedDetector.detect(text).isEmpty()) {
-                return "The scheduled alert contains a required constraint that is not supported by the ServiceData scheduled snapshot catalog: "
-                        + text + ".";
-            }
             if (!Boolean.TRUE.equals(booleanValue(requirement.get("mappable")))) {
                 return "Verified scheduled outcome contains a required requirement that is not mappable: " + text + ".";
             }
             List<String> mappedBy = stringList(requirement.get("mappedBy"));
             if (mappedBy.isEmpty()) {
                 return "Verified scheduled outcome requires mappedBy for every required requirement: " + text + ".";
+            }
+            if (!isMonitoredStopPointRequirementCoveredByQueryField(text, mappedBy)
+                    && !unsupportedDetector.detect(text).isEmpty()) {
+                return "The scheduled alert contains a required constraint that is not supported by the ServiceData scheduled snapshot catalog: "
+                        + text + ".";
             }
             for (String field : mappedBy) {
                 if (isBlank(field)) {
@@ -948,6 +950,26 @@ public class ScheduledAlertVerificationOutcomeValidator {
             }
         }
         return null;
+    }
+
+    private boolean isMonitoredStopPointRequirementCoveredByQueryField(String text, List<String> mappedBy) {
+        if (!isMonitoredStopPointRequirementText(text)) {
+            return false;
+        }
+        return mappedBy.stream()
+                .map(this::normalizeRequirementCoverageField)
+                .anyMatch(field -> "serviceDataQuery.stopPoints".equals(field)
+                        || "serviceDataQuery.stopPoints[]".equals(field)
+                        || "body.stopPoints[]".equals(field));
+    }
+
+    private boolean isMonitoredStopPointRequirementText(String text) {
+        String normalized = normalizeText(text);
+        return normalized.contains("monitor stop point")
+                || normalized.contains("monitored stop point")
+                || normalized.contains("monitoring stop point")
+                || normalized.contains("localita monitorata")
+                || normalized.contains("fermata monitorata");
     }
 
     private RequirementCoverageFieldKind classifyRequirementCoverageField(String field) {
@@ -2161,6 +2183,15 @@ public class ScheduledAlertVerificationOutcomeValidator {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) {
+            return "";
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        String decomposed = Normalizer.normalize(lower, Normalizer.Form.NFD);
+        return decomposed.replaceAll("\\p{M}", "");
     }
 
     private record ConditionLeaf(

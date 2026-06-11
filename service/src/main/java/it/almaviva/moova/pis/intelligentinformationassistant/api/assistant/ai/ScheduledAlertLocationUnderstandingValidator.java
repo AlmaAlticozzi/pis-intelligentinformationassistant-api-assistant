@@ -47,7 +47,7 @@ public class ScheduledAlertLocationUnderstandingValidator {
                         + " role=" + location.role());
                 continue;
             }
-            locations.add(location);
+            locations.add(defaultFilterRequiredCoverage(location));
         }
 
         if (safeHints.containsPlatformExpression() && !hasPlatformConstraint(nonLocationConstraints)) {
@@ -95,6 +95,43 @@ public class ScheduledAlertLocationUnderstandingValidator {
                 locations,
                 nonLocationConstraints,
                 warnings);
+    }
+
+    private ScheduledAlertLocationMention defaultFilterRequiredCoverage(ScheduledAlertLocationMention location) {
+        if (location.requiredCoverage()
+                || location.requiredForApiQuery()
+                || !isFilterLocationRole(location.role())
+                || (location.polarity() != ScheduledAlertLocationPolarity.INCLUDE
+                && location.polarity() != ScheduledAlertLocationPolarity.EXCLUDE)) {
+            return location;
+        }
+        System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][NORMALIZATION] requiredCoverage defaulted to true for filter location rawText="
+                + location.rawText() + " role=" + location.role());
+        return new ScheduledAlertLocationMention(
+                location.rawText(),
+                location.normalizedText(),
+                location.role(),
+                location.relationToSnapshot(),
+                location.requiredForApiQuery(),
+                true,
+                location.polarity(),
+                location.logicalGroup(),
+                location.confidence());
+    }
+
+    private boolean isFilterLocationRole(ScheduledAlertLocationRole role) {
+        return role == ScheduledAlertLocationRole.FILTER_CURRENT_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_TIMETABLED_ORIGIN_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_TIMETABLED_DESTINATION_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_ROUTE_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_TRANSIT_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_REPLACEMENT_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_REPLACEMENT_SOURCE_START_STOP_POINT
+                || role == ScheduledAlertLocationRole.FILTER_REPLACEMENT_SOURCE_END_STOP_POINT
+                || role == ScheduledAlertLocationRole.EXCLUDED_STOP_POINT;
     }
 
     private void addNonLocationConstraintIfMissing(

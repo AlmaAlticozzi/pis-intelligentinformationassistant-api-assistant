@@ -46,6 +46,24 @@ class ScheduledAlertLocationUnderstandingValidatorTest {
     }
 
     @Test
+    void defaultsRequiredCoverageToTrueForFilterLocationWithoutApiQueryRequirement() {
+        String prompt = "Ogni 10 minuti dimmi quante corse a Garibaldi FS hanno origine Monza";
+        ScheduledAlertLocationUnderstandingResult validated = validator.validate(
+                result(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        mention("Garibaldi FS", ScheduledAlertLocationRole.MONITORED_STOP_POINT, true),
+                        mention("Monza", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT, false, false)),
+                prompt,
+                ScheduledAlertLocationUnderstandingHints.fromPrompt(prompt));
+
+        ScheduledAlertLocationMention monza = validated.locations().stream()
+                .filter(location -> location.rawText().equals("Monza"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(monza.requiredForApiQuery()).isFalse();
+        assertThat(monza.requiredCoverage()).isTrue();
+    }
+
+    @Test
     void complexPromptKeepsMonitoredExcludedDestinationAndCapabilityConstraints() {
         String prompt = "Fammi sapere se il numero di treni in ritardo e che hanno subito un cambio di binario a Buonarroti e maggiore di 5. L'importante e che non hanno come destinazione Tre Torri";
         ScheduledAlertLocationUnderstandingResult validated = validator.validate(
@@ -92,6 +110,14 @@ class ScheduledAlertLocationUnderstandingValidatorTest {
     }
 
     private ScheduledAlertLocationMention mention(String rawText, ScheduledAlertLocationRole role, boolean requiredForApiQuery) {
+        return mention(rawText, role, requiredForApiQuery, true);
+    }
+
+    private ScheduledAlertLocationMention mention(
+            String rawText,
+            ScheduledAlertLocationRole role,
+            boolean requiredForApiQuery,
+            boolean requiredCoverage) {
         return new ScheduledAlertLocationMention(
                 rawText,
                 rawText,
@@ -100,7 +126,7 @@ class ScheduledAlertLocationUnderstandingValidatorTest {
                         ? ScheduledAlertLocationRelation.SERVICE_DATA_API_QUERY_STOP_POINT
                         : ScheduledAlertLocationRelation.ROUTE_FILTER,
                 requiredForApiQuery,
-                true,
+                requiredCoverage,
                 ScheduledAlertLocationPolarity.INCLUDE,
                 "G1",
                 0.95);

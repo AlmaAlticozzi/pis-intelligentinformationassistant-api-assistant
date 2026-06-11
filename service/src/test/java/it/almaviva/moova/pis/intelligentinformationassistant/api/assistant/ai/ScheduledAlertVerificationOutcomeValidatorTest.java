@@ -23,6 +23,8 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     private static final String TRE_TORRI = "TNPNTS00000000000005";
     private static final String VAREDO = "TNPNTS00000000000006";
     private static final String PALAZZOLO = "TNPNTS00000000000007";
+    private static final String GARIBALDI_FS = "TNPNTS00000000000009";
+    private static final String MONZA = "TNPNTS00000000000122";
     private static final String INVENTED = "TNPNTS99999999999999";
 
     private final ScheduledAlertVerificationOutcomeValidator validator = new ScheduledAlertVerificationOutcomeValidator();
@@ -33,6 +35,16 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(validated.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+    }
+
+    @Test
+    void acceptsMonitoredStopPointCoverageMappedByServiceDataQueryStopPoints() {
+        AlertVerificationOutcome validated = validator.validate(validOutcome(
+                technicalSpecification(),
+                blueprint(),
+                coverageMappedBy("monitor stop point Garibaldi FS", List.of("serviceDataQuery.stopPoints"))));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
@@ -1841,6 +1853,35 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsMonitoredGaribaldiQueryCoverageAndMonzaOriginFilterCoverage() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "EQUALS", MONZA));
+        assertVerifiedWithContext(
+                validOutcome(
+                        technicalSpecification(List.of(GARIBALDI_FS), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(GARIBALDI_FS), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false),
+                        coverageRequirements(
+                                requirement("monitor stop point Garibaldi FS", List.of("serviceDataQuery.stopPoints")),
+                                requirement("origin filter Monza", List.of("stopPointsJourneyDetails[].callStart.stopPoint.id")))),
+                garibaldiMonzaContext());
+    }
+
+    @Test
+    void rejectsInventedOriginFilterStopPointIdForGaribaldiMonza() {
+        Map<String, Object> condition = conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("callStart.stopPoint.id", "EQUALS", INVENTED));
+        assertRejectedWithContext(
+                validOutcome(
+                        technicalSpecification(List.of(GARIBALDI_FS), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false, condition),
+                        blueprint(List.of(GARIBALDI_FS), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false),
+                        coverageRequirements(
+                                requirement("monitor stop point Garibaldi FS", List.of("serviceDataQuery.stopPoints")),
+                                requirement("origin filter Monza", List.of("stopPointsJourneyDetails[].callStart.stopPoint.id")))),
+                garibaldiMonzaContext(),
+                INVENTED);
+    }
+
+    @Test
     void rejectsExcludedDestinationRepresentedWithPositiveIn() {
         assertRejectedWithContext(
                 validOutcome(technicalSpecification(List.of(BUONARROTI), ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
@@ -2776,6 +2817,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 List.of());
     }
 
+    private ScheduledServiceDataLocationContext garibaldiMonzaContext() {
+        return context(ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS, false,
+                List.of(monitored("Garibaldi FS", GARIBALDI_FS)),
+                List.of(filter("Monza", ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                        ScheduledAlertLocationPolarity.INCLUDE,
+                        List.of(MONZA),
+                        List.of("stopPointsJourneyDetails[].callStart.stopPoint.id"),
+                        false)),
+                List.of(),
+                List.of(GARIBALDI_FS),
+                false,
+                List.of());
+    }
+
     private Map<String, Object> coverage() {
         return Map.of(
                 "requirements", List.of(Map.of(
@@ -2784,6 +2839,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                         "mappable", true,
                         "mappedBy", List.of("stopPointsJourneyDetails[].arrivalStatuses[].status"))),
                 "allRequiredRequirementsMapped", true);
+    }
+
+    private Map<String, Object> coverageRequirements(Map<String, Object>... requirements) {
+        return Map.of(
+                "requirements", List.of(requirements),
+                "allRequiredRequirementsMapped", true);
+    }
+
+    private Map<String, Object> requirement(String text, List<String> mappedBy) {
+        return Map.of(
+                "text", text,
+                "required", true,
+                "mappable", true,
+                "mappedBy", mappedBy);
     }
 
     private Map<String, Object> coverageMappedBy(String text, List<String> mappedBy) {
