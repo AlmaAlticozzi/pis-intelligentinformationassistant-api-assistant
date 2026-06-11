@@ -1,7 +1,8 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+import jakarta.inject.Inject;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,7 +15,9 @@ public class PromptTemplateLoader {
 
     private final Map<String, String> cache = new ConcurrentHashMap<>();
 
-    @ConfigProperty(name = "iia.ai.prompt-template.fail-on-unresolved-placeholders", defaultValue = "false")
+    @Inject
+    AiConfiguration aiConfiguration;
+
     boolean failOnUnresolvedPlaceholders = false;
 
     public String load(String classpathLocation) {
@@ -58,7 +61,7 @@ public class PromptTemplateLoader {
         System.out.println("[IIA][PROMPT_TEMPLATE] unusedVariables="
                 + diagnostics.unusedVariablesLogValue());
         if (!diagnostics.unresolvedPlaceholdersAfterRender().isEmpty()) {
-            if (failOnUnresolvedPlaceholders) {
+            if (failOnUnresolvedPlaceholders()) {
                 throw new IllegalStateException("Unresolved prompt template placeholders path="
                         + classpathLocation + " placeholders="
                         + diagnostics.unresolvedPlaceholdersAfterRenderLogValue());
@@ -68,6 +71,13 @@ public class PromptTemplateLoader {
                     + diagnostics.unresolvedPlaceholdersAfterRenderLogValue());
         }
         return diagnostics;
+    }
+
+    private boolean failOnUnresolvedPlaceholders() {
+        if (aiConfiguration != null && aiConfiguration.promptTemplate() != null) {
+            return aiConfiguration.promptTemplate().failOnUnresolvedPlaceholders();
+        }
+        return failOnUnresolvedPlaceholders;
     }
 
     private String loadFromClasspath(String classpathLocation) {

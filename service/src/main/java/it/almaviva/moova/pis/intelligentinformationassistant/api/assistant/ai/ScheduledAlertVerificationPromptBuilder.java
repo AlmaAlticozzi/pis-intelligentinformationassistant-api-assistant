@@ -43,17 +43,9 @@ public class ScheduledAlertVerificationPromptBuilder {
     @ConfigProperty(name = "iia.alert-verification.scheduled.prompt-template-version", defaultValue = DEFAULT_PROMPT_TEMPLATE_VERSION)
     String promptTemplateVersion = DEFAULT_PROMPT_TEMPLATE_VERSION;
 
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-total-length", defaultValue = "25000")
-    int warnTotalLength = 25000;
-
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-system-length", defaultValue = "20000")
-    int warnSystemLength = 20000;
-
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-user-length", defaultValue = "10000")
-    int warnUserLength = 10000;
-
     public LlmRequest build(ScheduledAlertVerificationPromptData data) {
         ScheduledVerifyConfiguration configuration = scheduledVerifyConfiguration();
+        AiConfiguration.PromptTemplate promptTemplateConfiguration = promptTemplateConfiguration();
         PromptTemplateDiagnostics systemDiagnostics = systemPrompt(data);
         PromptTemplateDiagnostics userDiagnostics = userPrompt(data);
         String systemPrompt = systemDiagnostics.renderedText();
@@ -64,9 +56,9 @@ public class ScheduledAlertVerificationPromptBuilder {
                 + SYSTEM_PROMPT_TEMPLATE_PATH + " userPath=" + USER_PROMPT_TEMPLATE_PATH);
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][PROMPT_TEMPLATE] staticBlocksMovedToFile=true");
         logTemplateDiagnostics(systemDiagnostics, userDiagnostics, totalPromptHash, totalLength);
-        warnPromptLength("system", systemPrompt.length(), warnSystemLength);
-        warnPromptLength("user", userPrompt.length(), warnUserLength);
-        warnPromptLength("total", totalLength, warnTotalLength);
+        warnPromptLength("system", systemPrompt.length(), promptTemplateConfiguration.warnSystemLength());
+        warnPromptLength("user", userPrompt.length(), promptTemplateConfiguration.warnUserLength());
+        warnPromptLength("total", totalLength, promptTemplateConfiguration.warnTotalLength());
         return new LlmRequest(
                 AiUseCase.ALERT_SCHEDULED_VERIFY,
                 systemPrompt,
@@ -798,6 +790,13 @@ public class ScheduledAlertVerificationPromptBuilder {
         return value == null || value.isBlank() ? defaultValue : value;
     }
 
+    private AiConfiguration.PromptTemplate promptTemplateConfiguration() {
+        if (aiConfiguration != null && aiConfiguration.promptTemplate() != null) {
+            return aiConfiguration.promptTemplate();
+        }
+        return new DefaultPromptTemplateConfiguration();
+    }
+
     private PromptTemplateLoader promptTemplateLoader() {
         if (promptTemplateLoader == null) {
             promptTemplateLoader = new PromptTemplateLoader();
@@ -809,5 +808,28 @@ public class ScheduledAlertVerificationPromptBuilder {
             String model,
             Double temperature,
             Integer maxOutputTokens) {
+    }
+
+    private record DefaultPromptTemplateConfiguration() implements AiConfiguration.PromptTemplate {
+
+        @Override
+        public boolean failOnUnresolvedPlaceholders() {
+            return false;
+        }
+
+        @Override
+        public int warnTotalLength() {
+            return 25000;
+        }
+
+        @Override
+        public int warnSystemLength() {
+            return 20000;
+        }
+
+        @Override
+        public int warnUserLength() {
+            return 10000;
+        }
     }
 }

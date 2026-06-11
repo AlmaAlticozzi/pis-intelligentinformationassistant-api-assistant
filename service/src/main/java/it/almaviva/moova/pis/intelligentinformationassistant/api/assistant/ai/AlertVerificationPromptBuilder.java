@@ -36,17 +36,9 @@ public class AlertVerificationPromptBuilder {
     @ConfigProperty(name = "iia.alert-verification.event.prompt-template-version", defaultValue = DEFAULT_PROMPT_TEMPLATE_VERSION)
     String promptTemplateVersion = DEFAULT_PROMPT_TEMPLATE_VERSION;
 
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-total-length", defaultValue = "25000")
-    int warnTotalLength = 25000;
-
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-system-length", defaultValue = "20000")
-    int warnSystemLength = 20000;
-
-    @ConfigProperty(name = "iia.ai.prompt-template.warn-user-length", defaultValue = "10000")
-    int warnUserLength = 10000;
-
     public LlmRequest build(AlertVerificationPromptData alert) {
         AiConfiguration.AlertVerify alertVerifyConfiguration = aiConfiguration.alertVerify();
+        AiConfiguration.PromptTemplate promptTemplateConfiguration = promptTemplateConfiguration();
         String defaultTemporalZone = defaultTemporalZone();
         String model = alertVerifyConfiguration.model();
         Double temperature = alertVerifyConfiguration.temperature();
@@ -78,9 +70,9 @@ public class AlertVerificationPromptBuilder {
                 userDiagnostics,
                 totalPromptHash,
                 totalLength);
-        warnPromptLength("system", systemPrompt.length(), warnSystemLength);
-        warnPromptLength("user", userPrompt.length(), warnUserLength);
-        warnPromptLength("total", totalLength, warnTotalLength);
+        warnPromptLength("system", systemPrompt.length(), promptTemplateConfiguration.warnSystemLength());
+        warnPromptLength("user", userPrompt.length(), promptTemplateConfiguration.warnUserLength());
+        warnPromptLength("total", totalLength, promptTemplateConfiguration.warnTotalLength());
         return new LlmRequest(
                 AiUseCase.ALERT_VERIFY,
                 systemPrompt,
@@ -260,6 +252,13 @@ public class AlertVerificationPromptBuilder {
         return value == null || value.isBlank() ? defaultValue : value;
     }
 
+    private AiConfiguration.PromptTemplate promptTemplateConfiguration() {
+        if (aiConfiguration != null && aiConfiguration.promptTemplate() != null) {
+            return aiConfiguration.promptTemplate();
+        }
+        return new DefaultPromptTemplateConfiguration();
+    }
+
     private PromptTemplateLoader promptTemplateLoader() {
         if (promptTemplateLoader == null) {
             promptTemplateLoader = new PromptTemplateLoader();
@@ -278,5 +277,28 @@ public class AlertVerificationPromptBuilder {
             return "Europe/Rome";
         }
         return temporalConfiguration.defaultZone();
+    }
+
+    private record DefaultPromptTemplateConfiguration() implements AiConfiguration.PromptTemplate {
+
+        @Override
+        public boolean failOnUnresolvedPlaceholders() {
+            return false;
+        }
+
+        @Override
+        public int warnTotalLength() {
+            return 25000;
+        }
+
+        @Override
+        public int warnSystemLength() {
+            return 20000;
+        }
+
+        @Override
+        public int warnUserLength() {
+            return 10000;
+        }
     }
 }

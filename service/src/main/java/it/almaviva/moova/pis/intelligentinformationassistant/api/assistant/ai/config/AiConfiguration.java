@@ -17,6 +17,8 @@ public interface AiConfiguration {
 
     AlertScheduledVerify alertScheduledVerify();
 
+    PromptTemplate promptTemplate();
+
     AgentBlueprintGenerate agentBlueprintGenerate();
 
     interface TextImprove {
@@ -73,6 +75,21 @@ public interface AiConfiguration {
 
         @WithDefault("60")
         Integer timeoutSeconds();
+    }
+
+    interface PromptTemplate {
+
+        @WithDefault("false")
+        boolean failOnUnresolvedPlaceholders();
+
+        @WithDefault("25000")
+        int warnTotalLength();
+
+        @WithDefault("20000")
+        int warnSystemLength();
+
+        @WithDefault("10000")
+        int warnUserLength();
     }
 
     interface AgentBlueprintGenerate {
