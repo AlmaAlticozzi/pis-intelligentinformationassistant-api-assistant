@@ -49,17 +49,17 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
-    void doesNotNormalizeAcrossArrivalDepartureDomains() {
-        AlertVerificationLocationContext context = locationContext("DEPARTURE", "PROGRESSIVE", "DEPARTING");
+    void normalizesAcrossArrivalDepartureDomainsWhenExpectedMainEventIsAuthoritative() {
+        AlertVerificationLocationContext context = locationContext("ARRIVAL", "PROGRESSIVE", "ARRIVING");
 
         AlertVerificationOutcome normalized = service.normalizeExpectedMainEventType(
-                outcomeWithCondition(conditionWithEvent("ARRIVED")),
+                outcomeWithCondition(conditionWithEvent("DEPARTING")),
                 promptData(context));
         AlertVerificationOutcome validated = validator.validate(normalized, "Prompt", context);
 
-        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("ARRIVED");
-        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
-        assertThat(validated.rejectedReason()).contains("DEPARTING");
+        assertThat(eventValue(normalized.technicalSpecification())).isEqualTo("ARRIVING");
+        assertThat(blueprintEventValue(normalized.agentBlueprintPreview())).isEqualTo("ARRIVING");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test

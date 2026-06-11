@@ -910,6 +910,11 @@ public class AlertService {
                     + " reason=missing-eventsType-inserted-from-expected-main-event-type");
         } else {
             normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
+            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_CANONICALIZATION] "
+                    + "action=REPLACED_EVENTS_TYPE"
+                    + " expected=" + expected
+                    + " actual=" + normalization.originalValue()
+                    + " reason=backend-derived-main-event-authoritative");
             if (isOperationalMainEventType(expected)
                     && (isDepartureDelayEvent(normalization.originalValue())
                     || isArrivalDelayEvent(normalization.originalValue()))) {
@@ -1114,8 +1119,7 @@ public class AlertService {
             if ("payload.ongroundServiceEvent.eventsType".equals(field) && "CONTAINS".equals(operator)) {
                 String originalValue = stringValue(map.get("value"));
                 if (originalValue != null
-                        && !expected.equals(originalValue)
-                        && sameArrivalDepartureDomain(expected, originalValue)) {
+                        && !expected.equals(originalValue)) {
                     map.put("operator", "CONTAINS");
                     map.put("value", expected);
                     map.remove("values");
@@ -2338,6 +2342,15 @@ public class AlertService {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
                         delayDirection(promptDelayEventType)));
+            } else if (derivation.accessoryDelay() && accessoryDelayEventType(prompt) != null
+                    && nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE") == null) {
+                String accessoryDelayEventType = accessoryDelayEventType(prompt);
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_EVENT_TYPE",
+                        accessoryDelayEventType));
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "DELAY_DIRECTION",
+                        delayDirection(accessoryDelayEventType)));
             } else if (derivation.accessoryDelay() && derivedDelayEventType != null
                     && nonLocationConstraintValue(constraints, "DELAY_EVENT_TYPE") == null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
@@ -2349,9 +2362,16 @@ public class AlertService {
                             delayDirection(derivedDelayEventType)));
                 }
             } else if (derivation.accessoryDelay() && nonLocationConstraintValue(constraints, "DELAY_DIRECTION") == null) {
+                String directionSource = accessoryDelayEventType(prompt);
+                if (directionSource == null) {
+                    directionSource = normalizedDelayEventType(constraints);
+                }
+                if (directionSource == null) {
+                    directionSource = derivation.intent().name();
+                }
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_DIRECTION",
-                        delayDirection(derivation.intent().name())));
+                        delayDirection(directionSource)));
             }
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_PHASE",
@@ -2365,7 +2385,7 @@ public class AlertService {
                         expectedEventType));
             }
             String cancellationDirection = cancellationDirection(prompt);
-            if (AlertLocationMainEventIntent.CANCELLATION.equals(derivation.intent()) && cancellationDirection != null) {
+            if (cancellationDirection != null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "CANCELLATION_DIRECTION",
                         cancellationDirection));
@@ -2378,11 +2398,18 @@ public class AlertService {
                             "CANCELLATION_EXCLUSIVE",
                             "true"));
                 }
+                System.out.println("[IIA][ALERT_VERIFY][STATE_FILTER_DERIVATION] "
+                        + "type=CANCELLATION"
+                        + " direction=" + cancellationDirection
+                        + " field=" + ("DEPARTURE".equals(cancellationDirection)
+                        ? "departureStatuses[].status"
+                        : "arrivalStatuses[].status")
+                        + " value=" + cancellationDirection + "_CANCELLATION");
             }
         }
         List<AlertVerificationLocationContext.NonLocationConstraint> canonicalized =
                 canonicalizeDelayEventTypeConstraints(constraints);
-        logMainEventDerivation(understanding, canonicalized);
+        logMainEventDerivation(understanding, canonicalized, derivation);
         return canonicalized;
     }
 
@@ -2400,19 +2427,32 @@ public class AlertService {
         boolean accessoryDelay = promptAccessoryDelay
                 || (AlertLocationMainEventIntent.DELAY.equals(intent) && semanticAccessoryDelay);
         AlertLocationMainEventIntent derivedIntent = intent;
-        if (accessoryDelay && AlertLocationMainEventIntent.DELAY.equals(intent)) {
+        AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
+                ? new AlertEventWordingClassifier()
+                : alertEventWordingClassifier;
+        AlertEventWordingClassifier.MainEventWording explicitMainEvent =
+                classifier.classifyExplicitMainEvent(prompt);
+        if (explicitMainEvent != null) {
+            derivedIntent = explicitMainEvent.intent();
+        }
+        if (explicitMainEvent == null && accessoryDelay && AlertLocationMainEventIntent.DELAY.equals(intent)) {
             if ("ARRIVAL_DELAY".equals(delayEventType)) {
                 derivedIntent = AlertLocationMainEventIntent.ARRIVAL;
             } else if ("DEPARTURE_DELAY".equals(delayEventType)) {
                 derivedIntent = AlertLocationMainEventIntent.DEPARTURE;
             }
         }
-        AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
-                ? new AlertEventWordingClassifier()
-                : alertEventWordingClassifier;
-        AlertEventPhase phase = classifier.classify(prompt, derivedIntent);
+        AlertEventPhase phase = explicitMainEvent != null
+                ? explicitMainEvent.phase()
+                : classifier.classify(prompt, derivedIntent);
         String expectedEventType = classifier.expectedEventType(derivedIntent, phase);
-        return new MainEventDerivation(derivedIntent, phase, expectedEventType, accessoryDelay);
+        return new MainEventDerivation(
+                derivedIntent,
+                phase,
+                expectedEventType,
+                accessoryDelay,
+                explicitMainEvent == null ? "" : explicitMainEvent.mainEventPhrase(),
+                explicitMainEvent == null ? "" : explicitMainEvent.accessoryStatePhrase());
     }
 
     private String cancellationDirection(String prompt) {
@@ -2421,10 +2461,15 @@ public class AlertService {
                 "soppres", "cancellat", "cancelled", "canceled", "suppressed")) {
             return null;
         }
-        if (containsAny(normalized, "in partenza", "partenza", "departure", "departing")) {
+        String cancellationScope = accessoryClauseWithAny(normalized,
+                "soppres", "cancellat", "cancelled", "canceled", "suppressed");
+        if (cancellationScope == null) {
+            cancellationScope = normalized;
+        }
+        if (containsAny(cancellationScope, "in partenza", "partenza", "departure", "departing")) {
             return "DEPARTURE";
         }
-        if (containsAny(normalized, "in arrivo", "arrivo", "arrival", "arriving")) {
+        if (containsAny(cancellationScope, "in arrivo", "arrivo", "arrival", "arriving")) {
             return "ARRIVAL";
         }
         return null;
@@ -2481,9 +2526,13 @@ public class AlertService {
 
     private void logMainEventDerivation(
             AlertLocationUnderstandingResult understanding,
-            List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
+            MainEventDerivation derivation) {
         System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_DERIVATION] rawConstraints="
                 + understanding.nonLocationConstraints()
+                + " mainEventPhrase=\"" + derivation.mainEventPhrase()
+                + "\" accessoryStatePhrase=\"" + derivation.accessoryStatePhrase()
+                + "\""
                 + " derived MAIN_EVENT_INTENT=" + nonLocationConstraintValue(constraints, "MAIN_EVENT_INTENT")
                 + " MAIN_EVENT_PHASE=" + nonLocationConstraintValue(constraints, "MAIN_EVENT_PHASE")
                 + " EXPECTED_MAIN_EVENT_TYPE=" + nonLocationConstraintValue(constraints, "EXPECTED_MAIN_EVENT_TYPE")
@@ -2495,7 +2544,9 @@ public class AlertService {
             AlertLocationMainEventIntent intent,
             AlertEventPhase phase,
             String expectedEventType,
-            boolean accessoryDelay) {
+            boolean accessoryDelay,
+            String mainEventPhrase,
+            String accessoryStatePhrase) {
     }
 
     private AlertVerificationLocationContext.NonLocationConstraint toPromptNonLocationConstraint(
@@ -2621,6 +2672,38 @@ public class AlertService {
         return "BOTH";
     }
 
+    private String accessoryDelayEventType(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null || !isOperationalEventWithAccessoryDelay(normalized)) {
+            return null;
+        }
+        String delayScope = accessoryClauseWithAny(normalized, "ritardo", "delay");
+        if (delayScope == null) {
+            delayScope = normalized;
+        }
+        if (containsAny(delayScope,
+                "ritardo in partenza",
+                "ritardo alla partenza",
+                "ritardo di partenza",
+                "departure delay",
+                "delay on departure",
+                "in partenza",
+                "departure")) {
+            return "DEPARTURE_DELAY";
+        }
+        if (containsAny(delayScope,
+                "ritardo in arrivo",
+                "ritardo all arrivo",
+                "ritardo di arrivo",
+                "arrival delay",
+                "delay on arrival",
+                "in arrivo",
+                "arrival")) {
+            return "ARRIVAL_DELAY";
+        }
+        return null;
+    }
+
     private DelayThreshold delayThreshold(String prompt) {
         String normalized = normalizeText(prompt);
         if (normalized == null || !normalized.contains("ritardo") && !normalized.contains("delay")) {
@@ -2658,22 +2741,60 @@ public class AlertService {
     }
 
     private boolean isOperationalEventWithAccessoryDelay(String normalized) {
-        boolean hasAccessoryDelay = containsAny(normalized, " con piu", " con almeno", " con oltre", " with more", " with at least")
+        boolean hasAccessoryDelay = containsAny(normalized,
+                " con piu",
+                " con almeno",
+                " con oltre",
+                " con un ritardo",
+                " con una ritardo",
+                " con ritardo",
+                " with more",
+                " with at least",
+                " with a delay",
+                " with delay")
                 && (normalized.contains("ritardo") || normalized.contains("delay"));
         if (!hasAccessoryDelay) {
             return false;
         }
         return containsAny(normalized,
                 "in partenza da",
+                "treno in partenza",
+                "corsa in partenza",
                 "sta partendo da",
                 "parte da",
                 "in arrivo a",
+                "treno in arrivo",
+                "corsa in arrivo",
                 "sta arrivando a",
                 "arriva a",
                 "is departing from",
+                "departing train",
                 "departs from",
                 "is arriving at",
+                "arriving train",
                 "arrives at");
+    }
+
+    private String accessoryClauseWithAny(String normalized, String... semanticTokens) {
+        String[] markers = {
+                " con una ",
+                " con un ",
+                " con ",
+                " che ha ",
+                " avente ",
+                " with ",
+                " having "
+        };
+        for (String marker : markers) {
+            int index = normalized.indexOf(marker);
+            if (index >= 0) {
+                String accessory = normalized.substring(index + marker.length());
+                if (containsAny(accessory, semanticTokens)) {
+                    return accessory;
+                }
+            }
+        }
+        return null;
     }
 
     private String delayDirection(String delayEventType) {

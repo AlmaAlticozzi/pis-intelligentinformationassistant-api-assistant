@@ -54,6 +54,10 @@ iia:
   alert-verification:
     # Dev/test fallback for invalid but parseable LLM JSON. Production should set this to false.
     fallback-on-invalid-llm: ${IIA_ALERT_VERIFICATION_FALLBACK_ON_INVALID_LLM:false}
+    scheduled:
+      prompt-template-version: ${IIA_ALERT_VERIFICATION_SCHEDULED_PROMPT_TEMPLATE_VERSION:scheduled-file-v1}
+    event:
+      prompt-template-version: ${IIA_ALERT_VERIFICATION_EVENT_PROMPT_TEMPLATE_VERSION:event-file-v1}
     location-understanding:
       enabled: ${IIA_ALERT_VERIFICATION_LOCATION_UNDERSTANDING_ENABLED:true}
   alert:

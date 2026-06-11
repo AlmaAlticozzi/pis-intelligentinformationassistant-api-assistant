@@ -744,6 +744,104 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void derivesArrivingMainEventAndDepartureCancellationStateFromAccessoryPhrase() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Bignami o San Siro stadio c'e un treno in arrivo con una soppressione in partenza",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.70),
+                        List.of(
+                                location("Bignami", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1"),
+                                location("San Siro stadio", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1")),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "ARRIVAL");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "CANCELLATION_DIRECTION", "DEPARTURE");
+    }
+
+    @Test
+    void derivesDepartingMainEventAndArrivalCancellationStateFromAccessoryPhrase() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Bignami c'e un treno in partenza con una soppressione in arrivo",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.70),
+                        List.of(location("Bignami", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1")),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "DEPARTURE");
+        assertConstraint(context, "MAIN_EVENT_PHASE", "PROGRESSIVE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
+        assertConstraint(context, "CANCELLATION_DIRECTION", "ARRIVAL");
+    }
+
+    @Test
+    void derivesArrivingMainEventWithDepartureDelayAccessory() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Bignami c'e un treno in arrivo con un ritardo in partenza maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.70),
+                        List.of(location("Bignami", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1")),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "ARRIVAL");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "DEPARTURE_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "DEPARTURE");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=300;unit=SECONDS");
+    }
+
+    @Test
+    void explicitArrivingMainEventWinsOverLlmDelayIntentAndDepartureDelayAccessory() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Bignami c'e un treno in arrivo con un ritardo in partenza maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DELAY, 0.70),
+                        List.of(location("Bignami", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1")),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.DELAY_EVENT_TYPE,
+                                "ritardo in partenza")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "ARRIVAL");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVING");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "DEPARTURE_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "DEPARTURE");
+    }
+
+    @Test
+    void derivesDepartingMainEventWithArrivalDelayAccessory() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvertimi quando a Bignami c'e un treno in partenza con un ritardo in arrivo maggiore di 5 minuti",
+                new AlertLocationUnderstandingResult(
+                        true,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.70),
+                        List.of(location("Bignami", AlertLocationRole.MAIN_EVENT_LOCATION, AlertLocationRelation.EVENT_STOP_POINT, "G1")),
+                        List.of(),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "DEPARTURE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTING");
+        assertConstraint(context, "DELAY_ROLE", "ACCESSORY_DELAY_PREDICATE");
+        assertConstraint(context, "DELAY_EVENT_TYPE", "ARRIVAL_DELAY");
+        assertConstraint(context, "DELAY_DIRECTION", "ARRIVAL");
+        assertConstraint(context, "DELAY_THRESHOLD", "operator=GREATER_THAN;value=300;unit=SECONDS");
+    }
+
+    @Test
     void normalizesRawDelayEventTypeFromLocationUnderstanding() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Avvisami quando una corsa ha più di 15 minuti di ritardo",

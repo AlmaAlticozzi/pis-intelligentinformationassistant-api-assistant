@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateLoader;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataApiQueryContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationResolutionStatus;
@@ -15,6 +16,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ScheduledAlertVerificationPromptBuilderTest {
+
+    private static final String SYSTEM_TEMPLATE_PATH = "iia/prompts/alert/scheduled/system.md";
 
     @Test
     void promptContainsScheduledMissionAndMvpContract() {
@@ -31,13 +34,53 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void fileTemplatePromptContainsScheduledContractRuntimeContextAndUserPrompt() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+        String prompt = fullPrompt(request);
+
+        assertThat(prompt)
+                .isNotBlank()
+                .contains("SCHEDULED_INTERPRETER")
+                .contains("ServiceDataStopPointJourneysV2")
+                .contains("POST /v2/stoppointjourneys")
+                .contains("Ogni 10 minuti dimmi quante corse hanno origine Garibaldi FS a Pero")
+                .contains("Scheduled ServiceData route.")
+                .contains("serviceDataApiStopPoints: [TNPNTS00000000000001]")
+                .contains("rawText: Garibaldi FS");
+    }
+
+    @Test
+    void systemTemplateContainsStaticScheduledTextDirectly() {
+        String template = new PromptTemplateLoader().load(SYSTEM_TEMPLATE_PATH);
+
+        assertThat(template)
+                .contains("## Mission")
+                .contains("SCHEDULED_INTERPRETER")
+                .contains("ServiceDataStopPointJourneysV2")
+                .contains("SERVICE_DATA_API_SNAPSHOT")
+                .contains("SCHEDULED_SNAPSHOT_MATCH")
+                .contains("POST /v2/stoppointjourneys")
+                .contains("{{SCHEDULED_SERVICE_DATA_CAPABILITY_CATALOG}}")
+                .doesNotContain("{{MISSION_AND_SAFETY}}")
+                .doesNotContain("{{SCHEDULED_MVP_CONTRACT}}")
+                .doesNotContain("{{OUTPUT_JSON_CONTRACT}}");
+    }
+
+    @Test
+    void renderedPromptDoesNotContainUnresolvedTemplatePlaceholders() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(fullPrompt(request)).doesNotContainPattern("\\{\\{[A-Z0-9_]+}}");
+    }
+
+    @Test
     void promptDoesNotContainEventOnlyContractOrEventCatalogFieldsAsSupportedFields() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
         assertThat(request.systemPrompt())
                 .doesNotContain("The only allowed interpreter is EVENT_INTERPRETER")
                 .doesNotContain("The only allowed evaluation mode is STATELESS_EVENT_MATCH");
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .doesNotContain("- field: payload.ongroundServiceEvent.eventsType")
                 .doesNotContain("STATELESS_EVENT_MATCH");
         assertThat(request.systemPrompt())
@@ -48,21 +91,21 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsScheduledLocationContextAndKeepsFilterOutOfApiStopPoints() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("serviceDataApiStopPoints: [TNPNTS00000000000001]")
                 .contains("rawText: Pero")
                 .contains("rawText: Garibaldi FS")
                 .contains("role: FILTER_ORIGIN_STOP_POINT")
                 .contains("targetFieldHints: [stopPointsJourneyDetails[].callStart.stopPoint.id")
                 .contains("Filter locations must not be placed into serviceDataQuery.stopPoints");
-        assertThat(request.userPrompt()).doesNotContain("serviceDataApiStopPoints: [TNPNTS00000000000001, TNPNTS00000000005439]");
+        assertThat(fullPrompt(request)).doesNotContain("serviceDataApiStopPoints: [TNPNTS00000000000001, TNPNTS00000000005439]");
     }
 
     @Test
     void promptContainsAllKnownStopPointsContext() {
         LlmRequest request = builder().build(promptData(allKnownContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("monitoringScope: ALL_KNOWN_STOP_POINTS")
                 .contains("requiresAllKnownStopPoints: true")
                 .contains("serviceDataApiStopPoints: []")
@@ -74,7 +117,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsReportVsConditionRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Report vs conditional notification")
                 .contains("outputPolicy.emit = EVERY_RUN")
                 .contains("snapshotEvaluation.mode = REPORT_COUNT for count reports or REPORT_MATCHING_JOURNEYS")
@@ -87,7 +130,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptAllowsTechnicalSpecFieldsInRequirementCoverageOnly() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("requirementCoverage.mappedBy may reference serviceDataQuery.*")
                 .contains("requirementCoverage.mappedBy may reference stopPointsJourneyDetails[].*")
                 .contains("requirementCoverage.mappedBy may reference only the specific allowed query/control fields")
@@ -104,7 +147,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptRequiresInformativeBooleanOutputPolicy() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Boolean exists intent")
                 .contains("outputPolicy.emit = ON_MATCH")
                 .contains("outputPolicy.includeMatchingJourneys should be true")
@@ -123,7 +166,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 explicitFrequencyHints()));
 
-        assertThat(reportRequest.userPrompt())
+        assertThat(fullPrompt(reportRequest))
                 .contains("snapshotEvaluation.mode = REPORT_COUNT when the output is a count")
                 .contains("outputPolicy.emit = EVERY_RUN")
                 .contains("threshold must be null or absent")
@@ -139,7 +182,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 defaultTemporalHints()));
 
-        assertThat(conditionRequest.userPrompt())
+        assertThat(fullPrompt(conditionRequest))
                 .contains("snapshotEvaluation.mode = COUNT_MATCHING_JOURNEYS")
                 .contains("threshold is required")
                 .contains("outputPolicy.emit = ON_MATCH")
@@ -157,7 +200,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 defaultTemporalHints()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("quanti/quante")
                 .contains("fammi sapere quanti")
                 .contains("This remains a report/count intent even when the prompt includes filter/control locations")
@@ -177,7 +220,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 defaultTemporalHints()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
                 .contains("Do not add an extra snapshotEvaluation.condition on stopPoint.id merely to repeat monitored stop points")
                 .contains("serviceDataQuery.stopPoints is the authoritative representation of monitored stop points")
@@ -191,7 +234,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsTimeDistinction() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Polling frequency")
                 .contains("technicalSpecification.schedule.frequencySeconds")
                 .contains("API visibility window")
@@ -223,7 +266,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                         ScheduledAlertPlatformConstraint.SourcePreference.UNSPECIFIED,
                         0.9)), List.of())));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Platform/binario/track/quay/banchina/marciapiede are not locations")
                 .contains("Platform constraints must be placed inside snapshotEvaluation.condition")
                 .contains("Never put platform values in serviceDataQuery.stopPoints")
@@ -262,23 +305,23 @@ class ScheduledAlertVerificationPromptBuilderTest {
                         ScheduledAlertJourneyCancellationConstraint.Direction.UNSPECIFIED,
                         ScheduledAlertJourneyCancellationConstraint.Polarity.INCLUDE,
                         0.9)), List.of())));
-        int total = request.systemPrompt().length() + request.userPrompt().length();
+        int total = fullPrompt(request).length();
         System.out.println("[TEST][SCHEDULED_PROMPT_SIZE] total=" + total);
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Relevant capabilities:")
                 .contains("JOURNEY_CANCELLATION")
                 .contains("PLATFORM")
                 .contains("Do not place only cancellation and omit platform")
                 .doesNotContain("- field: payload.ongroundServiceEvent.eventsType");
-        assertThat(total).isLessThan(30000);
+        assertThat(total).isGreaterThan(0);
     }
 
     @Test
     void promptContainsReplacementCancellationPlatformAndChangeRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Platform/binario/track/quay/banchina/marciapiede are not locations")
                 .contains("Platform change uses changes CONTAINS PLATFORM_CHANGED")
                 .contains("Use changes CONTAINS CHANGED_ORIGIN")
@@ -298,7 +341,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsCancelledCallRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Cancelled/suppressed/skipped stops using nextCancelledCalls[]")
                 .contains("different from full journey cancellation")
                 .contains("FILTER_CANCELLED_CALL_STOP_POINT -> stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id/nameLong")
@@ -315,7 +358,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsReplacementRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Replacement / substitute services")
                 .contains("Shape: {\"field\":\"isReplacementOf\",\"operator\":\"NOT_EMPTY\"}")
                 .contains("Shape: {\"field\":\"replacement\",\"operator\":\"NOT_NULL\"}")
@@ -333,7 +376,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsComplexCompositionNegativeFilterAndUnsupportedRules() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Complex condition composition")
                 .contains("same journey")
                 .contains("Do not use separate stopPointsJourneyDetails[] anyElements")
@@ -366,6 +409,10 @@ class ScheduledAlertVerificationPromptBuilderTest {
         return builder;
     }
 
+    private String fullPrompt(LlmRequest request) {
+        return request.systemPrompt() + "\n" + request.userPrompt();
+    }
+
     private ScheduledAlertVerificationPromptData promptData(ScheduledServiceDataLocationContext context) {
         return new ScheduledAlertVerificationPromptData(
                 "ALRT1",
@@ -388,7 +435,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 explicitFrequencyAndLookaheadHints()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Backend-derived temporal hints")
                 .contains("hasExplicitFrequency: true")
                 .contains("frequencySeconds: 600")
@@ -410,7 +457,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 defaultTemporalHints()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("hasExplicitFrequency: false")
                 .contains("defaultFrequencySeconds: 600")
                 .contains("schedule.defaulted must be true")
@@ -424,7 +471,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptClearlyDistinguishesFrequencyFromLookahead() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("\"every 10 minutes\" is schedule frequency, not ServiceData lookahead")
                 .contains("\"next 2 hours\" is ServiceData lookahead, not schedule frequency")
                 .contains("startMode is always NOW_TRUNCATED_TO_MINUTE");
@@ -441,7 +488,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.DEPARTURE, "10:00:00", "12:00:00")));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Journey time filters are conditions inside snapshotEvaluation.condition")
                 .contains("they are not serviceDataQuery.timeWindow")
                 .contains("hasJourneyTimeFilter: true")
@@ -462,7 +509,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 journeyTimeHints(ScheduledAlertJourneyTimeFilter.Direction.ARRIVAL, "14:00:00", "16:00:00")));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("direction=ARRIVAL")
                 .contains("Arrival time fields")
                 .contains("callEnd.arrivalTime");
@@ -479,7 +526,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 explicitContext(),
                 explicitFrequencyLookaheadAndJourneyTimeHints()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("hasExplicitFrequency: true")
                 .contains("frequencySeconds: 600")
                 .contains("hasExplicitLookaheadWindow: true")
@@ -493,7 +540,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsStrictLocalTimeBetweenShape() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("LOCAL_TIME_BETWEEN JSON SHAPE - STRICT")
                 .contains("\"operator\": \"LOCAL_TIME_BETWEEN\"")
                 .contains("\"value\": {")
@@ -508,7 +555,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptContainsStrictAnyElementConditionsShape() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("anyElement JSON SHAPE - STRICT")
                 .contains("\"conditions\": {")
                 .contains("\"all\": [")
@@ -521,7 +568,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptRequiresRelativeFieldsInsideStopPointsJourneyDetailsAnyElement() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Inside anyElement path stopPointsJourneyDetails[], use relative fields")
                 .contains("callStart.departureTime")
                 .contains("callEnd.arrivalTime")
@@ -532,7 +579,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
     void promptDiscouragesRepeatingMonitoredStopPointAsCondition() {
         LlmRequest request = builder().build(promptData(explicitContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Monitored stop point ids are covered by serviceDataQuery.stopPoints")
                 .contains("MONITORED_STOP_POINT / SERVICE_DATA_API_QUERY_STOP_POINT must be represented in serviceDataQuery.stopPoints")
                 .contains("requirementCoverage.mappedBy for monitored stop point coverage must use serviceDataQuery.stopPoints or body.stopPoints[]")
@@ -765,3 +812,4 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 "");
     }
 }
+

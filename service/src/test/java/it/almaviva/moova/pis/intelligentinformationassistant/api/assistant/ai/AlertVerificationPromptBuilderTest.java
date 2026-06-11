@@ -2,6 +2,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateLoader;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationPromptData;
 import org.junit.jupiter.api.Test;
@@ -14,11 +15,107 @@ import static org.mockito.Mockito.when;
 
 class AlertVerificationPromptBuilderTest {
 
+    private static final String SYSTEM_TEMPLATE_PATH = "iia/prompts/alert/event/system.md";
+    private static final String USER_TEMPLATE_PATH = "iia/prompts/alert/event/user-template.md";
+
+    @Test
+    void eventSystemTemplateContainsStaticPromptTextDirectly() {
+        String template = new PromptTemplateLoader().load(SYSTEM_TEMPLATE_PATH);
+
+        assertThat(template)
+                .contains("## Mission")
+                .contains("## Fixed contract")
+                .contains("## ServiceDataV2 model")
+                .contains("## Current event semantics")
+                .contains("## Location semantics")
+                .contains("## Platform semantics")
+                .contains("## Temporal predicates")
+                .contains("## Array correlation and anyElement")
+                .contains("## Changes, cancellations, replacement")
+                .contains("## DSL construction rules")
+                .contains("## Unsupported constraints")
+                .contains("## JSON output contract")
+                .contains("EVENT_INTERPRETER")
+                .contains("ServiceDataV2")
+                .contains("STATELESS_EVENT_MATCH")
+                .contains("payload.ongroundServiceEvent")
+                .contains("payload.stopPointJourney")
+                .contains("{{SERVICE_DATA_CAPABILITY_CATALOG}}")
+                .doesNotContain("{{MISSION_AND_SAFETY}}")
+                .doesNotContain("{{EVENT_MVP_CONTRACT}}")
+                .doesNotContain("{{OUTPUT_JSON_CONTRACT}}");
+    }
+
+    @Test
+    void eventUserTemplateIsRuntimePayloadOnly() {
+        String template = new PromptTemplateLoader().load(USER_TEMPLATE_PATH);
+
+        assertThat(template)
+                .contains("{{ALERT_INPUT}}")
+                .contains("{{ROUTE_CONTEXT_JSON}}")
+                .contains("{{LOCATION_CONTEXT_JSON}}")
+                .contains("{{TEMPORAL_CONTEXT_JSON}}")
+                .contains("{{BACKEND_DERIVED_NON_LOCATION_CONSTRAINTS_JSON}}")
+                .contains("{{OUTPUT_INSTRUCTIONS}}")
+                .doesNotContain("## Mission")
+                .doesNotContain("EVENT_INTERPRETER");
+    }
+
+    @Test
+    void eventPromptFinalPromptContainsCoreContractRuntimeContextAndNoUnresolvedPlaceholders() {
+        LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
+
+        assertThat(fullPrompt(request))
+                .isNotBlank()
+                .contains("EVENT_INTERPRETER")
+                .contains("ServiceDataV2")
+                .contains("STATELESS_EVENT_MATCH")
+                .contains("payload.ongroundServiceEvent")
+                .contains("payload.stopPointJourney")
+                .contains("Avvertimi quando una corsa parte da Rho Fieramilano")
+                .contains("PIS location resolution")
+                .contains("Rho Fieramilano")
+                .contains("ServiceData Capability Catalog")
+                .doesNotContainPattern("\\{\\{[A-Z0-9_]+}}");
+    }
+
+    @Test
+    void eventPromptContainsPlatformAndLocationRulesForRhoBinarioOne() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                true,
+                List.of(richResolution(
+                        "Rho Fieramilano",
+                        "MAIN_EVENT_LOCATION",
+                        "INCLUDE",
+                        List.of("payload.stopPointJourney.stopPoint.id",
+                                "payload.ongroundServiceEvent.stopPoint.id"))),
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint("PLATFORM", "binario 1"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "COMPLETED"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTED")),
+                List.of());
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT_RHO_PLATFORM",
+                "Rho platform",
+                "Runtime payload for platform/location prompt",
+                "Avvertimi quando una corsa parte da Rho Fieramilano sul binario 1",
+                context));
+
+        assertThat(fullPrompt(request))
+                .contains("Avvertimi quando una corsa parte da Rho Fieramilano sul binario 1")
+                .contains("Rho Fieramilano")
+                .contains("Platform/binario/track/quay/banchina/marciapiede are not locations")
+                .contains("stopPoint.id")
+                .contains("EVENT_INTERPRETER")
+                .contains("ServiceDataV2");
+    }
+
     @Test
     void promptContainsSemanticMappingForWeekdaysAndFeriali() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("\"feriali\", \"giorni feriali\", \"nei feriali\", \"durante i feriali\"")
                 .contains("\"dal lunedi al venerdi\"")
                 .contains("\"dal lunedì al venerdì\"")
@@ -31,7 +128,7 @@ class AlertVerificationPromptBuilderTest {
     void promptStatesAnyElementRepresentsArrayItemExistence() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("The existence of an array element is represented by anyElement")
                 .contains("anyElement on nextTransitCalls[] with stopPoint.nameLong already represents existence of a matching transit call")
                 .contains("transitera a <stop>\" without a time/day predicate means use anyElement on nextTransitCalls[] with stopPoint.nameLong only. Do not add passingTime");
@@ -41,7 +138,7 @@ class AlertVerificationPromptBuilderTest {
     void promptForbidsExistsOnTimestampFields() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Do not use EXISTS on timestamp fields such as passingTime, departureTime, arrivalTime, eventGenerationTime or timetabledCallStart.departureTime")
                 .contains("{\"field\":\"passingTime\",\"operator\":\"EXISTS\"}")
                 .contains("EXISTS on passingTime is not needed and not allowed");
@@ -51,7 +148,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsChangeEnumMappings() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("\"cambia origine\", \"cambio origine\" and \"origine cambiata\" mean changes CONTAINS CHANGED_ORIGIN")
                 .contains("\"cambia destinazione\", \"cambio destinazione\" and \"destinazione cambiata\" mean changes CONTAINS CHANGED_DESTINATION")
                 .contains("\"cambia binario\", \"cambio binario\" and \"platform changed\" are represented by current payload.ongroundServiceEvent.eventsType evidence")
@@ -63,7 +160,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsPlatformSemanticsAndCorrelatedExamples() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("platform is not a location")
                 .contains("EQUAL_PLATFORM")
                 .contains("IN_PLATFORMS")
@@ -79,7 +176,7 @@ class AlertVerificationPromptBuilderTest {
     void promptDefaultsHumanPlatformsToTimetabledFieldsAndLimitsActualFields() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("use timetabledArrivalPlatform.dsc for arrival and timetabledDeparturePlatform.dsc for departure")
                 .contains("Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks")
                 .contains("Do not compare human platform values with platform technical id fields")
@@ -117,7 +214,7 @@ class AlertVerificationPromptBuilderTest {
 
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("polarity: EXCLUDE")
                 .contains("status: UNRESOLVED")
                 .contains("fallback: use nameLong/nameShort NOT_CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
@@ -150,7 +247,7 @@ class AlertVerificationPromptBuilderTest {
 
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("type: MAIN_EVENT_INTENT, rawText: \"ARRIVAL\"")
                 .contains("If Location Understanding provides nonLocationConstraints MAIN_EVENT_INTENT=ARRIVAL")
                 .contains("Do not generate DEPARTING/DEPARTED or departure platform fields")
@@ -162,7 +259,7 @@ class AlertVerificationPromptBuilderTest {
     void promptMakesExpectedMainEventTypeAuthoritative() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Authoritative main event constraints")
                 .contains("EXPECTED_MAIN_EVENT_TYPE is authoritative")
                 .contains("payload.ongroundServiceEvent.eventsType")
@@ -191,7 +288,7 @@ class AlertVerificationPromptBuilderTest {
                 "Avvisami quando una corsa ha piu di 15 minuti di ritardo",
                 context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Metadata, not additional constraints")
                 .contains("Use originalPrompt and backend-derived context as the authoritative sources of user intent")
                 .contains("Do not reject because metadata mentions technical expectations")
@@ -235,7 +332,7 @@ class AlertVerificationPromptBuilderTest {
                 "Avvisami quando una corsa ha piu di 15 minuti di ritardo",
                 context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("- DELAY_EVENT_TYPE=BOTH")
                 .doesNotContain("- DELAY_EVENT_TYPE=ha più di 15 minuti di ritardo");
     }
@@ -244,19 +341,34 @@ class AlertVerificationPromptBuilderTest {
     void promptExplainsAccessoryDelayUsesExpectedMainEventType() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("DELAY_EVENT_TYPE is authoritative only for delay-primary alerts")
                 .contains("DELAY_ROLE=ACCESSORY_DELAY_PREDICATE")
                 .contains("use EXPECTED_MAIN_EVENT_TYPE for payload.ongroundServiceEvent.eventsType")
                 .contains("Do not replace DEPARTING/ARRIVING/DEPARTED/ARRIVED with DEPARTURE_DELAY/ARRIVAL_DELAY")
-                .contains("e in partenza da X con ritardo");
+                .contains("e in partenza da X con ritardo")
+                .contains("arriving train with departure delay")
+                .contains("use eventsType CONTAINS ARRIVING and a departureDelay.* predicate");
+    }
+
+    @Test
+    void promptExplainsMainEventMustBeatAccessoryStateFilters() {
+        LlmRequest request = builder().build(promptData());
+
+        assertThat(fullPrompt(request))
+                .contains("Journey state filters introduced by \"with\", \"having\", \"con\", \"con una\", \"con un\", \"che ha\" or \"avente\" must not replace the main realtime event")
+                .contains("Arrival/departure wording attached to a state filter only selects the coherent field inside stopPointsJourneyDetails[]")
+                .contains("arriving train with departure cancellation")
+                .contains("use eventsType CONTAINS ARRIVING and departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION")
+                .contains("departing train with arrival cancellation")
+                .contains("use eventsType CONTAINS DEPARTING and arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION");
     }
 
     @Test
     void promptRejectsFunctionalWordsAsLocationFallbacks() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Never create stopPoint.nameLong/nameShort textual fallback values from functional words alone")
                 .contains("\"in arrivo\", \"in partenza\", \"arrivo\", \"partenza\"")
                 .contains("If Location Context mistakenly contains an unresolved location whose rawText is only a functional transport keyword")
@@ -267,7 +379,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsMainEventPhaseMappings() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("PROGRESSIVE DEPARTURE -> DEPARTING")
                 .contains("COMPLETED DEPARTURE -> DEPARTED")
                 .contains("PROGRESSIVE ARRIVAL -> ARRIVING")
@@ -280,7 +392,7 @@ class AlertVerificationPromptBuilderTest {
     void promptExplainsRealtimeCancellationSemanticWorkflow() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("first identify the monitored stop/location, then the main realtime event, then journey state filters")
                 .contains("Realtime cancellation workflow is language-independent")
                 .contains("Generic cancellation / suppressed journey / cancelled journey at the monitored stop")
@@ -297,7 +409,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsPlatformFieldComparisonAndMovementSemantics() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("PLATFORM_EQUALS_FIELD")
                 .contains("PLATFORM_NOT_EQUALS_FIELD")
                 .contains("DEPARTURE_PLATFORM_CHANGED")
@@ -319,7 +431,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsAdvancedNumericPlatformMappingsExamplesAndBayRejection() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("PLATFORM_NUMBER_GREATER_THAN", "PLATFORM_NUMBER_GREATER_OR_EQUAL")
                 .contains("PLATFORM_NUMBER_LESS_THAN", "PLATFORM_NUMBER_LESS_OR_EQUAL")
                 .contains("PLATFORM_NUMBER_BETWEEN", "PLATFORM_NUMBER_EVEN", "PLATFORM_NUMBER_ODD")
@@ -356,7 +468,7 @@ class AlertVerificationPromptBuilderTest {
     void promptMapsRequirementCoverageToActualCurrentStopAndPlatformFields() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("mappedBy must contain exactly the field used by the condition")
                 .contains("mappedBy must list only the exact fields actually used in technicalSpecification")
                 .contains("mappedBy must contain the exact platform description field used by the condition")
@@ -403,7 +515,7 @@ class AlertVerificationPromptBuilderTest {
                         new AlertVerificationLocationContext.NonLocationConstraint("DELAY", "ritardo di 14 min")),
                 List.of())));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("When multiple requested constraints use fields under payload.stopPointJourney.stopPointsJourneyDetails[], put them in one anyElement")
                 .contains("vehicleJourneyName, delay, platform and origin/destination constraints stay correlated to the same journey detail")
                 .contains("For DESTINATION_LOCATION with polarity=EXCLUDE and status=UNRESOLVED, prefer the single canonical fallback field timetabledCallEnd.stopPoint.nameLong")
@@ -415,7 +527,7 @@ class AlertVerificationPromptBuilderTest {
     void promptStatesInRequiresValuesArray() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("For operator IN, always use \"values\": [...] and never \"value\"")
                 .contains("Do not generate IN with empty values")
                 .contains("If multiple enum values are acceptable, use IN with non-empty values")
@@ -427,7 +539,7 @@ class AlertVerificationPromptBuilderTest {
     void promptContainsReplacementWeekdayExample() {
         LlmRequest request = builder().build(promptData());
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("\"corsa sostitutiva\" can be represented as isReplacementOf NOT_EMPTY")
                 .contains("\"fermata sostitutiva in partenza\" can be represented with replacement.stopPointReplacements[]")
                 .contains("\"nei feriali\" on a replacement departure means LOCAL_DAY_OF_WEEK_NOT_IN SATURDAY/SUNDAY on replacement.stopPointReplacements[].departureTime")
@@ -456,7 +568,7 @@ class AlertVerificationPromptBuilderTest {
                         false,
                         0.90)))));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("PIS location resolution")
                 .contains("rawText: \"Rho Fieramilano\"")
                 .contains("semanticRole: DEPARTURE_EVENT_STOP_POINT")
@@ -493,7 +605,7 @@ class AlertVerificationPromptBuilderTest {
                         false,
                         0.76)))));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("rawText: \"Malpensa\"")
                 .contains("status: RESOLVED_AMBIGUOUS")
                 .contains("TNPNTS00000000000028")
@@ -513,7 +625,7 @@ class AlertVerificationPromptBuilderTest {
                         true,
                         0.0)))));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("rawText: \"Genova Nervi\"")
                 .contains("status: UNRESOLVED")
                 .contains("fallback: use nameLong/nameShort CONTAINS_NORMALIZED with rawText and lower confidence when catalog-supported")
@@ -524,7 +636,7 @@ class AlertVerificationPromptBuilderTest {
     void promptBuilderSaysDoNotInventLocationWhenNoMentions() {
         LlmRequest request = builder().build(promptDataWithLocation(AlertVerificationLocationContext.empty()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("No PIS location mentions were detected")
                 .contains("If the user did not mention a location, do not add any location condition")
                 .contains("Never invent stopPoint ids")
@@ -558,7 +670,7 @@ class AlertVerificationPromptBuilderTest {
 
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("semanticRole: MAIN_EVENT_LOCATION")
                 .contains("semanticRole: ROUTE_OR_NEXT_CALL_LOCATION")
                 .contains("semanticRole: DESTINATION_LOCATION")
@@ -597,7 +709,7 @@ class AlertVerificationPromptBuilderTest {
 
         LlmRequest request = builder().build(promptDataWithLocation(context));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("\"partenza da X\", \"parte da X\", \"arrivo a X\" and \"arriva a X\" mean X is the current/event stop")
                 .contains("Do not use callStart/timetabledCallStart for \"parte da X\" when X is MAIN_EVENT_LOCATION")
                 .contains("Garibaldi MAIN_EVENT_LOCATION")
@@ -612,7 +724,7 @@ class AlertVerificationPromptBuilderTest {
     void builderContainsPositiveExampleForRhoStopPointId() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Positive resolved single candidate")
                 .contains("User prompt: \"Avvertimi quando una corsa parte da Rho Fieramilano\"")
                 .contains("Resolved location: Rho Fieramilano -> TNPNTS00000000005467")
@@ -625,7 +737,7 @@ class AlertVerificationPromptBuilderTest {
     void builderContainsPositiveExampleForMalpensaInStopPointIds() {
         LlmRequest request = builder().build(promptDataWithLocation(malpensaContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Positive resolved multiple candidates")
                 .contains("Resolved locations: Malpensa -> TNPNTS00000000000028, TNPNTS00000000000029")
                 .contains("payload.ongroundServiceEvent.stopPoint.id IN [TNPNTS00000000000028, TNPNTS00000000000029]")
@@ -636,7 +748,7 @@ class AlertVerificationPromptBuilderTest {
     void builderContainsFallbackExampleForUnresolvedLocation() {
         LlmRequest request = builder().build(promptDataWithLocation(unresolvedGenovaNerviContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Fallback unresolved location")
                 .contains("User prompt: \"Avvertimi quando un treno passa da Genova Nervi\"")
                 .contains("Location unresolved.")
@@ -649,7 +761,7 @@ class AlertVerificationPromptBuilderTest {
     void builderContainsNegativeRuleAgainstNameLongForResolvedLocation() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 
-        assertThat(request.userPrompt())
+        assertThat(fullPrompt(request))
                 .contains("Negative resolved location")
                 .contains("If a location was resolved, do not emit payload.ongroundServiceEvent.stopPoint.nameLong CONTAINS_NORMALIZED \"Rho Fieramilano\"")
                 .contains("Do not use stopPoint.nameLong/nameShort for resolved locations");
@@ -671,6 +783,10 @@ class AlertVerificationPromptBuilderTest {
         builder.temporalConfiguration = temporalConfiguration;
         builder.fallbackOnInvalidLlm = false;
         return builder;
+    }
+
+    private String fullPrompt(LlmRequest request) {
+        return request.systemPrompt() + "\n\n" + request.userPrompt();
     }
 
     private AlertVerificationPromptData promptData() {
