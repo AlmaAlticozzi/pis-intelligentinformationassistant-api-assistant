@@ -113,6 +113,12 @@ Monitored stop points vs filter locations:
 - Unresolved exclude filter locations may use NOT_CONTAINS_NORMALIZED only if the catalog supports it.
 - Never invent ids.
 - Never use ids not present in the scheduled location context.
+- Resolved stop point IDs are authoritative.
+- Never reconstruct, pad, trim, normalize or rewrite stopPoint IDs.
+- Copy stopPoint IDs exactly from RESOLVED_LOCATION_BINDINGS_JSON or LOCATION_CONTEXT_JSON.
+- If RESOLVED_LOCATION_BINDINGS_JSON provides a recommendedCondition for a filter location, use that exact value/values.
+- For stopPoint.id fields, every emitted value must be byte-for-byte equal to one selectedPointIds value from the context.
+- If you cannot copy an ID exactly, return REJECTED instead of guessing.
 
 Scheduled field mapping by scheduled location role:
 - FILTER_CURRENT_STOP_POINT -> stopPoint.id or stopPoint.nameLong

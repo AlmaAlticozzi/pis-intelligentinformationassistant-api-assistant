@@ -33,6 +33,7 @@ public class ScheduledAlertVerificationPromptBuilder {
             "CANCELLED_CALL_HINTS_JSON",
             "REPLACEMENT_HINTS_JSON",
             "LOCATION_CONTEXT_JSON",
+            "RESOLVED_LOCATION_BINDINGS_JSON",
             "SERVICE_DATA_QUERY_CONTEXT_JSON",
             "UNSUPPORTED_CONSTRAINTS_JSON",
             "OUTPUT_INSTRUCTIONS");
@@ -128,6 +129,7 @@ public class ScheduledAlertVerificationPromptBuilder {
                 cancelledCallHintsSection(data == null ? null : data.cancelledCallHints())));
         variables.put("REPLACEMENT_HINTS_JSON", replacementHintsSection(data == null ? null : data.replacementHints()));
         variables.put("LOCATION_CONTEXT_JSON", scheduledLocationContextSection(data == null ? null : data.locationContext()));
+        variables.put("RESOLVED_LOCATION_BINDINGS_JSON", resolvedLocationBindingsSection(data == null ? null : data.locationContext()));
         variables.put("SERVICE_DATA_QUERY_CONTEXT_JSON", serviceDataQueryRuntimeSection(data));
         variables.put("UNSUPPORTED_CONSTRAINTS_JSON", unsupportedConstraintsRuntimeSection());
         variables.put("OUTPUT_INSTRUCTIONS", outputInstructionsRuntimeSection());
@@ -149,6 +151,7 @@ public class ScheduledAlertVerificationPromptBuilder {
         variables.put("CANCELLED_CALL_HINTS_JSON", journeyCancellationHintsSection(data == null ? null : data.journeyCancellationHints()));
         variables.put("REPLACEMENT_HINTS_JSON", replacementHintsSection(data == null ? null : data.replacementHints()));
         variables.put("LOCATION_CONTEXT_JSON", scheduledLocationContextSection(data == null ? null : data.locationContext()));
+        variables.put("RESOLVED_LOCATION_BINDINGS_JSON", resolvedLocationBindingsSection(data == null ? null : data.locationContext()));
         variables.put("SERVICE_DATA_QUERY_CONTEXT_JSON", serviceDataQueryRuntimeSection(data));
         variables.put("UNSUPPORTED_CONSTRAINTS_JSON", unsupportedConstraintsRuntimeSection());
         variables.put("OUTPUT_INSTRUCTIONS", outputInstructionsRuntimeSection());
@@ -386,6 +389,185 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - The runtime or later verification phase will materialize all known stop point ids.
                 """);
         return section.toString();
+    }
+
+    private String resolvedLocationBindingsSection(ScheduledServiceDataLocationContext context) {
+        String json = resolvedLocationBindingsJson(context);
+        int count = resolvedLocationBindingCount(context);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][LOCATION_BINDINGS] count=" + count);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][LOCATION_BINDINGS] json=" + json);
+        return """
+                RESOLVED_LOCATION_BINDINGS_JSON:
+                %s
+                """.formatted(json);
+    }
+
+    private int resolvedLocationBindingCount(ScheduledServiceDataLocationContext context) {
+        if (context == null) {
+            return 0;
+        }
+        return context.monitoredLocations().size()
+                + context.filterLocations().size()
+                + context.excludedLocations().size();
+    }
+
+    private String resolvedLocationBindingsJson(ScheduledServiceDataLocationContext context) {
+        StringBuilder json = new StringBuilder();
+        json.append("{\n");
+        json.append("  \"monitoredLocations\": ");
+        appendLocationBindingArray(json, context == null ? List.of() : context.monitoredLocations(), true);
+        json.append(",\n");
+        json.append("  \"filterLocations\": ");
+        List<ScheduledServiceDataResolvedLocation> filterLocations = new ArrayList<>();
+        if (context != null) {
+            filterLocations.addAll(context.filterLocations());
+            filterLocations.addAll(context.excludedLocations());
+        }
+        appendLocationBindingArray(json, filterLocations, false);
+        json.append("\n}");
+        return json.toString();
+    }
+
+    private void appendLocationBindingArray(
+            StringBuilder json,
+            List<ScheduledServiceDataResolvedLocation> locations,
+            boolean monitored) {
+        json.append("[");
+        if (locations == null || locations.isEmpty()) {
+            json.append("]");
+            return;
+        }
+        for (int i = 0; i < locations.size(); i++) {
+            ScheduledServiceDataResolvedLocation location = locations.get(i);
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("\n    {\n");
+            appendJsonProperty(json, "role", String.valueOf(location.scheduledRole()), 6, true);
+            appendJsonProperty(json, "rawText", location.rawText(), 6, true);
+            appendJsonProperty(json, "normalizedText", location.normalizedText(), 6, true);
+            appendJsonArrayProperty(json, "selectedPointIds", location.selectedPointIds(), 6, true);
+            if (monitored) {
+                appendJsonProperty(json, "target", "serviceDataQuery.stopPoints", 6, true);
+                appendJsonProperty(json, "note",
+                        "These ids are already applied to serviceDataQuery.stopPoints and must not be repeated in snapshotEvaluation.condition unless a distinct filter requires it.",
+                        6, false);
+            } else {
+                appendRecommendedCondition(json, location, 6);
+            }
+            json.append("\n    }");
+        }
+        json.append("\n  ]");
+    }
+
+    private void appendRecommendedCondition(
+            StringBuilder json,
+            ScheduledServiceDataResolvedLocation location,
+            int indent) {
+        String field = recommendedConditionField(location);
+        String operator = recommendedOperator(location);
+        String insideAnyElementPath = insideAnyElementPath(field);
+        json.append(" ".repeat(indent)).append("\"recommendedCondition\": {\n");
+        appendJsonProperty(json, "field", relativeConditionField(field), indent + 2, true);
+        appendJsonProperty(json, "operator", operator, indent + 2, true);
+        if ("EQUALS".equals(operator)) {
+            appendJsonProperty(json, "value", location.selectedPointIds().isEmpty() ? "" : location.selectedPointIds().getFirst(), indent + 2, true);
+        } else {
+            appendJsonArrayProperty(json, "values", location.selectedPointIds(), indent + 2, true);
+        }
+        appendJsonBooleanProperty(json, "relativeFieldInsideStopPointsJourneyDetailsAnyElement", insideAnyElementPath != null, indent + 2, true);
+        appendJsonProperty(json, "insideAnyElementPath", insideAnyElementPath == null ? "" : insideAnyElementPath, indent + 2, false);
+        json.append("\n").append(" ".repeat(indent)).append("}");
+    }
+
+    private String recommendedConditionField(ScheduledServiceDataResolvedLocation location) {
+        if (location.targetFieldHints() != null) {
+            for (String field : location.targetFieldHints()) {
+                if (field != null && (field.endsWith(".stopPoint.id") || field.endsWith(".stopPointId.id"))) {
+                    return field;
+                }
+            }
+        }
+        return switch (location.scheduledRole()) {
+            case FILTER_CURRENT_STOP_POINT -> "stopPointsJourneyDetails[].stopPoint.id";
+            case FILTER_ORIGIN_STOP_POINT -> "stopPointsJourneyDetails[].callStart.stopPoint.id";
+            case FILTER_TIMETABLED_ORIGIN_STOP_POINT -> "stopPointsJourneyDetails[].timetabledCallStart.stopPoint.id";
+            case FILTER_DESTINATION_STOP_POINT -> "stopPointsJourneyDetails[].callEnd.stopPoint.id";
+            case FILTER_TIMETABLED_DESTINATION_STOP_POINT -> "stopPointsJourneyDetails[].timetabledCallEnd.stopPoint.id";
+            case FILTER_ROUTE_STOP_POINT -> "stopPointsJourneyDetails[].nextCalls[].stopPoint.id";
+            case FILTER_TRANSIT_STOP_POINT -> "stopPointsJourneyDetails[].nextTransitCalls[].stopPoint.id";
+            case FILTER_CANCELLED_CALL_STOP_POINT -> "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id";
+            case FILTER_REPLACEMENT_STOP_POINT,
+                    FILTER_REPLACEMENT_SOURCE_START_STOP_POINT,
+                    FILTER_REPLACEMENT_SOURCE_END_STOP_POINT -> "stopPointsJourneyDetails[].replacement.stopPointReplacements[].stopPointId.id";
+            default -> "stopPointsJourneyDetails[].stopPoint.id";
+        };
+    }
+
+    private String recommendedOperator(ScheduledServiceDataResolvedLocation location) {
+        if (location.polarity() == ScheduledAlertLocationPolarity.EXCLUDE) {
+            return "NOT_IN";
+        }
+        return location.selectedPointIds().size() == 1 ? "EQUALS" : "IN";
+    }
+
+    private String insideAnyElementPath(String field) {
+        if (field == null || !field.startsWith("stopPointsJourneyDetails[].")) {
+            return null;
+        }
+        return "stopPointsJourneyDetails[]";
+    }
+
+    private String relativeConditionField(String field) {
+        if (field == null) {
+            return "";
+        }
+        String prefix = "stopPointsJourneyDetails[].";
+        if (field.startsWith(prefix)) {
+            return field.substring(prefix.length());
+        }
+        return field;
+    }
+
+    private void appendJsonProperty(StringBuilder json, String name, String value, int indent, boolean comma) {
+        json.append(" ".repeat(indent))
+                .append("\"").append(name).append("\": \"")
+                .append(escapeJson(value))
+                .append("\"");
+        if (comma) {
+            json.append(",");
+        }
+        json.append("\n");
+    }
+
+    private void appendJsonArrayProperty(StringBuilder json, String name, List<String> values, int indent, boolean comma) {
+        json.append(" ".repeat(indent)).append("\"").append(name).append("\": [");
+        List<String> safeValues = values == null ? List.of() : values;
+        for (int i = 0; i < safeValues.size(); i++) {
+            if (i > 0) {
+                json.append(", ");
+            }
+            json.append("\"").append(escapeJson(safeValues.get(i))).append("\"");
+        }
+        json.append("]");
+        if (comma) {
+            json.append(",");
+        }
+        json.append("\n");
+    }
+
+    private void appendJsonBooleanProperty(StringBuilder json, String name, boolean value, int indent, boolean comma) {
+        json.append(" ".repeat(indent)).append("\"").append(name).append("\": ").append(value);
+        if (comma) {
+            json.append(",");
+        }
+        json.append("\n");
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"");
     }
 
     private void appendLocations(StringBuilder section, String label, List<ScheduledServiceDataResolvedLocation> locations) {

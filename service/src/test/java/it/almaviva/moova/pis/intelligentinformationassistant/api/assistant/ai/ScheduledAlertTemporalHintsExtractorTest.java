@@ -95,6 +95,19 @@ class ScheduledAlertTemporalHintsExtractorTest {
     }
 
     @Test
+    void extractsItalianLookaheadWithCommonTypoPossime() {
+        ScheduledAlertTemporalHints hints = extractor().extract(
+                "Ogni 10 minuti dimmi quante corse a Garibaldi FS hanno origine Monza nelle possime 3 ore");
+
+        assertThat(hints.hasExplicitFrequency()).isTrue();
+        assertThat(hints.frequencySeconds()).isEqualTo(600);
+        assertThat(hints.hasExplicitLookaheadWindow()).isTrue();
+        assertThat(hints.lookaheadMinutes()).isEqualTo(180);
+        assertThat(hints.lookaheadRawText()).containsIgnoringCase("possime 3 ore");
+        assertThat(hints.lookaheadDefaulted()).isFalse();
+    }
+
+    @Test
     void extractsDepartureBetweenJourneyTimeFilter() {
         ScheduledAlertTemporalHints hints = extractor().extract("partono tra le 10:00 e le 12:00");
 

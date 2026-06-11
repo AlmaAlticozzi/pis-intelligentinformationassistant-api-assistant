@@ -35,6 +35,10 @@ public class ScheduledAlertTemporalHintsExtractor {
             "\\b(?:(?:in\\s+the\\s+)?next|from\\s+now\\s+for|nelle\\s+prossime|nei\\s+prossimi|prossime|prossimi|da\\s+ora\\s+per)\\s+"
                     + "(\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+"
                     + "(minutes?|mins?|minuti|min|hours?|h|ore)\\b");
+    private static final Pattern LOOKAHEAD_TYPO_TOLERANT = Pattern.compile(
+            "\\b(?:nelle\\s+(?:possime|prossim|prosim|prosime)|nei\\s+(?:possim[i]?|prossim|prosim|prosim[i]?))\\s+"
+                    + "(\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+"
+                    + "(minutes?|mins?|minuti|min|hours?|h|ore)\\b");
     private static final String TIME = "([0-2]?\\d(?::[0-5]\\d)?)";
     private static final Pattern JOURNEY_BETWEEN = Pattern.compile(
             "\\b(?:between|from|tra\\s+le|tra|dalle|dalla)\\s+" + TIME
@@ -130,6 +134,12 @@ public class ScheduledAlertTemporalHintsExtractor {
 
     private TemporalMatch lookahead(String normalized, String originalPrompt) {
         Matcher matcher = LOOKAHEAD.matcher(normalized);
+        if (matcher.find()) {
+            int number = number(matcher.group(1));
+            String unit = matcher.group(2);
+            return new TemporalMatch(minutes(number, unit), rawText(originalPrompt, matcher));
+        }
+        matcher = LOOKAHEAD_TYPO_TOLERANT.matcher(normalized);
         if (!matcher.find()) {
             return null;
         }

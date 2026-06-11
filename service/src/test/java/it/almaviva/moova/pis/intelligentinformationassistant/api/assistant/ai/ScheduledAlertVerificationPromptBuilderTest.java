@@ -102,6 +102,43 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptContainsResolvedLocationBindingsForMonitoredGaribaldiAndOriginMonza() {
+        ScheduledServiceDataLocationContext context = garibaldiMonzaContext();
+        LlmRequest request = builder().build(new ScheduledAlertVerificationPromptData(
+                "ALRT_GARIBALDI_MONZA",
+                "Scheduled Count At Garibaldi With Origin Monza 2",
+                "Verify scheduled monitored stop point separated from origin filter location.",
+                "Ogni 10 minuti dimmi quante corse a Garibaldi FS hanno origine Monza nelle possime 3 ore",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context,
+                new ScheduledAlertTemporalHints(
+                        true,
+                        600,
+                        "Ogni 10 minuti",
+                        false,
+                        true,
+                        180,
+                        "nelle possime 3 ore",
+                        false,
+                        600,
+                        60,
+                        86400,
+                        480,
+                        1,
+                        1440,
+                        List.of())));
+
+        assertThat(fullPrompt(request))
+                .contains("RESOLVED_LOCATION_BINDINGS_JSON")
+                .contains("TNPNTS00000000000122")
+                .contains("\"field\": \"callStart.stopPoint.id\"")
+                .contains("\"operator\": \"EQUALS\"")
+                .contains("\"value\": \"TNPNTS00000000000122\"")
+                .contains("\"insideAnyElementPath\": \"stopPointsJourneyDetails[]\"")
+                .contains("Never reconstruct, pad, trim, normalize or rewrite stopPoint IDs");
+    }
+
+    @Test
     void promptContainsAllKnownStopPointsContext() {
         LlmRequest request = builder().build(promptData(allKnownContext()));
 
@@ -788,6 +825,36 @@ class ScheduledAlertVerificationPromptBuilderTest {
                         ScheduledAlertMonitoringScope.ALL_KNOWN_STOP_POINTS,
                         List.of(),
                         true));
+    }
+
+    private ScheduledServiceDataLocationContext garibaldiMonzaContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(location(
+                "Garibaldi FS",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                List.of("TNPNTS00000000000009"),
+                List.of("body.stopPoints[]")));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(location(
+                "Monza",
+                ScheduledAlertLocationRole.FILTER_ORIGIN_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                List.of("TNPNTS00000000000122"),
+                List.of("stopPointsJourneyDetails[].callStart.stopPoint.id",
+                        "stopPointsJourneyDetails[].callStart.stopPoint.nameLong")));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
+                List.of(),
+                List.of("TNPNTS00000000000009"),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of("TNPNTS00000000000009"),
+                        false));
     }
 
     private ScheduledServiceDataResolvedLocation location(
