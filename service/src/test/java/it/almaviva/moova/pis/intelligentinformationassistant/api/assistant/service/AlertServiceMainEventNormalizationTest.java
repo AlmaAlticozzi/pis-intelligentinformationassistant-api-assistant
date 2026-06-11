@@ -449,6 +449,35 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
+    void validatorAcceptsAnyElementConditionsAsLeafObjectForPlatform() {
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithPlatformAnyElement(Map.of(
+                        "field", "timetabledDeparturePlatform.dsc",
+                        "operator", "EQUAL_PLATFORM",
+                        "value", "1")),
+                coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc"));
+
+        AlertVerificationOutcome validated = validator.validate(outcome, "Prompt", noLocationContextWithConstraints());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void validatorRejectsAnyElementConditionsAsArrayForPlatform() {
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithPlatformAnyElement(List.of(Map.of(
+                        "field", "timetabledDeparturePlatform.dsc",
+                        "operator", "EQUAL_PLATFORM",
+                        "value", "1"))),
+                coverageFor(EVENT_FIELD, "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc"));
+
+        AlertVerificationOutcome validated = validator.validate(outcome, "Prompt", noLocationContextWithConstraints());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("conditions must be an object");
+    }
+
+    @Test
     void normalizesSingleValueInToEqualsRecursively() {
         AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
                 outcomeWithCondition(conditionWithNestedSingleValueIn()),
@@ -604,6 +633,16 @@ class AlertServiceMainEventNormalizationTest {
         return Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID)));
+    }
+
+    private Map<String, Object> conditionWithPlatformAnyElement(Object conditions) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", EVENT_FIELD, "operator", "CONTAINS", "value", "DEPARTED"),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", conditions))));
     }
 
     private Map<String, Object> conditionWithDepartureDelayWithoutEvent() {

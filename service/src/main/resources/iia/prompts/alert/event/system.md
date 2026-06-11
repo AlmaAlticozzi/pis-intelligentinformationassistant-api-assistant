@@ -310,9 +310,22 @@ Examples of invalid IN shapes:
 
 anyElement:
 - path is the array path.
-- conditions contains a leaf, all, any or nested anyElement.
+- anyElement.conditions MUST be a JSON object, never an array.
+- conditions contains a leaf object, all, any or nested anyElement.
+- Allowed shapes are a leaf object: {"field":"...","operator":"...","value":"..."}, an object with all: {"all":[...]}, an object with any: {"any":[...]}, or an object with nested anyElement.
+- Do not generate "conditions": [ ... ].
+- If there is only one condition inside anyElement, use the leaf object directly or wrap it in {"all":[...]}.
 - fields inside anyElement are relative to that array element.
 - For nested child arrays, the inner path is relative, such as nextCalls[], nextTransitCalls[], nextCancelledCalls[] or replacement.stopPointReplacements[].
+
+Correct single condition:
+{"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"field":"timetabledDeparturePlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}}}
+
+Correct multiple correlated conditions:
+{"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"all":[{"field":"timetabledDeparturePlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"},{"field":"departureDelay.delay","operator":"GREATER_THAN","value":300}]}}}
+
+Invalid:
+{"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":[{"field":"timetabledDeparturePlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}]}}
 
 ## Requirement coverage compact
 
