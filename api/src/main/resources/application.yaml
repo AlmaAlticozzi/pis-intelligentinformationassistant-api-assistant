@@ -73,6 +73,7 @@ iia:
     use-llm: ${IIA_AGENT_GENERATION_PREVIEW_USE_LLM:true}
     fallback-to-deterministic-on-llm-error: ${IIA_AGENT_GENERATION_PREVIEW_FALLBACK_TO_DETERMINISTIC_ON_LLM_ERROR:false}
     persist-validated-llm-preview: ${IIA_AGENT_GENERATION_PREVIEW_PERSIST_VALIDATED_LLM_PREVIEW:false}
+    prompt-template-version: ${IIA_AGENT_GENERATION_PREVIEW_PROMPT_TEMPLATE_VERSION:agent-preview-file-v1}
   ai:
     provider: openai
     prompt-template:
