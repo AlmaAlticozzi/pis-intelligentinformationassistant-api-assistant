@@ -114,6 +114,8 @@ Role mapping:
 - For current stops, prefer payload.stopPointJourney.stopPoint.id or payload.ongroundServiceEvent.stopPoint.id.
 - ORIGIN_LOCATION -> callStart/timetabledCallStart only for explicit origin wording.
 - DESTINATION_LOCATION -> callEnd/timetabledCallEnd only for explicit destination wording.
+- For explicit origin/destination journey filters, use callStart.stopPoint.* and callEnd.stopPoint.* by default.
+- Use timetabledCallStart/timetabledCallEnd only when the user explicitly says scheduled, planned, timetabled, programmed, previsto, programmato, pianificato or da orario.
 - ROUTE_OR_NEXT_CALL_LOCATION -> nextCalls[].
 - TRANSIT_LOCATION -> nextTransitCalls[] or nextCalls[] plus passingType TRANSIT when the catalog supports it.
 - CANCELLED_CALL_LOCATION -> nextCancelledCalls[].
@@ -128,6 +130,8 @@ Current stop vs origin/destination:
 - "ha destinazione X", "corsa con destinazione X" -> destination.
 - "passera da X", "will pass through X", "via X" -> route/nextCalls/transit, not current stop.
 - Route/nextCalls/transit must not become current stop.
+- Never use full child-array paths like payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[] as the anyElement path.
+- For child arrays under stopPointsJourneyDetails[], always use nested anyElement: outer path payload.stopPointJourney.stopPointsJourneyDetails[] and inner relative path nextCalls[], nextTransitCalls[], nextCancelledCalls[] or replacement.stopPointReplacements[].
 - "arriva a destinazione", "at final destination" without a proper stop name means passingType EQUALS DESTINATION.
 - "parte dall'origine" without a proper stop name means passingType EQUALS ORIGIN.
 - "passa in transito" without a proper stop name means passingType EQUALS TRANSIT.
@@ -162,6 +166,8 @@ Simple platform equality:
 - use timetabledDeparturePlatform.dsc with EQUAL_PLATFORM for departure platform equality.
 - Use actualArrivalPlatform.platform.dsc, actualArrivalPlatform.displayPlatform.dsc, actualDeparturePlatform.platform.dsc or actualDeparturePlatform.displayPlatform.dsc only when the user explicitly asks actual/current/effective/realtime/confirmed.
 - use actualDeparturePlatform.platform.dsc for departure and actualArrivalPlatform.platform.dsc for arrival by default for numeric/property platform predicates.
+- Numeric/property platform predicates use actualDeparturePlatform.platform.dsc for departure and actualArrivalPlatform.platform.dsc for arrival by default.
+- actualDeparturePlatform.displayPlatform.dsc and actualArrivalPlatform.displayPlatform.dsc are valid alternatives when display platform is the chosen actual/display source.
 - use timetabledDeparturePlatform.dsc or timetabledArrivalPlatform.dsc only when the user explicitly says previsto, programmato, da orario, timetabled or scheduled.
 
 Allowed platform operators when listed in the catalog:
@@ -184,7 +190,15 @@ Numeric/property platform mappings:
 
 Platform change:
 - "cambia binario", "cambio binario" and "platform changed" are represented by current payload.ongroundServiceEvent.eventsType evidence.
-- platform change uses eventsType platform changed plus structural evidence when possible.
+- Platform change structural evidence means timetabled platform differs from actual platform; do not use changes CONTAINS PLATFORM_CHANGED as the only structural evidence.
+- For generic platform change, event evidence and structural evidence are both required when catalog-supported.
+- Prefer id field comparison: departure uses timetabledDeparturePlatform.id PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.id; arrival uses timetabledArrivalPlatform.id PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.id.
+- If id comparison is not catalog-supported, use dsc fallback: timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc; timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc.
+- For "cambio binario in partenza", use root all [eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED, journey-detail anyElement with departure structural comparison].
+- For "cambio binario in arrivo", use root all [eventsType CONTAINS ARRIVAL_PLATFORM_CHANGED, journey-detail anyElement with arrival structural comparison].
+- Generic direction uses condition.any of complete branches: all [DEPARTURE_PLATFORM_CHANGED, departure structural comparison] OR all [ARRIVAL_PLATFORM_CHANGED, arrival structural comparison].
+- Use actualDeparturePlatform.displayPlatform.id/dsc or actualArrivalPlatform.displayPlatform.id/dsc instead when displayPlatform is the selected actual/display source.
+- Do not output only event type unless structural fields are unavailable in the catalog; if event-only evidence is used, add a warning.
 - DEPARTURE_PLATFORM_CHANGED and ARRIVAL_PLATFORM_CHANGED are current event values.
 - previousDeparturePlatform, previousArrivalPlatform, timetabled != actual are structural evidence when catalog-supported.
 - Use PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD with otherField for field-to-field comparison.
@@ -200,6 +214,7 @@ Compact operator examples:
 - {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"IN_PLATFORMS","values":["1","4"]}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
+- {"field":"timetabledDeparturePlatform.id","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.id"}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.dsc"}
 - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTURE_PLATFORM_CHANGED"}
 - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVAL_PLATFORM_CHANGED"}
@@ -230,7 +245,12 @@ Primary delay event:
 Generic delay threshold:
 - DELAY_EVENT_TYPE=BOTH plus DELAY_THRESHOLD means eventsType CONTAINS_ANY ["ARRIVAL_DELAY","DEPARTURE_DELAY"].
 - generic delay threshold requires both event type and numeric delay predicate.
-- OR over arrivalDelay.delay and departureDelay.delay with the threshold.
+- For generic delay threshold, event evidence and numeric delay predicate are both mandatory.
+- Use root all, not root any: all [eventsType CONTAINS_ANY ["ARRIVAL_DELAY","DEPARTURE_DELAY"], anyElement stopPointsJourneyDetails[] with conditions.any over arrivalDelay.delay/departureDelay.delay threshold].
+- Numeric delay alternatives stay inside conditions.any under the stopPointsJourneyDetails[] anyElement.
+- eventsType alone is not sufficient.
+- numeric delay predicate alone is not sufficient.
+- OR over arrivalDelay.delay and departureDelay.delay with the threshold only inside that numeric delay any.
 - If the user specifies a numeric delay threshold, VERIFIED output must include the numeric delay predicate.
 - EventsType alone is never sufficient for threshold-based delay alerts.
 - arrivalDelay.delay and departureDelay.delay are normal delay fields.
@@ -255,6 +275,10 @@ Do not reject change prompts as stateful comparison when the requested change is
 Realtime cancellation workflow is language-independent.
 first identify the monitored stop/location, then the main realtime event, then journey state filters.
 Generic cancellation / suppressed journey / cancelled journey at the monitored stop can use payload.ongroundServiceEvent.eventsType CONTAINS_ANY ["CANCELLATION","ARRIVAL_CANCELLATION","DEPARTURE_CANCELLATION"] plus journey status predicates when needed.
+For generic cancellation/suppression at a monitored stop, include current stop and event evidence plus one stopPointsJourneyDetails[] anyElement with conditions.any over:
+- all [arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION].
+- all [arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, passingType EQUALS DESTINATION].
+- all [departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION, passingType EQUALS ORIGIN].
 Arrival cancellation / suppressed on arrival is a journey state filter.
 Departure cancellation / suppressed on departure is a journey state filter.
 Do not add departureStatuses[].status NOT_CONTAINS DEPARTURE_CANCELLATION for non-exclusive arrival cancellation.

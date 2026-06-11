@@ -2175,6 +2175,14 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsPlatformNotEqualsFieldOnDeparturePlatformTechnicalIds() {
+        assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
+                "timetabledDeparturePlatform.id",
+                "PLATFORM_NOT_EQUALS_FIELD",
+                "actualDeparturePlatform.platform.id"));
+    }
+
+    @Test
     void acceptsPlatformNotEqualsFieldOnArrivalPlatforms() {
         assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
                 "timetabledArrivalPlatform.dsc",
@@ -2205,7 +2213,7 @@ class AlertVerificationOutcomeValidatorTest {
                         "timetabledDeparturePlatform.dsc",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "timetabledCallStart.stopPoint.id"),
-                "otherField must be a whitelisted platform description field");
+                "otherField must be a whitelisted platform description or technical id field");
     }
 
     @Test
@@ -2218,21 +2226,21 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
-    void rejectsPlatformNotEqualsFieldOnTechnicalIdField() {
+    void rejectsPlatformNotEqualsFieldBetweenTechnicalIdAndDescriptionField() {
         assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
                         "timetabledDeparturePlatform.id",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "actualDeparturePlatform.platform.dsc"),
-                "platform technical id field cannot be used");
+                "field and otherField must both be platform description fields or both be platform technical id fields");
     }
 
     @Test
-    void rejectsPlatformNotEqualsFieldWithTechnicalIdOtherField() {
+    void rejectsPlatformNotEqualsFieldBetweenDescriptionAndTechnicalIdField() {
         assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
                         "timetabledDeparturePlatform.dsc",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "actualDeparturePlatform.platform.id"),
-                "otherField cannot be a platform technical id field");
+                "field and otherField must both be platform description fields or both be platform technical id fields");
     }
 
     @Test
@@ -2309,9 +2317,9 @@ class AlertVerificationOutcomeValidatorTest {
     void acceptsCurrentDeparturePlatformChangeEventWithStructuralComparison() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String timetabledField =
-                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc";
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id";
         String actualField =
-                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc";
+                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.id";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(
@@ -2322,9 +2330,9 @@ class AlertVerificationOutcomeValidatorTest {
                         Map.of("anyElement", Map.of(
                                 "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                                 "conditions", platformFieldComparisonLeaf(
-                                        "timetabledDeparturePlatform.dsc",
+                                        "timetabledDeparturePlatform.id",
                                         "PLATFORM_NOT_EQUALS_FIELD",
-                                        "actualDeparturePlatform.platform.dsc"))))),
+                                        "actualDeparturePlatform.platform.id"))))),
                 coverageFor(eventField, timetabledField, actualField)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);

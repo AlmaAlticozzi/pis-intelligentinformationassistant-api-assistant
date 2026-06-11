@@ -145,12 +145,35 @@ class AlertRouteUnderstandingServiceTest {
     }
 
     @Test
+    void normalizesScheduledLlmResponseToEventForPresenceJourneyWithoutAggregate() {
+        for (String prompt : java.util.List.of(
+                "Avvisami quando c'è una corsa a Milano Centrale con destinazione Gerusalemme",
+                "Avvertimi se c'è una soppressione a Lecco")) {
+            AlertRouteUnderstandingResult result = serviceWithResponse(scheduledResponse())
+                    .understand(new AlertVerificationPromptData("ALRT1", "Route", null, prompt));
+
+            assertThat(result.interpreterType()).as(prompt).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+            assertThat(result.accessMode()).as(prompt).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+            assertThat(result.intentKind()).as(prompt).isEqualTo(AlertRouteIntentKind.EVENT_OCCURRENCE);
+            assertThat(result.outputMode()).as(prompt).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+            assertThat(result.requiresPolling()).as(prompt).isFalse();
+            assertThat(result.requiresServiceDataApi()).as(prompt).isFalse();
+            assertThat(result.requiresKafkaEvent()).as(prompt).isTrue();
+            assertThat(result.hasAggregation()).as(prompt).isFalse();
+            assertThat(result.hasCardinalityThreshold()).as(prompt).isFalse();
+            assertThat(result.hasReportIntent()).as(prompt).isFalse();
+        }
+    }
+
+    @Test
     void normalizesEventLlmResponseToScheduledForSnapshotCountAndPollingPrompts() {
         for (String prompt : java.util.List.of(
                 "Ci sono corse a Garibaldi FS con ritardo di almeno 5 min",
                 "Quanti treni a Garibaldi FS hanno ritardo di almeno 5 min",
                 "Avvisami quando ci sono almeno 3 corse in ritardo a Garibaldi FS",
-                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS")) {
+                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
+                "Avvertimi ogni 10 minuti su quante corse soppresse ci sono a Lecco",
+                "Dimmi ogni 10 minuti quante corse ci sono a Garibaldi FS")) {
             AlertRouteUnderstandingResult result = serviceWithResponse(eventResponse())
                     .understand(new AlertVerificationPromptData("ALRT1", "Route", null, prompt));
 

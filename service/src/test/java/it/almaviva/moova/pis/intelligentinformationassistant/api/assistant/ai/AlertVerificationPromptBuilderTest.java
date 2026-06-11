@@ -74,6 +74,35 @@ class AlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void eventSystemCompactV2PreservesManualRegressionRules() {
+        String template = new PromptTemplateLoader().load(SYSTEM_TEMPLATE_PATH);
+
+        assertThat(template)
+                .contains("Use root all, not root any")
+                .contains("event evidence and numeric delay predicate are both mandatory")
+                .contains("eventsType alone is not sufficient")
+                .contains("numeric delay predicate alone is not sufficient")
+                .contains("use callStart.stopPoint.* and callEnd.stopPoint.* by default")
+                .contains("Use timetabledCallStart/timetabledCallEnd only when the user explicitly says scheduled")
+                .contains("Never use full child-array paths like payload.stopPointJourney.stopPointsJourneyDetails[].nextCalls[] as the anyElement path")
+                .contains("outer path payload.stopPointJourney.stopPointsJourneyDetails[] and inner relative path nextCalls[]")
+                .contains("For generic platform change, event evidence and structural evidence are both required")
+                .contains("Platform change structural evidence means timetabled platform differs from actual platform")
+                .contains("do not use changes CONTAINS PLATFORM_CHANGED as the only structural evidence")
+                .contains("timetabledDeparturePlatform.id PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.id")
+                .contains("timetabledArrivalPlatform.id PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.id")
+                .contains("For \"cambio binario in partenza\", use root all [eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED")
+                .contains("PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc")
+                .contains("PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc")
+                .contains("Numeric/property platform predicates use actualDeparturePlatform.platform.dsc for departure")
+                .contains("actualArrivalPlatform.platform.dsc for arrival by default")
+                .contains("For generic cancellation/suppression at a monitored stop")
+                .contains("arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION")
+                .contains("arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION, passingType EQUALS DESTINATION")
+                .contains("departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION, passingType EQUALS ORIGIN");
+    }
+
+    @Test
     void eventPromptFinalPromptContainsCoreContractRuntimeContextAndNoUnresolvedPlaceholders() {
         LlmRequest request = builder().build(promptDataWithLocation(rhoContext()));
 

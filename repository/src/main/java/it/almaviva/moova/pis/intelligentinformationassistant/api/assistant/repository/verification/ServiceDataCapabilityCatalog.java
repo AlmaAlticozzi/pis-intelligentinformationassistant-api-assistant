@@ -120,6 +120,8 @@ public final class ServiceDataCapabilityCatalog {
                     "Actual departure platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.displayPlatform.dsc",
                     "Actual departure platform description.", "binario partenza", "departure platform description"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.id",
+                    "Actual departure platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc",
                     "Actual departure platform description.", "binario partenza", "departure platform description"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.isConfirmed", FieldType.BOOLEAN,
@@ -135,6 +137,8 @@ public final class ServiceDataCapabilityCatalog {
                     "Actual arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.displayPlatform.dsc",
                     "Actual arrival platform description.", "binario arrivo", "arrival platform description"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.id",
+                    "Actual arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.platform.dsc",
                     "Actual arrival platform description.", "binario arrivo", "arrival platform description"),
             field("payload.stopPointJourney.stopPointsJourneyDetails[].actualArrivalPlatform.isConfirmed", FieldType.BOOLEAN,
@@ -156,12 +160,20 @@ public final class ServiceDataCapabilityCatalog {
                     "Timetabled departure platform description.", "binario previsto", "piattaforma prevista", "timetabled platform"),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.dsc",
                     "Previous arrival platform description.", "binario arrivo precedente", "previous arrival platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.id",
+                    "Previous arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.dsc",
                     "Previous display arrival platform description.", "binario arrivo precedente", "previous display arrival platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.id",
+                    "Previous display arrival platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.dsc",
                     "Previous departure platform description.", "binario partenza precedente", "previous departure platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.id",
+                    "Previous departure platform technical id."),
             platformField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.dsc",
                     "Previous display departure platform description.", "binario partenza precedente", "previous display departure platform"),
+            platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.id",
+                    "Previous display departure platform technical id."),
             platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.departurePlatform.id",
                     "Monitored departure platform technical id."),
             platformTechnicalIdField("payload.stopPointJourney.stopPointsJourneyDetails[].monitoredData.arrivalPlatform.id",
@@ -423,7 +435,8 @@ public final class ServiceDataCapabilityCatalog {
         if (!isPlatformTechnicalIdField(field)) {
             throw new IllegalArgumentException("Unsupported platform technical id field: " + field);
         }
-        return field(field, FieldType.PLATFORM_TECHNICAL_ID, Set.of(), List.of(), description);
+        return field(field, FieldType.PLATFORM_TECHNICAL_ID,
+                ops("PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD"), List.of(), description);
     }
 
     private static Set<String> temporalOps() {

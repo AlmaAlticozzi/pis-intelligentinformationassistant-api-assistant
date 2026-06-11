@@ -143,6 +143,13 @@ public class AlertRouteUnderstandingPromptBuilder {
                 - If the user asks for one emitted occurrence such as "notify me when a journey is cancelled at X" or
                   "when a journey changes destination at X", and there is no snapshot/count/report wording, route to
                   EVENT_INTERPRETER.
+                - Expressions like "quando c'e una corsa", "se c'e una corsa", "quando esiste una corsa",
+                  "there is a journey" or "there are journeys" are EVENT_OCCURRENCE by default when there is no
+                  polling, report, count, cardinality threshold, explicit scheduled snapshot wording or cross-location
+                  aggregate semantics, and at least one monitored stop or meaningful journey-state predicate is present.
+                - Do not route to SCHEDULED_INTERPRETER just because the wording says "c'e", "ci sono",
+                  "there is" or "there are".
+                - "Avvertimi se c'e una soppressione a Lecco" is EVENT_INTERPRETER, EVENT_OCCURRENCE, ON_MATCH.
                 - Do not classify a prompt as SCHEDULED_INTERPRETER just because it contains a number.
                 - Numbers used as platform, binario, track, quay, banchina or marciapiede values are ServiceData field
                   constraints and can be evaluated by EVENT_INTERPRETER when the rest of the prompt describes a single

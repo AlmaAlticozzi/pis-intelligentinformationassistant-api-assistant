@@ -478,6 +478,30 @@ class AlertServiceMainEventNormalizationTest {
     }
 
     @Test
+    void validatorAcceptsGenericSuppressionAtCurrentStopWithCancellationBranches() {
+        AlertVerificationOutcome outcome = outcomeWithConditionAndCoverage(
+                conditionWithGenericSuppressionAtCurrentStop(),
+                coverageFor(
+                        EVENT_FIELD,
+                        STOP_FIELD,
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status",
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status",
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].passingType"));
+
+        AlertVerificationOutcome validated = validator.validate(outcome, "Avvertimi se c'è una soppressione a Lecco",
+                locationContextWithConstraints(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "EXPECTED_MAIN_EVENT_TYPE", "CANCELLATION")));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.technicalSpecification().toString())
+                .contains("ARRIVAL_CANCELLATION")
+                .contains("DEPARTURE_CANCELLATION")
+                .contains("passingType")
+                .contains("DESTINATION")
+                .contains("ORIGIN");
+    }
+
+    @Test
     void normalizesSingleValueInToEqualsRecursively() {
         AlertVerificationOutcome normalized = service.normalizeSingleValueInOperators(
                 outcomeWithCondition(conditionWithNestedSingleValueIn()),
@@ -643,6 +667,33 @@ class AlertServiceMainEventNormalizationTest {
                         Map.of("anyElement", Map.of(
                                 "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                                 "conditions", conditions))));
+    }
+
+    private Map<String, Object> conditionWithGenericSuppressionAtCurrentStop() {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", EVENT_FIELD, "operator", "CONTAINS_ANY",
+                                "values", List.of("CANCELLATION", "ARRIVAL_CANCELLATION", "DEPARTURE_CANCELLATION")),
+                        Map.of("field", STOP_FIELD, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of("anyElement", Map.of(
+                                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                "conditions", Map.of("any", List.of(
+                                        Map.of("all", List.of(
+                                                Map.of("field", "arrivalStatuses[].status", "operator", "CONTAINS",
+                                                        "value", "ARRIVAL_CANCELLATION"),
+                                                Map.of("field", "departureStatuses[].status", "operator", "CONTAINS",
+                                                        "value", "DEPARTURE_CANCELLATION"))),
+                                        Map.of("all", List.of(
+                                                Map.of("field", "arrivalStatuses[].status", "operator", "CONTAINS",
+                                                        "value", "ARRIVAL_CANCELLATION"),
+                                                Map.of("field", "passingType", "operator", "EQUALS",
+                                                        "value", "DESTINATION"))),
+                                        Map.of("all", List.of(
+                                                Map.of("field", "departureStatuses[].status", "operator", "CONTAINS",
+                                                        "value", "DEPARTURE_CANCELLATION"),
+                                                Map.of("field", "passingType", "operator", "EQUALS",
+                                                        "value", "ORIGIN")))))))));
     }
 
     private Map<String, Object> conditionWithDepartureDelayWithoutEvent() {

@@ -86,11 +86,13 @@ class ServiceDataCapabilityCatalogTest {
             "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.displayPlatform.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].previousArrivalPlatform.platform.id",
             "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.displayPlatform.id",
-            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.id");
+            "payload.stopPointJourney.stopPointsJourneyDetails[].previousDeparturePlatform.platform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledArrivalPlatform.id",
+            "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id");
 
     @Test
     void allowedFieldCountIncludesControlledExpansion() {
-        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(109);
+        assertThat(ServiceDataCapabilityCatalog.allowedFieldCount()).isEqualTo(115);
     }
 
     @Test
@@ -306,6 +308,9 @@ class ServiceDataCapabilityCatalogTest {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_IGNORE_CASE")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "IN")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUAL_PLATFORM")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_NOT_EQUALS_FIELD")).as(field).isTrue();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_EQUALS_FIELD")).as(field).isTrue();
         });
     }
 

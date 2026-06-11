@@ -468,10 +468,6 @@ public class AlertVerificationOutcomeValidator {
             rejectCatalogField(context, field, "field contains suspicious content.");
             return;
         }
-        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(field)) {
-            rejectPlatformTechnicalId(context, field, operator);
-            return;
-        }
         if (isForbiddenFunctionalLocationFallback(field, leaf)) {
             context.fail("Functional keyword must not be represented as a stop-point textual location fallback.");
             return;
@@ -486,6 +482,11 @@ public class AlertVerificationOutcomeValidator {
         }
         if (StopPointIdConditionValidator.isStopPointIdField(field) && !capability.supportsOperator(operator)) {
             validateStopPointIdCondition(context, field, operator, leaf);
+            return;
+        }
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(field)
+                && !PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+            rejectPlatformTechnicalId(context, field, operator);
             return;
         }
         if (!capability.supportsOperator(operator)) {
@@ -598,10 +599,6 @@ public class AlertVerificationOutcomeValidator {
                 + " operator=" + operator + " path=" + arrayPath);
         String absoluteField = arrayPath + "." + relativeField;
         logPlatformValidation(absoluteField, operator);
-        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(absoluteField)) {
-            rejectPlatformTechnicalId(context, absoluteField, operator);
-            return;
-        }
         if (isForbiddenFunctionalLocationFallback(absoluteField, leaf)) {
             context.fail("Functional keyword must not be represented as a stop-point textual location fallback.");
             return;
@@ -615,6 +612,11 @@ public class AlertVerificationOutcomeValidator {
         }
         if (StopPointIdConditionValidator.isStopPointIdField(absoluteField) && !capability.supportsOperator(operator)) {
             validateStopPointIdCondition(context, absoluteField, operator, leaf);
+            return;
+        }
+        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(absoluteField)
+                && !PLATFORM_FIELD_COMPARE_OPERATORS.contains(operator)) {
+            rejectPlatformTechnicalId(context, absoluteField, operator);
             return;
         }
         if (!capability.supportsOperator(operator)) {
@@ -1162,9 +1164,10 @@ public class AlertVerificationOutcomeValidator {
         String rawOtherField = stringValue(leaf.get("otherField"));
         System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] validating field=" + field
                 + " operator=" + operator + " otherField=" + rawOtherField);
-        if (capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+        if (capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM
+                && capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM_TECHNICAL_ID) {
             rejectPlatformFieldComparison(context, field, operator, rawOtherField,
-                    "field must be a whitelisted platform description field.");
+                    "field must be a whitelisted platform description or technical id field.");
             return;
         }
         if (rawOtherField == null || rawOtherField.isBlank()) {
@@ -1173,16 +1176,18 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         String otherField = resolvePlatformComparisonField(rawOtherField, arrayPath);
-        if (ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(otherField)) {
-            rejectPlatformFieldComparison(context, field, operator, otherField,
-                    "otherField cannot be a platform technical id field.");
-            return;
-        }
         ServiceDataCapabilityCatalog.FieldCapability otherCapability =
                 ServiceDataCapabilityCatalog.findField(otherField).orElse(null);
-        if (otherCapability == null || otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
+        if (otherCapability == null
+                || (otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM
+                && otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM_TECHNICAL_ID)) {
             rejectPlatformFieldComparison(context, field, operator, otherField,
-                    "otherField must be a whitelisted platform description field.");
+                    "otherField must be a whitelisted platform description or technical id field.");
+            return;
+        }
+        if (capability.type() != otherCapability.type()) {
+            rejectPlatformFieldComparison(context, field, operator, otherField,
+                    "field and otherField must both be platform description fields or both be platform technical id fields.");
             return;
         }
         context.conditionFields.add(otherField);

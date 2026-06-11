@@ -63,7 +63,7 @@ public class AlertRouteUnderstandingValidator {
         }
 
         if (route.interpreterType() == AlertRouteInterpreterType.EVENT_INTERPRETER) {
-            if (requiresScheduledInterpreter(safeHints)) {
+            if (requiresScheduledInterpreter(safeHints) && !isPresenceEventOccurrenceWithoutAggregate(originalPrompt, safeHints)) {
                 if (isAlternativeEventMonitoring(originalPrompt, safeHints)) {
                     logMultiLocationSemantic(originalPrompt, safeHints, AlertRouteInterpreterType.EVENT_INTERPRETER);
                     return validateEventRoute(route, domains, primaryDomain);
@@ -132,6 +132,10 @@ public class AlertRouteUnderstandingValidator {
     private boolean shouldNormalizeScheduledRouteToEvent(String originalPrompt, AlertRouteUnderstandingHints hints) {
         if (isAlternativeEventMonitoring(originalPrompt, hints)) {
             logMultiLocationSemantic(originalPrompt, hints, AlertRouteInterpreterType.EVENT_INTERPRETER);
+            return true;
+        }
+        if (isPresenceEventOccurrenceWithoutAggregate(originalPrompt, hints)) {
+            System.out.println("[IIA][ALERT_ROUTE][NORMALIZATION] action=RECLASSIFIED_SCHEDULED_TO_EVENT reason=presence-event-without-aggregate alertId=n/a");
             return true;
         }
         boolean hasScheduledSignal = hints.containsPollingExpression()
@@ -326,6 +330,38 @@ public class AlertRouteUnderstandingValidator {
             return false;
         }
         return !hints.containsPollingExpression()
+                && !hints.containsCountOrReportExpression()
+                && !hints.containsCardinalityThresholdExpression()
+                && !hints.containsAllLocationsExpression()
+                && !hasCrossLocationCondition(normalized);
+    }
+
+    private boolean isPresenceEventOccurrenceWithoutAggregate(String prompt, AlertRouteUnderstandingHints hints) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null) {
+            return false;
+        }
+        boolean hasNotification = containsAny(normalized,
+                "avvisami quando", "avvisami se", "avvertimi quando", "avvertimi se",
+                "fammi sapere quando", "fammi sapere se", "notify me when", "notify me if",
+                "tell me when", "tell me if");
+        boolean hasPresence = containsAny(normalized,
+                "c'e", "ce una", "ce un", "ci sono", "there is", "there are", "exists", "esiste");
+        if (hints.containsPlatformChangeExpression()
+                || containsAny(normalized, "sostitutiv", "replacement")
+                || containsAny(normalized, "fermate soppresse", "fermata soppressa", "skipped stops")
+                || containsAny(normalized, "treni cancellati", "corse cancellate",
+                "treni soppressi", "corse soppresse")) {
+            return false;
+        }
+        boolean hasVehicleOrOperationalState = containsAny(normalized,
+                "corsa", "corse", "treno", "treni", "journey", "journeys", "train", "trains",
+                "soppressione", "soppress", "cancell", "cancelled", "cancellation",
+                "ritardo", "delay", "destinazione", "destination", "origine", "origin");
+        return hasNotification
+                && hasPresence
+                && hasVehicleOrOperationalState
+                && !hints.containsPollingExpression()
                 && !hints.containsCountOrReportExpression()
                 && !hints.containsCardinalityThresholdExpression()
                 && !hints.containsAllLocationsExpression()
