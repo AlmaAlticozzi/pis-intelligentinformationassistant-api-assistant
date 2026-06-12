@@ -91,6 +91,11 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Override
     public AgentDefinitionDetail createAgentDefinition(@Valid @NotNull AgentDefinitionCreateRequest agentDefinitionCreateRequest) {
         try {
+            System.out.println("[IIA][AGENT_DEFINITION_CREATE][REQUEST_BINDING] requestPresent=" + (agentDefinitionCreateRequest != null)
+                    + " activationPolicyPresent=" + (agentDefinitionCreateRequest != null && agentDefinitionCreateRequest.getActivationPolicy() != null)
+                    + " activationPolicyClass=" + (agentDefinitionCreateRequest == null || agentDefinitionCreateRequest.getActivationPolicy() == null
+                    ? null
+                    : agentDefinitionCreateRequest.getActivationPolicy().getClass().getName()));
             return agentDefinitionService.createAgentDefinition(agentDefinitionCreateRequest);
         } catch (AgentDefinitionInvalidRequestException ex) {
             throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)

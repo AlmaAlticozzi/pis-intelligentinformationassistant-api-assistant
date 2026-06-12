@@ -20,9 +20,9 @@ import org.openapitools.jackson.nullable.JsonNullable;
 
 
 
-@JsonTypeName("AgentDailyWindowActivationPolicy")
+@JsonTypeName("DAILY_WINDOW")
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
-public class AgentDailyWindowActivationPolicy   {
+public class AgentDailyWindowActivationPolicy extends AgentActivationPolicy  {
   public enum TypeEnum {
 
     DAILY_WINDOW(String.valueOf("DAILY_WINDOW"));
@@ -70,7 +70,7 @@ public class AgentDailyWindowActivationPolicy   {
     }
 }
 
-  private TypeEnum type;
+  private AgentActivationPolicy.TypeEnum type;
   private String timezone;
   private LocalDate validFromDate;
   private LocalDate validToDate;
@@ -83,13 +83,19 @@ public class AgentDailyWindowActivationPolicy   {
 
   @JsonCreator
   public AgentDailyWindowActivationPolicy(
-    @JsonProperty(required = true, value = "type") TypeEnum type,
+    @JsonProperty(required = true, value = "type") AgentActivationPolicy.TypeEnum type,
     @JsonProperty(required = true, value = "timezone") String timezone,
     @JsonProperty(required = true, value = "validFromDate") LocalDate validFromDate,
     @JsonProperty(required = true, value = "validToDate") LocalDate validToDate,
     @JsonProperty(required = true, value = "dailyStartTime") String dailyStartTime,
     @JsonProperty(required = true, value = "dailyEndTime") String dailyEndTime
   ) {
+    super.setType(AgentActivationPolicy.TypeEnum.DAILY_WINDOW);
+    super.setTimezone(timezone);
+    super.setValidFromDate(validFromDate);
+    super.setValidToDate(validToDate);
+    super.setDailyStartTime(dailyStartTime);
+    super.setDailyEndTime(dailyEndTime);
     this.type = type;
     this.timezone = timezone;
     this.validFromDate = validFromDate;
@@ -100,7 +106,7 @@ public class AgentDailyWindowActivationPolicy   {
 
   /**
    **/
-  public AgentDailyWindowActivationPolicy type(TypeEnum type) {
+  public AgentDailyWindowActivationPolicy type(AgentActivationPolicy.TypeEnum type) {
     this.type = type;
     return this;
   }
@@ -108,13 +114,14 @@ public class AgentDailyWindowActivationPolicy   {
   
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "type")
-  @NotNull public TypeEnum getType() {
+  @NotNull public AgentActivationPolicy.TypeEnum getType() {
     return type;
   }
 
   @JsonProperty(required = true, value = "type")
-  public void setType(TypeEnum type) {
+  public void setType(AgentActivationPolicy.TypeEnum type) {
     this.type = type;
+    super.setType(type);
   }
 
   /**
@@ -134,6 +141,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty(required = true, value = "timezone")
   public void setTimezone(String timezone) {
     this.timezone = timezone;
+    super.setTimezone(timezone);
   }
 
   /**
@@ -153,6 +161,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty(required = true, value = "validFromDate")
   public void setValidFromDate(LocalDate validFromDate) {
     this.validFromDate = validFromDate;
+    super.setValidFromDate(validFromDate);
   }
 
   /**
@@ -172,6 +181,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty(required = true, value = "validToDate")
   public void setValidToDate(LocalDate validToDate) {
     this.validToDate = validToDate;
+    super.setValidToDate(validToDate);
   }
 
   /**
@@ -191,6 +201,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty(required = true, value = "dailyStartTime")
   public void setDailyStartTime(String dailyStartTime) {
     this.dailyStartTime = dailyStartTime;
+    super.setDailyStartTime(dailyStartTime);
   }
 
   /**
@@ -210,6 +221,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty(required = true, value = "dailyEndTime")
   public void setDailyEndTime(String dailyEndTime) {
     this.dailyEndTime = dailyEndTime;
+    super.setDailyEndTime(dailyEndTime);
   }
 
   /**
@@ -229,6 +241,7 @@ public class AgentDailyWindowActivationPolicy   {
   @JsonProperty("daysOfWeek")
   public void setDaysOfWeek(List<DayOfWeek> daysOfWeek) {
     this.daysOfWeek = daysOfWeek;
+    super.setDaysOfWeek(daysOfWeek);
   }
 
   public AgentDailyWindowActivationPolicy addDaysOfWeekItem(DayOfWeek daysOfWeekItem) {
@@ -237,12 +250,14 @@ public class AgentDailyWindowActivationPolicy   {
     }
 
     this.daysOfWeek.add(daysOfWeekItem);
+    super.setDaysOfWeek(this.daysOfWeek);
     return this;
   }
 
   public AgentDailyWindowActivationPolicy removeDaysOfWeekItem(DayOfWeek daysOfWeekItem) {
     if (daysOfWeekItem != null && this.daysOfWeek != null) {
       this.daysOfWeek.remove(daysOfWeekItem);
+      super.setDaysOfWeek(this.daysOfWeek);
     }
 
     return this;

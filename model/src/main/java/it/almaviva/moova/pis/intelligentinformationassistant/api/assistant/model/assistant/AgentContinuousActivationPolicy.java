@@ -16,9 +16,9 @@ import org.openapitools.jackson.nullable.JsonNullable;
 
 
 
-@JsonTypeName("AgentContinuousActivationPolicy")
+@JsonTypeName("CONTINUOUS")
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
-public class AgentContinuousActivationPolicy   {
+public class AgentContinuousActivationPolicy extends AgentActivationPolicy  {
   public enum TypeEnum {
 
     CONTINUOUS(String.valueOf("CONTINUOUS"));
@@ -66,7 +66,7 @@ public class AgentContinuousActivationPolicy   {
     }
 }
 
-  private TypeEnum type;
+  private AgentActivationPolicy.TypeEnum type;
   private String timezone;
   private OffsetDateTime validFrom;
   private OffsetDateTime validTo;
@@ -76,11 +76,15 @@ public class AgentContinuousActivationPolicy   {
 
   @JsonCreator
   public AgentContinuousActivationPolicy(
-    @JsonProperty(required = true, value = "type") TypeEnum type,
+    @JsonProperty(required = true, value = "type") AgentActivationPolicy.TypeEnum type,
     @JsonProperty(required = true, value = "timezone") String timezone,
     @JsonProperty(required = true, value = "validFrom") OffsetDateTime validFrom,
     @JsonProperty(required = true, value = "validTo") OffsetDateTime validTo
   ) {
+    super.setType(AgentActivationPolicy.TypeEnum.CONTINUOUS);
+    super.setTimezone(timezone);
+    super.setValidFrom(validFrom);
+    super.setValidTo(validTo);
     this.type = type;
     this.timezone = timezone;
     this.validFrom = validFrom;
@@ -89,7 +93,7 @@ public class AgentContinuousActivationPolicy   {
 
   /**
    **/
-  public AgentContinuousActivationPolicy type(TypeEnum type) {
+  public AgentContinuousActivationPolicy type(AgentActivationPolicy.TypeEnum type) {
     this.type = type;
     return this;
   }
@@ -97,13 +101,14 @@ public class AgentContinuousActivationPolicy   {
   
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "type")
-  @NotNull public TypeEnum getType() {
+  @NotNull public AgentActivationPolicy.TypeEnum getType() {
     return type;
   }
 
   @JsonProperty(required = true, value = "type")
-  public void setType(TypeEnum type) {
+  public void setType(AgentActivationPolicy.TypeEnum type) {
     this.type = type;
+    super.setType(type);
   }
 
   /**
@@ -123,6 +128,7 @@ public class AgentContinuousActivationPolicy   {
   @JsonProperty(required = true, value = "timezone")
   public void setTimezone(String timezone) {
     this.timezone = timezone;
+    super.setTimezone(timezone);
   }
 
   /**
@@ -143,6 +149,7 @@ public class AgentContinuousActivationPolicy   {
   @JsonProperty(required = true, value = "validFrom")
   public void setValidFrom(OffsetDateTime validFrom) {
     this.validFrom = validFrom;
+    super.setValidFrom(validFrom);
   }
 
   /**
@@ -163,6 +170,7 @@ public class AgentContinuousActivationPolicy   {
   @JsonProperty(required = true, value = "validTo")
   public void setValidTo(OffsetDateTime validTo) {
     this.validTo = validTo;
+    super.setValidTo(validTo);
   }
 
 
