@@ -339,9 +339,6 @@ public class AgentDefinitionService {
         runtimeContract.put("orchestratorCompatibility", Map.of(
                 "minimumRuntimeVersion", "1.0.0",
                 "runtimeClass", "STANDARD_DSL_RUNTIME"));
-        if (contract.isScheduled()) {
-            runtimeContract.put("requiredTools", allowedTools);
-        }
         return runtimeContract;
     }
 
