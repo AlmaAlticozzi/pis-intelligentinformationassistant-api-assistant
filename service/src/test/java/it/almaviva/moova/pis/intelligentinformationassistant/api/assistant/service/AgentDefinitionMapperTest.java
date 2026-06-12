@@ -3,17 +3,25 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDailyWindowActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentHealthStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentProfile;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentQualityStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentRun;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentRunStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +91,110 @@ class AgentDefinitionMapperTest {
         assertThat(activationPolicy.get("daysOfWeek")).hasSize(2);
         assertThat(activationPolicy.has("validFrom")).isFalse();
         assertThat(activationPolicy.has("validTo")).isFalse();
+    }
+
+    @Test
+    void mapsScheduledDailyWindowDetailWithToolAndNoDuplicatedActivationType() throws Exception {
+        AgentDefinition definition = definition(dailyWindowActivationPolicy());
+        definition.setSglGenerationmode(generationModeRef("DSL"));
+        definition.setDscInputmodel("ServiceDataStopPointJourneysV2");
+        definition.setJsnAllowedtools(List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"));
+        definition.setJsnRuntimecontract(Map.of(
+                "runtimeExecutionModel", "STANDARD_DSL_EVALUATOR",
+                "interpreterType", "SCHEDULED_INTERPRETER",
+                "triggerType", "SCHEDULE",
+                "inputModel", "ServiceDataStopPointJourneysV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "allowedTools", List.of(Map.of(
+                        "toolName", "SERVICE_DATA_API.POST_/v2/stoppointjourneys",
+                        "operations", List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"))),
+                "networkPolicy", "TOOL_GATEWAY_ONLY"));
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "SCHEDULED_INTERPRETER", "SCHEDULE");
+        String json = OBJECT_MAPPER.writeValueAsString(detail);
+        JsonNode activationPolicy = OBJECT_MAPPER.readTree(json).get("activationPolicy");
+
+        assertThat(detail.getGenerationMode().toString()).isEqualTo("DSL");
+        assertThat(detail.getActivationPolicy()).isInstanceOf(AgentDailyWindowActivationPolicy.class);
+        assertThat(detail.getRuntimeContract().getAllowedTools())
+                .extracting(tool -> tool.getToolName())
+                .containsExactly("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+        assertThat(countOccurrences(activationPolicy.toString(), "\"type\"")).isEqualTo(1);
+        assertThat(activationPolicy.get("daysOfWeek")).hasSize(2);
+        assertThat(activationPolicy.has("validFrom")).isFalse();
+        assertThat(activationPolicy.has("validTo")).isFalse();
+    }
+
+    @Test
+    void handlesMissingOptionalJsonWithoutNpeAndUsesStructuredFallbacks() {
+        AgentDefinition definition = definition();
+        definition.setJsnActivationpolicy(null);
+        definition.setJsnBlueprint(null);
+        definition.setJsnRuntimecontract(null);
+        definition.setJsnAllowedtools(null);
+        definition.setJsnRequiredsources(null);
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(detail.getActivationPolicy()).isNull();
+        assertThat(detail.getBlueprint()).isNull();
+        assertThat(detail.getRuntimeContract()).isNotNull();
+        assertThat(detail.getRuntimeContract().getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(detail.getRuntimeContract().getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(detail.getRuntimeContract().getAllowedTools()).isEmpty();
+        assertThat(detail.getCompilation()).isNull();
+        assertThat(detail.getLatestRun()).isNull();
+    }
+
+    @Test
+    void mapsLatestCompilationSummaryWhenPresent() {
+        AgentDefinition definition = definition();
+        AgentCompilation compilation = new AgentCompilation();
+        compilation.setCodAgentcompilation("AGCP1");
+        compilation.setSglStatus(compilationStatusRef("FAILED"));
+        compilation.setDscCurrentstep("STATIC_ANALYSIS");
+        compilation.setDscErrormessage("Compilation failed.");
+        compilation.setDtStartedat(OffsetDateTime.parse("2026-06-12T10:10:00Z"));
+        compilation.setDtCompletedat(OffsetDateTime.parse("2026-06-12T10:11:00Z"));
+        definition.setCodLatestcompilation(compilation);
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(detail.getCompilation()).isNotNull();
+        assertThat(detail.getCompilation().getAgentDefinitionId()).isEqualTo("AGDF1");
+        assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("FAILED");
+        assertThat(detail.getCompilation().getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(detail.getCompilation().getErrors()).containsExactly("Compilation failed.");
+    }
+
+    @Test
+    void mapsLatestRunSummaryWhenPresent() {
+        AgentDefinition definition = definition();
+        AgentRun run = new AgentRun();
+        run.setCodAgentrun("AGRN1");
+        run.setSglStatus(runStatusRef("RUNNING"));
+        run.setSglHealthstatus(healthStatusRef("HEALTHY"));
+        run.setNumHealthscore(91);
+        run.setSglQualitystatus(qualityStatusRef("GOOD"));
+        run.setNumQualityscore(84);
+        run.setCodProfile("MEDIUM");
+        run.setNumCpuusagepercent(new BigDecimal("12.5"));
+        run.setNumMemoryusagepercent(new BigDecimal("44.2"));
+        run.setNumCandidateoutputs(7L);
+        run.setNumCreatedsuggestions(3L);
+        run.setDtStartedat(OffsetDateTime.parse("2026-06-12T10:20:00Z"));
+        run.setDtCreatedat(OffsetDateTime.parse("2026-06-12T10:19:00Z"));
+        definition.setCodLatestrun(run);
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(detail.getLatestRun()).isNotNull();
+        assertThat(detail.getLatestRun().getId()).isEqualTo("AGRN1");
+        assertThat(detail.getLatestRun().getAgentDefinitionId()).isEqualTo("AGDF1");
+        assertThat(detail.getLatestRun().getStatus().toString()).isEqualTo("RUNNING");
+        assertThat(detail.getLatestRun().getGeneratedOutputs()).isEqualTo(7L);
+        assertThat(detail.getLatestRun().getCreatedSuggestions()).isEqualTo(3L);
     }
 
     private AgentDefinitionMapper mapper() {
@@ -214,6 +326,30 @@ class AgentDefinitionMapperTest {
     private AgentArtifactSignatureStatus signatureRef(String value) {
         AgentArtifactSignatureStatus status = new AgentArtifactSignatureStatus();
         status.setSglSignaturestatus(value);
+        return status;
+    }
+
+    private AgentCompilationStatus compilationStatusRef(String value) {
+        AgentCompilationStatus status = new AgentCompilationStatus();
+        status.setSglStatus(value);
+        return status;
+    }
+
+    private AgentRunStatus runStatusRef(String value) {
+        AgentRunStatus status = new AgentRunStatus();
+        status.setSglStatus(value);
+        return status;
+    }
+
+    private AgentHealthStatus healthStatusRef(String value) {
+        AgentHealthStatus status = new AgentHealthStatus();
+        status.setSglHealthstatus(value);
+        return status;
+    }
+
+    private AgentQualityStatus qualityStatusRef(String value) {
+        AgentQualityStatus status = new AgentQualityStatus();
+        status.setSglQualitystatus(value);
         return status;
     }
 }

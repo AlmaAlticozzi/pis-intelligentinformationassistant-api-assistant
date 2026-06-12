@@ -68,7 +68,8 @@ public class AgentDefinitionService {
                 stringValue(runtimeContract == null ? null : runtimeContract.get("interpreterType")),
                 definition.getCodAlert() == null || definition.getCodAlert().getSglInterpretertype() == null
                         ? null
-                        : definition.getCodAlert().getSglInterpretertype().getSglInterpretertype());
+                        : definition.getCodAlert().getSglInterpretertype().getSglInterpretertype(),
+                interpreterTypeFromInputModel(definition.getDscInputmodel()));
         String triggerType = firstNonBlank(
                 stringValue(runtimeContract == null ? null : runtimeContract.get("triggerType")),
                 "EVENT_INTERPRETER".equals(interpreterType)
@@ -482,6 +483,14 @@ public class AgentDefinitionService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String interpreterTypeFromInputModel(String inputModel) {
+        return switch (inputModel == null ? "" : inputModel) {
+            case "ServiceDataV2" -> "EVENT_INTERPRETER";
+            case "ServiceDataStopPointJourneysV2" -> "SCHEDULED_INTERPRETER";
+            default -> null;
+        };
     }
 
     private String firstNonBlank(String first, String second) {

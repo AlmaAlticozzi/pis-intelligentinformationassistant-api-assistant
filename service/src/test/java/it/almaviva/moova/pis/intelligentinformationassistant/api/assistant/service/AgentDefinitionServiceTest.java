@@ -104,20 +104,56 @@ class AgentDefinitionServiceTest {
     void getsPersistedScheduledAgentDefinitionDetail() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition definition = persistedDefinition(
+                scheduledTechnicalSpecification(600, 1),
+                "ServiceDataStopPointJourneysV2",
+                List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"));
+        definition.setSglGenerationmode(generationModeRef("DSL"));
+        definition.setJsnActivationpolicy(Map.of(
+                "type", "DAILY_WINDOW",
+                "timezone", "Europe/Rome",
+                "validFromDate", "2026-06-12",
+                "validToDate", "2026-12-31",
+                "dailyStartTime", "07:00:00",
+                "dailyEndTime", "19:00:00",
+                "daysOfWeek", List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY")));
         when(definitionRepository.findByDefinitionId("AGDF1"))
-                .thenReturn(Optional.of(persistedDefinition(
-                        scheduledTechnicalSpecification(600, 1),
-                        "ServiceDataStopPointJourneysV2",
-                        List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"))));
+                .thenReturn(Optional.of(definition));
 
         var detail = service.getAgentDefinition("AGDF1");
 
+        assertThat(detail.getGenerationMode().toString()).isEqualTo("DSL");
+        assertThat(detail.getActivationPolicy()).isInstanceOf(AgentDailyWindowActivationPolicy.class);
+        AgentDailyWindowActivationPolicy policy = (AgentDailyWindowActivationPolicy) detail.getActivationPolicy();
+        assertThat(policy.getDaysOfWeek())
+                .containsExactly(DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY, DayOfWeek.FRIDAY);
+        assertThat(detail.getBlueprint()).isNotNull();
         assertThat(detail.getInterpreterType().toString()).isEqualTo("SCHEDULED_INTERPRETER");
         assertThat(detail.getTriggerType()).isEqualTo("SCHEDULE");
         assertThat(detail.getInputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
         assertThat(detail.getRuntimeContract().getAllowedTools())
                 .extracting(tool -> tool.getToolName())
                 .containsExactly("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+    }
+
+    @Test
+    void getsDetailWithRuntimeContractFallbackFromStructuredColumns() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition definition = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        definition.setJsnRuntimecontract(null);
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+
+        var detail = service.getAgentDefinition("AGDF1");
+
+        assertThat(detail.getInterpreterType().toString()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(detail.getTriggerType()).isEqualTo("EVENT");
+        assertThat(detail.getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(detail.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(detail.getRuntimeContract()).isNotNull();
+        assertThat(detail.getRuntimeContract().getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(detail.getRuntimeContract().getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(detail.getRuntimeContract().getNetworkPolicy()).isEqualTo("TOOL_GATEWAY_ONLY");
     }
 
     @Test
