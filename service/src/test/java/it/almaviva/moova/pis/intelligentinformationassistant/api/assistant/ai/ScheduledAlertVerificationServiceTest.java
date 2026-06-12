@@ -35,6 +35,7 @@ class ScheduledAlertVerificationServiceTest {
     private static final String LECCO = "TNPNTS00000000000113";
     private static final String MILANO_CENTRALE = "TNPNTS00000000000024";
     private static final String SAN_SIRO_STADIO = "TNPNTS00000000000019";
+    private static final String GERUSALEMME = "TNPNTS00000000000012";
     private static final String INVENTED = "TNPNTS99999999999999";
 
     @Test
@@ -926,6 +927,196 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesGenericSuppressedJourneysCountAtGerusalemmeAndCanonicalizesSimpleOr() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, simpleOrJourneyCancellationCondition());
+        withSchedule(response, 600, false, "ogni 10 min");
+        response.put("requirementCoverage", Map.of(
+                "requirements", List.of(Map.of(
+                        "text", "monitor suppressed or cancelled journeys at Gerusalemme",
+                        "required", true,
+                        "mappable", true,
+                        "mappedBy", List.of(
+                                "serviceDataQuery.stopPoints",
+                                "schedule.frequencySeconds",
+                                "stopPointsJourneyDetails[].arrivalStatuses[].status",
+                                "stopPointsJourneyDetails[].departureStatuses[].status",
+                                "stopPointsJourneyDetails[].passingType",
+                                "outputPolicy.emit",
+                                "outputPolicy.includeCount"))),
+                "allRequiredRequirementsMapped", true));
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for a recurring count of suppressed or cancelled journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(outcome.inputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
+        assertThat(map(outcome.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints")).isEqualTo(List.of(GERUSALEMME));
+        assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation"))).containsEntry("mode", "REPORT_COUNT");
+        assertThat(conditionFromTechnicalSpecification(outcome.technicalSpecification()))
+                .isEqualTo(genericJourneyCancellationCondition());
+        assertThat(conditionFromBlueprint(outcome.agentBlueprintPreview()))
+                .isEqualTo(conditionFromTechnicalSpecification(outcome.technicalSpecification()));
+    }
+
+    @Test
+    void verifiesGenericCancelledJourneysCountAtGerusalemmeEnglish() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, simpleOrJourneyCancellationCondition());
+        withSchedule(response, 600, false, "every 10 minutes");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Cancelled Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for a recurring count of cancelled journeys at Gerusalemme.",
+                "Notify me every 10 minutes how many cancelled journeys are at Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(conditionFromTechnicalSpecification(outcome.technicalSpecification()))
+                .isEqualTo(genericJourneyCancellationCondition());
+    }
+
+    @Test
+    void verifiesArrivalSuppressionAtGerusalemmeWithoutDepartureRequirement() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Arrival Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for arrival suppressed journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse soppresse in arrivo ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("arrivalStatuses[].status", "ARRIVAL_CANCELLATION")
+                .doesNotContain("operator=CONTAINS, value=DEPARTURE_CANCELLATION");
+    }
+
+    @Test
+    void verifiesDepartureSuppressionAtGerusalemmeWithoutArrivalRequirement() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Departure Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for departure suppressed journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse soppresse in partenza ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("departureStatuses[].status", "DEPARTURE_CANCELLATION")
+                .doesNotContain("operator=CONTAINS, value=ARRIVAL_CANCELLATION");
+    }
+
+    @Test
+    void verifiesOnlyArrivalSuppressionAtGerusalemmeWithDepartureNegativeCondition() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Only Arrival Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for only-arrival suppressed journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse solo soppresse in arrivo ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                .contains("departureStatuses[].status", "NOT_CONTAINS", "DEPARTURE_CANCELLATION");
+    }
+
+    @Test
+    void verifiesOnlyDepartureSuppressionAtGerusalemmeWithArrivalNegativeCondition() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Only Departure Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for only-departure suppressed journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse solo soppresse in partenza ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION")
+                .contains("arrivalStatuses[].status", "NOT_CONTAINS", "ARRIVAL_CANCELLATION");
+    }
+
+    @Test
+    void rejectsWifiPromptAtGerusalemmeWhenLlmIgnoresUnsupportedConstraint() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContext();
+        TestFixture fixture = fixture(json(validReportResponse(context, validCondition())));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Unsupported wifi",
+                "Scheduled ServiceData unsupported wifi test",
+                "Avvertimi ogni 10 min su quante corse con wifi non funzionante ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(outcome.rejectedReason()).contains("wifi");
+        assertThat(outcome.technicalSpecification()).isNull();
+    }
+
+    @Test
+    void verifiesCancelledStopAtGerusalemmeUsesNextCancelledCalls() {
+        ScheduledServiceDataLocationContext context = cancelledStopContext("Gerusalemme", "Cenisio", PALAZZOLO);
+        Map<String, Object> response = validReportResponse(context,
+                cancelledStopCondition(leaf("stopPoint.id", "EQUALS", PALAZZOLO)));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Cancelled Stop At Cenisio",
+                "Verify cancelled stop routing.",
+                "Avvertimi ogni 10 min su quante corse a Gerusalemme hanno fermata soppressa a Cenisio",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("nextCancelledCalls[]", "stopPoint.id")
+                .doesNotContain("ARRIVAL_CANCELLATION")
+                .doesNotContain("DEPARTURE_CANCELLATION");
+    }
+
+    @Test
     void verifiesCancelledJourneysCountAtLeccoWithoutChanges() {
         ScheduledServiceDataLocationContext context = leccoContext();
         Map<String, Object> response = validReportResponse(context, genericJourneyCancellationCondition());
@@ -1684,6 +1875,13 @@ class ScheduledAlertVerificationServiceTest {
                                 leaf("passingType", "EQUALS", "ORIGIN"))))));
     }
 
+    private Map<String, Object> simpleOrJourneyCancellationCondition() {
+        return conditionAnyElement("stopPointsJourneyDetails[]",
+                Map.of("any", List.of(
+                        leaf("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION"),
+                        leaf("departureStatuses[].status", "CONTAINS", "DEPARTURE_CANCELLATION"))));
+    }
+
     private Map<String, Object> conditionAnyElement(String path, Map<String, Object> conditions) {
         return condition(Map.of("anyElement", Map.of(
                 "path", path,
@@ -1809,6 +2007,37 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(LECCO),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext gerusalemmeContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Gerusalemme",
+                "Gerusalemme",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GERUSALEMME),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                List.of(),
+                List.of(GERUSALEMME),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GERUSALEMME),
                         false));
     }
 

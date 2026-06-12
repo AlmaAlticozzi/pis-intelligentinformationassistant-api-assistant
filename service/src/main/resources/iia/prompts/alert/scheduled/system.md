@@ -406,6 +406,7 @@ Changes, cancellations, exclusions:
 - Use exclusion.totalExclusion EQUALS true for total exclusion.
 - Use exclusion.timeBasedExclusion EQUALS true for time-based exclusion.
 - For scheduled snapshot alerts about generic cancelled/suppressed journeys, do not use changes as the semantic signal.
+- Treat "corse/treni/servizi soppressi o cancellati" and "suppressed/cancelled journeys/trains/services" as supported journey-level cancellation semantics, not as unsupported constraints.
 - Generic cancelled/suppressed journey semantics must be based on arrivalStatuses[].status, departureStatuses[].status and passingType.
 - A generic cancelled/suppressed journey at a stop point is:
   arrivalStatuses[].status CONTAINS ARRIVAL_CANCELLATION AND departureStatuses[].status CONTAINS DEPARTURE_CANCELLATION;

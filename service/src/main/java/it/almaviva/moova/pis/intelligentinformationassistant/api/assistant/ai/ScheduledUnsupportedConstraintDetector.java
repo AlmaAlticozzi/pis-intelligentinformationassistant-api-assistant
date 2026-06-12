@@ -40,7 +40,7 @@ public class ScheduledUnsupportedConstraintDetector {
                     Pattern.compile("\\b(audio|annunci?o? sonor\\w*|speaker|messaggi?o? audio|announcement)\\b"),
                     "audio announcements are not part of the ServiceData scheduled snapshot catalog"),
             new Rule("CMS/display/broadcast",
-                    Pattern.compile("\\b(cms|display|monitor|palinsesto|broadcast|contenut\\w*)\\b"),
+                    Pattern.compile("\\b(cms|display|monitor\\s+(?:di\\s+)?(?:stazione|banchina|bordo|station|platform|onboard)|palinsesto|broadcast|contenut\\w*)\\b"),
                     "CMS/display/broadcast content is not part of the ServiceData scheduled snapshot catalog"),
             new Rule("historical trend",
                     Pattern.compile("\\b(trend|aumentando|diminuendo|in aumento|in diminuzione|increasing|decreasing|rispetto a ieri|ieri|yesterday|last week|settimana scorsa)\\b"),

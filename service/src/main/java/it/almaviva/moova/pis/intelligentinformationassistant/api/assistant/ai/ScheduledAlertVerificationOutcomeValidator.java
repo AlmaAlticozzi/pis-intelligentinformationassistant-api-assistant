@@ -924,6 +924,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 return "Verified scheduled outcome requires mappedBy for every required requirement: " + text + ".";
             }
             if (!isMonitoredStopPointRequirementCoveredByQueryField(text, mappedBy)
+                    && !isJourneyCancellationRequirementCoveredByScheduledFields(text, mappedBy)
                     && !unsupportedDetector.detect(text).isEmpty()) {
                 return "The scheduled alert contains a required constraint that is not supported by the ServiceData scheduled snapshot catalog: "
                         + text + ".";
@@ -961,6 +962,74 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 .anyMatch(field -> "serviceDataQuery.stopPoints".equals(field)
                         || "serviceDataQuery.stopPoints[]".equals(field)
                         || "body.stopPoints[]".equals(field));
+    }
+
+    private boolean isJourneyCancellationRequirementCoveredByScheduledFields(String text, List<String> mappedBy) {
+        if (!isJourneyCancellationRequirementText(text)) {
+            return false;
+        }
+        Set<String> normalizedFields = mappedBy.stream()
+                .map(this::normalizeRequirementCoverageField)
+                .filter(field -> field != null)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean arrivalCovered = normalizedFields.contains("stopPointsJourneyDetails[].arrivalStatuses[].status");
+        boolean departureCovered = normalizedFields.contains("stopPointsJourneyDetails[].departureStatuses[].status");
+        boolean passingTypeCovered = normalizedFields.contains("stopPointsJourneyDetails[].passingType");
+        boolean cancelledCallsCovered = normalizedFields.contains("stopPointsJourneyDetails[].nextCancelledCalls")
+                || normalizedFields.contains("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id")
+                || normalizedFields.contains("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong");
+        return (arrivalCovered || departureCovered || cancelledCallsCovered)
+                && (!isGenericJourneyCancellationRequirementText(text) || (arrivalCovered && departureCovered && passingTypeCovered));
+    }
+
+    private boolean isJourneyCancellationRequirementText(String text) {
+        String normalized = normalizeText(text);
+        boolean cancellation = normalized.contains("soppress")
+                || normalized.contains("cancellat")
+                || normalized.contains("cancellazione")
+                || normalized.contains("cancelled")
+                || normalized.contains("canceled")
+                || normalized.contains("cancellation")
+                || normalized.contains("suppressed");
+        boolean journey = normalized.contains("corsa")
+                || normalized.contains("corse")
+                || normalized.contains("treno")
+                || normalized.contains("treni")
+                || normalized.contains("journey")
+                || normalized.contains("journeys")
+                || normalized.contains("train")
+                || normalized.contains("trains")
+                || normalized.contains("service")
+                || normalized.contains("services");
+        boolean cancelledStop = normalized.contains("fermata")
+                || normalized.contains("stop")
+                || normalized.contains("call");
+        return cancellation && (journey || cancelledStop);
+    }
+
+    private boolean isGenericJourneyCancellationRequirementText(String text) {
+        String normalized = normalizeText(text);
+        boolean cancellation = normalized.contains("soppress")
+                || normalized.contains("cancellat")
+                || normalized.contains("cancelled")
+                || normalized.contains("canceled")
+                || normalized.contains("suppressed");
+        boolean journey = normalized.contains("corsa")
+                || normalized.contains("corse")
+                || normalized.contains("journey")
+                || normalized.contains("journeys")
+                || normalized.contains("train")
+                || normalized.contains("treni");
+        boolean directed = normalized.contains("arrivo")
+                || normalized.contains("arrival")
+                || normalized.contains("partenza")
+                || normalized.contains("departure")
+                || normalized.contains("solo")
+                || normalized.contains("only");
+        boolean cancelledStop = normalized.contains("fermata")
+                || normalized.contains("stop")
+                || normalized.contains("call");
+        return cancellation && journey && !directed && !cancelledStop;
     }
 
     private boolean isMonitoredStopPointRequirementText(String text) {

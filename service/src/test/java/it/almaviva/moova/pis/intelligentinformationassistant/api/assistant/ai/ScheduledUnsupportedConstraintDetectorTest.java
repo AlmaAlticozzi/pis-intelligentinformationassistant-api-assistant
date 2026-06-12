@@ -47,4 +47,11 @@ class ScheduledUnsupportedConstraintDetectorTest {
     void allowsValidDelayPrompt() {
         assertThat(detector.detect("Fammi sapere quanti treni in ritardo a Garibaldi FS")).isEmpty();
     }
+
+    @Test
+    void allowsJourneyLevelSuppressionAndCancellation() {
+        assertThat(detector.detect("Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme")).isEmpty();
+        assertThat(detector.detect("Notify me every 10 minutes how many cancelled journeys are at Gerusalemme")).isEmpty();
+        assertThat(detector.detect("monitor suppressed or cancelled journeys at Gerusalemme")).isEmpty();
+    }
 }

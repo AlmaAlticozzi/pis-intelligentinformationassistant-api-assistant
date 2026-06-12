@@ -35,9 +35,15 @@ public class ScheduledSnapshotEvaluationCanonicalizer {
             snapshotEvaluation.put("condition", canonicalCondition);
             technicalSpecification.put("snapshotEvaluation", snapshotEvaluation);
             normalizedCancellation = true;
-            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][CANCELLATION_NORMALIZATION] action=canonicalized"
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][SUPPRESSION_NORMALIZATION] intent="
+                    + normalizationIntent(constraint)
+                    + " action=canonicalized"
                     + " beforeHash=" + stableHash(before)
                     + " afterHash=" + stableHash(canonicalCondition));
+        } else if (constraint != null && !snapshotEvaluation.isEmpty()) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][SUPPRESSION_NORMALIZATION] intent="
+                    + normalizationIntent(constraint)
+                    + " action=rejected reason=no_cancellation_signal");
         }
 
         Map<String, Object> agentBlueprintPreview = syncBlueprintWithTechnicalSpecification(
@@ -151,6 +157,19 @@ public class ScheduledSnapshotEvaluationCanonicalizer {
         anyElement.put("conditions", journeyCancellationConditions(constraint));
         condition.put("anyElement", anyElement);
         return condition;
+    }
+
+    private String normalizationIntent(ScheduledAlertJourneyCancellationConstraint constraint) {
+        if (constraint == null || constraint.cancellationIntent() == null) {
+            return "UNKNOWN";
+        }
+        return switch (constraint.cancellationIntent()) {
+            case GENERIC_JOURNEY_CANCELLATION -> "GENERIC";
+            case ARRIVAL_JOURNEY_CANCELLATION -> "ARRIVAL";
+            case DEPARTURE_JOURNEY_CANCELLATION -> "DEPARTURE";
+            case ARRIVAL_ONLY_JOURNEY_CANCELLATION -> "ONLY_ARRIVAL";
+            case DEPARTURE_ONLY_JOURNEY_CANCELLATION -> "ONLY_DEPARTURE";
+        };
     }
 
     private Map<String, Object> journeyCancellationConditions(ScheduledAlertJourneyCancellationConstraint constraint) {
