@@ -251,8 +251,25 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentDefinitionDetail getAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId) {
-        System.out.println("getAgentDefinition: " + "agentDefinitionId=" + agentDefinitionId);
-        return new AgentDefinitionDetail();
+        try {
+            return agentDefinitionService.getAgentDefinition(agentDefinitionId);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionGetInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionGetNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_DEFINITION_GET] Unexpected error agentDefinitionId=" + agentDefinitionId
+                    + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionGetUnexpectedError())
+                    .build());
+        }
     }
 
     @GET

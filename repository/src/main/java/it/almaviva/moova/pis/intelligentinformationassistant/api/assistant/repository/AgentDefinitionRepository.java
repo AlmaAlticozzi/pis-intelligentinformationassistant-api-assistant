@@ -39,6 +39,31 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                 .findFirst();
     }
 
+    public Optional<AgentDefinition> findByDefinitionId(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select d
+                        from AgentDefinition d
+                        join fetch d.codAlert
+                        join fetch d.codAgentprofile
+                        join fetch d.sglStatus
+                        join fetch d.sglGenerationmode
+                        join fetch d.sglActivationtype
+                        join fetch d.sglArtifacttype
+                        left join fetch d.sglSignaturestatus
+                        left join fetch d.codLatestcompilation lc
+                        left join fetch lc.sglStatus
+                        left join fetch d.sglLatestcompilationstatus
+                        left join fetch d.codLatestrun lr
+                        left join fetch lr.sglStatus
+                        left join fetch lr.sglHealthstatus
+                        left join fetch lr.sglQualitystatus
+                        where d.codAgentdefinition = :agentDefinitionId
+                        """, AgentDefinition.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultStream()
+                .findFirst();
+    }
+
     @Transactional
     public AgentDefinition create(
             AgentDefinition definition,

@@ -78,6 +78,73 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
+    void getsPersistedEventAgentDefinitionDetail() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        when(definitionRepository.findByDefinitionId("AGDF1"))
+                .thenReturn(Optional.of(persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of())));
+
+        var detail = service.getAgentDefinition(" AGDF1 ");
+
+        assertThat(detail.getId()).isEqualTo("AGDF1");
+        assertThat(detail.getStatus().toString()).isEqualTo("DRAFT");
+        assertThat(detail.getAlert().getId()).isEqualTo(ALERT_ID);
+        assertThat(detail.getAlert().getName()).isEqualTo("Verified alert");
+        assertThat(detail.getProfile().getId()).isEqualTo(PROFILE_ID);
+        assertThat(detail.getInterpreterType().toString()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(detail.getTriggerType()).isEqualTo("EVENT");
+        assertThat(detail.getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(detail.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(detail.getRuntimeContract().getAllowedTools()).isEmpty();
+        assertThat(detail.getCompilation()).isNull();
+        assertThat(detail.getLatestRun()).isNull();
+    }
+
+    @Test
+    void getsPersistedScheduledAgentDefinitionDetail() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        when(definitionRepository.findByDefinitionId("AGDF1"))
+                .thenReturn(Optional.of(persistedDefinition(
+                        scheduledTechnicalSpecification(600, 1),
+                        "ServiceDataStopPointJourneysV2",
+                        List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"))));
+
+        var detail = service.getAgentDefinition("AGDF1");
+
+        assertThat(detail.getInterpreterType().toString()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(detail.getTriggerType()).isEqualTo("SCHEDULE");
+        assertThat(detail.getInputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
+        assertThat(detail.getRuntimeContract().getAllowedTools())
+                .extracting(tool -> tool.getToolName())
+                .containsExactly("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+    }
+
+    @Test
+    void rejectsBlankAgentDefinitionIdOnGet() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+
+        assertThatThrownBy(() -> service.getAgentDefinition(" "))
+                .isInstanceOf(AgentDefinitionInvalidRequestException.class)
+                .extracting(ex -> ((AgentDefinitionInvalidRequestException) ex).source())
+                .isEqualTo("agentDefinitionId");
+        verify(definitionRepository, never()).findByDefinitionId(any());
+    }
+
+    @Test
+    void rejectsMissingAgentDefinitionOnGet() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        when(definitionRepository.findByDefinitionId("AGDF404")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getAgentDefinition("AGDF404"))
+                .isInstanceOf(AgentDefinitionNotFoundException.class)
+                .extracting(ex -> ((AgentDefinitionNotFoundException) ex).source())
+                .isEqualTo("agentDefinitionId");
+    }
+
+    @Test
     void rejectsCompileImmediatelyTrueBeforeLoadingAlert() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
@@ -358,6 +425,75 @@ class AgentDefinitionServiceTest {
     private AgentDefinition created(AgentDefinition definition) {
         definition.setCodAgentdefinition("AGDF1");
         return definition;
+    }
+
+    private AgentDefinition persistedDefinition(
+            Map<String, Object> technicalSpecification,
+            String inputModel,
+            List<String> allowedTools) {
+        AgentDefinition definition = new AgentDefinition();
+        definition.setCodAgentdefinition("AGDF1");
+        definition.setDscName("Agent Definition Test");
+        definition.setDscDescription("Persisted Agent Definition");
+        definition.setCodAlert(verifiedAlert(technicalSpecification));
+        definition.setNumAlertversion(3);
+        definition.setCodAgentprofile(profile(true));
+        definition.setSglStatus(statusRef("DRAFT"));
+        definition.setSglGenerationmode(generationModeRef("AUTO"));
+        definition.setJsnActivationpolicy(Map.of(
+                "type", "CONTINUOUS",
+                "timezone", "Europe/Rome",
+                "validFrom", "2026-06-12T10:00:00+02:00",
+                "validTo", "2026-12-31T23:59:59+01:00"));
+        definition.setSglActivationtype(activationRef("CONTINUOUS"));
+        definition.setJsnBlueprint(Map.of("schemaVersion", "iia.agent.blueprint/v1", "agentName", "Agent Definition Test"));
+        definition.setSglArtifacttype(artifactTypeRef("NONE"));
+        definition.setSglSignaturestatus(signatureRef("NOT_SIGNED"));
+        definition.setDscInputmodel(inputModel);
+        definition.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
+        definition.setJsnAllowedtools(allowedTools.stream().map(Object.class::cast).toList());
+        definition.setDscNetworkpolicy("TOOL_GATEWAY_ONLY");
+        definition.setJsnRuntimecontract(runtimeContract(
+                stringValue(technicalSpecification.get("interpreterType")),
+                stringValue(technicalSpecification.get("triggerType")),
+                inputModel,
+                stringValue(technicalSpecification.get("evaluationMode")),
+                allowedTools));
+        definition.setDtCreatedat(OffsetDateTime.parse("2026-06-12T10:00:00Z"));
+        definition.setDtUpdatedat(OffsetDateTime.parse("2026-06-12T10:01:00Z"));
+        return definition;
+    }
+
+    private Map<String, Object> runtimeContract(
+            String interpreterType,
+            String triggerType,
+            String inputModel,
+            String evaluationMode,
+            List<String> allowedTools) {
+        return Map.of(
+                "runtimeExecutionModel", "STANDARD_DSL_EVALUATOR",
+                "interpreterType", interpreterType,
+                "triggerType", triggerType,
+                "inputModel", inputModel,
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", evaluationMode,
+                "allowedTools", allowedTools.stream()
+                        .map(tool -> Map.of("toolName", tool, "operations", List.of(tool)))
+                        .toList(),
+                "networkPolicy", "TOOL_GATEWAY_ONLY",
+                "forbiddenCapabilities", List.of(
+                        "ARBITRARY_CODE_EXECUTION",
+                        "EXTERNAL_HTTP",
+                        "DB_QUERY",
+                        "FILESYSTEM",
+                        "SHELL"),
+                "orchestratorCompatibility", Map.of(
+                        "minimumRuntimeVersion", "1.0.0",
+                        "runtimeClass", "STANDARD_DSL_RUNTIME"));
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private AgentDefinitionCreateRequest baseRequest(boolean compileImmediately, AgentActivationPolicy policy) {

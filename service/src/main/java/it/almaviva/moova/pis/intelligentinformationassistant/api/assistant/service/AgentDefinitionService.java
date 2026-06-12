@@ -50,6 +50,56 @@ public class AgentDefinitionService {
     AgentDefinitionMapper agentDefinitionMapper;
 
     @Transactional
+    public AgentDefinitionDetail getAgentDefinition(String agentDefinitionId) {
+        if (isBlank(agentDefinitionId)) {
+            throw invalid("agentDefinitionId", "The agentDefinitionId path parameter is empty or contains only whitespace characters.");
+        }
+        String id = agentDefinitionId.trim();
+        System.out.println("[IIA][AGENT_DEFINITION_GET] requested agentDefinitionId=" + id);
+
+        AgentDefinition definition = agentDefinitionRepository.findByDefinitionId(id)
+                .orElseThrow(() -> {
+                    System.out.println("[IIA][AGENT_DEFINITION_GET][LOAD] agentDefinitionId=" + id + " found=false");
+                    return new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found.");
+                });
+
+        Map<String, Object> runtimeContract = mapValue(definition.getJsnRuntimecontract());
+        String interpreterType = firstNonBlank(
+                stringValue(runtimeContract == null ? null : runtimeContract.get("interpreterType")),
+                definition.getCodAlert() == null || definition.getCodAlert().getSglInterpretertype() == null
+                        ? null
+                        : definition.getCodAlert().getSglInterpretertype().getSglInterpretertype());
+        String triggerType = firstNonBlank(
+                stringValue(runtimeContract == null ? null : runtimeContract.get("triggerType")),
+                "EVENT_INTERPRETER".equals(interpreterType)
+                        ? "EVENT"
+                        : "SCHEDULED_INTERPRETER".equals(interpreterType) ? "SCHEDULE" : null);
+
+        System.out.println("[IIA][AGENT_DEFINITION_GET][LOAD] agentDefinitionId=" + id
+                + " found=true"
+                + " status=" + (definition.getSglStatus() == null ? null : definition.getSglStatus().getSglStatus())
+                + " alertId=" + (definition.getCodAlert() == null ? null : definition.getCodAlert().getCodAlert())
+                + " alertVersion=" + definition.getNumAlertversion()
+                + " agentProfileId=" + (definition.getCodAgentprofile() == null ? null : definition.getCodAgentprofile().getCodAgentprofile())
+                + " interpreterType=" + interpreterType
+                + " triggerType=" + triggerType
+                + " inputModel=" + definition.getDscInputmodel()
+                + " outputModel=" + definition.getDscOutputmodel());
+
+        AgentDefinitionDetail detail = agentDefinitionMapper.toDto(definition, interpreterType, triggerType);
+        System.out.println("[IIA][AGENT_DEFINITION_GET][MAP] agentDefinitionId=" + id
+                + " status=" + (detail == null ? null : detail.getStatus())
+                + " alertId=" + (detail == null || detail.getAlert() == null ? null : detail.getAlert().getId())
+                + " alertVersion=" + (detail == null ? null : detail.getAlertVersion())
+                + " agentProfileId=" + (detail == null || detail.getProfile() == null ? null : detail.getProfile().getId())
+                + " interpreterType=" + (detail == null ? null : detail.getInterpreterType())
+                + " triggerType=" + (detail == null ? null : detail.getTriggerType())
+                + " inputModel=" + (detail == null ? null : detail.getInputModel())
+                + " outputModel=" + (detail == null ? null : detail.getOutputModel()));
+        return detail;
+    }
+
+    @Transactional
     public AgentDefinitionDetail createAgentDefinition(AgentDefinitionCreateRequest request) {
         validateBasicRequest(request);
 

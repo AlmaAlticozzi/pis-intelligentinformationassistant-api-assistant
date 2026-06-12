@@ -632,6 +632,28 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while creating the Agent definition.");
     }
 
+    public static Error agentDefinitionGetInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-GET-400-001",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionGetNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-GET-404-001")
+                .title("Agent Definition not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionGetUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-GET-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while reading the Agent Definition.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",
