@@ -10,6 +10,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionNotFoundException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
@@ -579,6 +580,14 @@ public class AssistantV1Api implements IAssistantV1Api {
         };
     }
 
+    private it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.Error agentDefinitionSearchInvalidRequest(
+            AgentDefinitionInvalidRequestException ex) {
+        if ("text".equals(ex.source())) {
+            return AssistantApiErrors.agentDefinitionSearchTextTooLong();
+        }
+        return AssistantApiErrors.agentDefinitionSearchInvalidRequest(ex.source(), ex.getMessage());
+    }
+
     private WebApplicationException alertTechnicalSpecificationRejected(AlertTechnicalSpecificationRejectedException ex) {
         return switch (ex.reason()) {
             case DELETED -> conflict(AssistantApiErrors.alertTechnicalSpecificationGetDeletedAlert());
@@ -636,8 +645,25 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentDefinitionListResponse searchAgentDefinitions(@QueryParam("status") AgentDefinitionStatus status, @QueryParam("alertId") @Size(max=50) String alertId, @QueryParam("generationMode") AgentGenerationMode generationMode, @QueryParam("profileId") @Size(max=50) String profileId, @QueryParam("text") @Size(max=200) String text) {
-        System.out.println("searchAgentDefinitions: " + "status=" + status + ", " + "alertId=" + alertId + ", " + "generationMode=" + generationMode + ", " + "profileId=" + profileId + ", " + "text=" + text);
-        return new AgentDefinitionListResponse();
+        try {
+            return agentDefinitionService.searchAgentDefinitions(new AgentDefinitionSearchCriteria(
+                    status,
+                    alertId,
+                    generationMode,
+                    profileId,
+                    text));
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(agentDefinitionSearchInvalidRequest(ex))
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_DEFINITION_SEARCH] Unexpected error error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionSearchUnexpectedError())
+                    .build());
+        }
     }
 
     @GET

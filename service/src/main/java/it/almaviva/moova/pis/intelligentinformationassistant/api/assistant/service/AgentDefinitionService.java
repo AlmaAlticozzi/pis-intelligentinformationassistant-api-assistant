@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionListResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentProfile;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
@@ -63,18 +64,7 @@ public class AgentDefinitionService {
                     return new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found.");
                 });
 
-        Map<String, Object> runtimeContract = mapValue(definition.getJsnRuntimecontract());
-        String interpreterType = firstNonBlank(
-                stringValue(runtimeContract == null ? null : runtimeContract.get("interpreterType")),
-                definition.getCodAlert() == null || definition.getCodAlert().getSglInterpretertype() == null
-                        ? null
-                        : definition.getCodAlert().getSglInterpretertype().getSglInterpretertype(),
-                interpreterTypeFromInputModel(definition.getDscInputmodel()));
-        String triggerType = firstNonBlank(
-                stringValue(runtimeContract == null ? null : runtimeContract.get("triggerType")),
-                "EVENT_INTERPRETER".equals(interpreterType)
-                        ? "EVENT"
-                        : "SCHEDULED_INTERPRETER".equals(interpreterType) ? "SCHEDULE" : null);
+        RuntimeShape runtimeShape = runtimeShape(definition);
 
         System.out.println("[IIA][AGENT_DEFINITION_GET][LOAD] agentDefinitionId=" + id
                 + " found=true"
@@ -82,12 +72,12 @@ public class AgentDefinitionService {
                 + " alertId=" + (definition.getCodAlert() == null ? null : definition.getCodAlert().getCodAlert())
                 + " alertVersion=" + definition.getNumAlertversion()
                 + " agentProfileId=" + (definition.getCodAgentprofile() == null ? null : definition.getCodAgentprofile().getCodAgentprofile())
-                + " interpreterType=" + interpreterType
-                + " triggerType=" + triggerType
+                + " interpreterType=" + runtimeShape.interpreterType()
+                + " triggerType=" + runtimeShape.triggerType()
                 + " inputModel=" + definition.getDscInputmodel()
                 + " outputModel=" + definition.getDscOutputmodel());
 
-        AgentDefinitionDetail detail = agentDefinitionMapper.toDto(definition, interpreterType, triggerType);
+        AgentDefinitionDetail detail = agentDefinitionMapper.toDto(definition, runtimeShape.interpreterType(), runtimeShape.triggerType());
         System.out.println("[IIA][AGENT_DEFINITION_GET][MAP] agentDefinitionId=" + id
                 + " status=" + (detail == null ? null : detail.getStatus())
                 + " alertId=" + (detail == null || detail.getAlert() == null ? null : detail.getAlert().getId())
@@ -98,6 +88,39 @@ public class AgentDefinitionService {
                 + " inputModel=" + (detail == null ? null : detail.getInputModel())
                 + " outputModel=" + (detail == null ? null : detail.getOutputModel()));
         return detail;
+    }
+
+    @Transactional
+    public AgentDefinitionListResponse searchAgentDefinitions(AgentDefinitionSearchCriteria criteria) {
+        AgentDefinitionSearchCriteria normalized = normalizeSearchCriteria(criteria);
+        System.out.println("[IIA][AGENT_DEFINITION_SEARCH] requested");
+        System.out.println("[IIA][AGENT_DEFINITION_SEARCH][CRITERIA] status=" + normalized.status()
+                + " alertId=" + normalized.alertId()
+                + " generationMode=" + normalized.generationMode()
+                + " profileId=" + normalized.profileId()
+                + " textPresent=" + (normalized.text() != null));
+
+        List<AgentDefinition> definitions = agentDefinitionRepository.search(
+                normalized.status() == null ? null : normalized.status().toString(),
+                normalized.alertId(),
+                normalized.generationMode() == null ? null : normalized.generationMode().toString(),
+                normalized.profileId(),
+                normalized.text());
+
+        var items = definitions.stream()
+                .map(definition -> {
+                    RuntimeShape runtimeShape = runtimeShape(definition);
+                    return agentDefinitionMapper.toSummary(definition, runtimeShape.interpreterType(), runtimeShape.triggerType());
+                })
+                .toList();
+
+        System.out.println("[IIA][AGENT_DEFINITION_SEARCH][RESULT] status=" + normalized.status()
+                + " alertId=" + normalized.alertId()
+                + " generationMode=" + normalized.generationMode()
+                + " profileId=" + normalized.profileId()
+                + " textPresent=" + (normalized.text() != null)
+                + " resultCount=" + items.size());
+        return new AgentDefinitionListResponse().items(items);
     }
 
     @Transactional
@@ -217,6 +240,35 @@ public class AgentDefinitionService {
         if (request.getActivationPolicy() == null) {
             throw invalid("activationPolicy", "The activationPolicy field is required.");
         }
+    }
+
+    private AgentDefinitionSearchCriteria normalizeSearchCriteria(AgentDefinitionSearchCriteria criteria) {
+        if (criteria == null) {
+            return new AgentDefinitionSearchCriteria(null, null, null, null, null);
+        }
+        String alertId = optionalTrimmed(criteria.alertId(), "alertId", 50);
+        String profileId = optionalTrimmed(criteria.profileId(), "profileId", 50);
+        String text = optionalTrimmed(criteria.text(), "text", 200);
+        return new AgentDefinitionSearchCriteria(
+                criteria.status(),
+                alertId,
+                criteria.generationMode(),
+                profileId,
+                text);
+    }
+
+    private String optionalTrimmed(String value, String source, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.length() > maxLength) {
+            throw invalid(source, source + " must not exceed " + maxLength + " characters.");
+        }
+        return trimmed;
     }
 
     private void validateAlert(Alert alert, Integer requestedAlertVersion) {
@@ -505,6 +557,25 @@ public class AgentDefinitionService {
             return second.trim();
         }
         return third;
+    }
+
+    private RuntimeShape runtimeShape(AgentDefinition definition) {
+        Map<String, Object> runtimeContract = mapValue(definition.getJsnRuntimecontract());
+        String interpreterType = firstNonBlank(
+                stringValue(runtimeContract == null ? null : runtimeContract.get("interpreterType")),
+                definition.getCodAlert() == null || definition.getCodAlert().getSglInterpretertype() == null
+                        ? null
+                        : definition.getCodAlert().getSglInterpretertype().getSglInterpretertype(),
+                interpreterTypeFromInputModel(definition.getDscInputmodel()));
+        String triggerType = firstNonBlank(
+                stringValue(runtimeContract == null ? null : runtimeContract.get("triggerType")),
+                "EVENT_INTERPRETER".equals(interpreterType)
+                        ? "EVENT"
+                        : "SCHEDULED_INTERPRETER".equals(interpreterType) ? "SCHEDULE" : null);
+        return new RuntimeShape(interpreterType, triggerType);
+    }
+
+    private record RuntimeShape(String interpreterType, String triggerType) {
     }
 
     private record TechnicalContract(

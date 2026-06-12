@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDailyWindowActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
@@ -91,6 +92,28 @@ class AgentDefinitionMapperTest {
         assertThat(activationPolicy.get("daysOfWeek")).hasSize(2);
         assertThat(activationPolicy.has("validFrom")).isFalse();
         assertThat(activationPolicy.has("validTo")).isFalse();
+    }
+
+    @Test
+    void serializesSummaryActivationPoliciesWithSingleTypeAndOnlyBranchFields() throws Exception {
+        AgentDefinitionSummary continuous = mapper().toSummary(definition(continuousActivationPolicy()), "EVENT_INTERPRETER", "EVENT");
+        AgentDefinitionSummary dailyWindow = mapper().toSummary(definition(dailyWindowActivationPolicy()), "SCHEDULED_INTERPRETER", "SCHEDULE");
+
+        JsonNode continuousPolicy = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(continuous)).get("activationPolicy");
+        JsonNode dailyWindowPolicy = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(dailyWindow)).get("activationPolicy");
+
+        assertThat(countOccurrences(continuousPolicy.toString(), "\"type\"")).isEqualTo(1);
+        assertThat(continuousPolicy.get("type").asText()).isEqualTo("CONTINUOUS");
+        assertThat(continuousPolicy.hasNonNull("validFrom")).isTrue();
+        assertThat(continuousPolicy.hasNonNull("validTo")).isTrue();
+        assertThat(continuousPolicy.has("dailyStartTime")).isFalse();
+        assertThat(continuousPolicy.has("dailyEndTime")).isFalse();
+        assertThat(countOccurrences(dailyWindowPolicy.toString(), "\"type\"")).isEqualTo(1);
+        assertThat(dailyWindowPolicy.get("type").asText()).isEqualTo("DAILY_WINDOW");
+        assertThat(dailyWindowPolicy.hasNonNull("validFromDate")).isTrue();
+        assertThat(dailyWindowPolicy.get("dailyStartTime").asText()).isEqualTo("07:00:00");
+        assertThat(dailyWindowPolicy.has("validFrom")).isFalse();
+        assertThat(dailyWindowPolicy.has("validTo")).isFalse();
     }
 
     @Test

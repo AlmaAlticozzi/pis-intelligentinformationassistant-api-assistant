@@ -64,6 +64,73 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                 .findFirst();
     }
 
+    public List<AgentDefinition> search(
+            String status,
+            String alertId,
+            String generationMode,
+            String profileId,
+            String text) {
+        StringBuilder jpql = new StringBuilder("""
+                select distinct d
+                from AgentDefinition d
+                join fetch d.codAlert
+                join fetch d.codAgentprofile
+                join fetch d.sglStatus
+                join fetch d.sglGenerationmode
+                join fetch d.sglActivationtype
+                join fetch d.sglArtifacttype
+                left join fetch d.sglSignaturestatus
+                left join fetch d.codLatestcompilation lc
+                left join fetch lc.sglStatus
+                left join fetch d.sglLatestcompilationstatus
+                left join fetch d.codLatestrun lr
+                left join fetch lr.sglStatus
+                left join fetch lr.sglHealthstatus
+                left join fetch lr.sglQualitystatus
+                where 1 = 1
+                """);
+        if (status != null) {
+            jpql.append(" and d.sglStatus.sglStatus = :status");
+        }
+        if (alertId != null) {
+            jpql.append(" and d.codAlert.codAlert = :alertId");
+        }
+        if (generationMode != null) {
+            jpql.append(" and d.sglGenerationmode.sglGenerationmode = :generationMode");
+        }
+        if (profileId != null) {
+            jpql.append(" and d.codAgentprofile.codAgentprofile = :profileId");
+        }
+        if (text != null) {
+            jpql.append("""
+                     and (
+                        lower(d.dscName) like :textPattern
+                        or lower(coalesce(d.dscDescription, '')) like :textPattern
+                        or lower(d.codAlert.dscName) like :textPattern
+                     )
+                    """);
+        }
+        jpql.append(" order by d.dtCreatedat desc, d.codAgentdefinition desc");
+
+        var query = entityManager.createQuery(jpql.toString(), AgentDefinition.class);
+        if (status != null) {
+            query.setParameter("status", status);
+        }
+        if (alertId != null) {
+            query.setParameter("alertId", alertId);
+        }
+        if (generationMode != null) {
+            query.setParameter("generationMode", generationMode);
+        }
+        if (profileId != null) {
+            query.setParameter("profileId", profileId);
+        }
+        if (text != null) {
+            query.setParameter("textPattern", "%" + text.toLowerCase() + "%");
+        }
+        return query.getResultList();
+    }
+
     @Transactional
     public AgentDefinition create(
             AgentDefinition definition,

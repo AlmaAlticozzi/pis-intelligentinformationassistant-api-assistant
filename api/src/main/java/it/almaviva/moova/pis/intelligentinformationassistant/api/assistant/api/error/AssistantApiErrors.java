@@ -654,6 +654,41 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while reading the Agent Definition.");
     }
 
+    public static Error agentDefinitionSearchInvalidStatus() {
+        return invalidParameter(
+                "IIA-AGD-SEA-400-001",
+                "status",
+                "The status query parameter is not a valid Agent Definition status.");
+    }
+
+    public static Error agentDefinitionSearchInvalidGenerationMode() {
+        return invalidParameter(
+                "IIA-AGD-SEA-400-002",
+                "generationMode",
+                "The generationMode query parameter is not a valid Agent generation mode.");
+    }
+
+    public static Error agentDefinitionSearchTextTooLong() {
+        return invalidParameter(
+                "IIA-AGD-SEA-400-003",
+                "text",
+                "The text query parameter must not exceed 200 characters.");
+    }
+
+    public static Error agentDefinitionSearchInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-SEA-400-004",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionSearchUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-SEA-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while searching Agent Definitions.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",

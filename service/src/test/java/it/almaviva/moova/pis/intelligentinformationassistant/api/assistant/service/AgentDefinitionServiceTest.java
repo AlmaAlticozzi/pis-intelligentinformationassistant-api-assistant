@@ -157,6 +157,62 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
+    void searchesPersistedEventAndScheduledAgentDefinitions() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition eventDefinition = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        AgentDefinition scheduledDefinition = persistedDefinition(
+                scheduledTechnicalSpecification(600, 1),
+                "ServiceDataStopPointJourneysV2",
+                List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"));
+        scheduledDefinition.setCodAgentdefinition("AGDF2");
+        scheduledDefinition.setDscName("Scheduled Agent Definition Test");
+        scheduledDefinition.setSglGenerationmode(generationModeRef("DSL"));
+        when(definitionRepository.search("DRAFT", ALERT_ID, "DSL", PROFILE_ID, "Gerusalemme"))
+                .thenReturn(List.of(scheduledDefinition, eventDefinition));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionStatus.DRAFT,
+                " " + ALERT_ID + " ",
+                AgentGenerationMode.DSL,
+                " " + PROFILE_ID + " ",
+                " Gerusalemme "));
+
+        assertThat(response.getItems()).hasSize(2);
+        assertThat(response.getItems().get(0).getId()).isEqualTo("AGDF2");
+        assertThat(response.getItems().get(0).getGenerationMode().toString()).isEqualTo("DSL");
+        assertThat(response.getItems().get(0).getInterpreterType().toString()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(response.getItems().get(0).getTriggerType()).isEqualTo("SCHEDULE");
+        assertThat(response.getItems().get(0).getInputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
+        assertThat(response.getItems().get(1).getInterpreterType().toString()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(response.getItems().get(1).getTriggerType()).isEqualTo("EVENT");
+        verify(definitionRepository).search("DRAFT", ALERT_ID, "DSL", PROFILE_ID, "Gerusalemme");
+    }
+
+    @Test
+    void treatsBlankSearchFiltersAsAbsent() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        when(definitionRepository.search(null, null, null, null, null)).thenReturn(List.of());
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, " ", null, "\t", " "));
+
+        assertThat(response.getItems()).isEmpty();
+        verify(definitionRepository).search(null, null, null, null, null);
+    }
+
+    @Test
+    void rejectsSearchTextLongerThanContractLimit() {
+        AgentDefinitionService service = service(mock(AgentDefinitionRepository.class), mock(AgentProfileRepository.class));
+        String tooLong = "x".repeat(201);
+
+        assertThatThrownBy(() -> service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, null, null, null, tooLong)))
+                .isInstanceOf(AgentDefinitionInvalidRequestException.class)
+                .extracting(ex -> ((AgentDefinitionInvalidRequestException) ex).source())
+                .isEqualTo("text");
+    }
+
+    @Test
     void rejectsBlankAgentDefinitionIdOnGet() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));

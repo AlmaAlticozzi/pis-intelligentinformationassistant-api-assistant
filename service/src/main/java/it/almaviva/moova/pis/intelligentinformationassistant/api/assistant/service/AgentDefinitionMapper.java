@@ -8,7 +8,9 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatusResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentHealthStatus;
@@ -69,6 +71,36 @@ public class AgentDefinitionMapper {
                 .outputModel(entity.getDscOutputmodel());
     }
 
+    public AgentDefinitionSummary toSummary(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity,
+            String interpreterType,
+            String triggerType) {
+        if (entity == null) {
+            return null;
+        }
+
+        return new AgentDefinitionSummary()
+                .id(entity.getCodAgentdefinition())
+                .name(entity.getDscName())
+                .description(entity.getDscDescription())
+                .status(entity.getSglStatus() == null ? null : AgentDefinitionStatus.fromString(entity.getSglStatus().getSglStatus()))
+                .alert(new AlertReference()
+                        .id(entity.getCodAlert().getCodAlert())
+                        .name(entity.getCodAlert().getDscName()))
+                .alertVersion(entity.getNumAlertversion())
+                .profile(agentProfileMapper.toDto(entity.getCodAgentprofile()))
+                .generationMode(entity.getSglGenerationmode() == null ? null : AgentGenerationMode.fromString(entity.getSglGenerationmode().getSglGenerationmode()))
+                .activationPolicy(convert(entity.getJsnActivationpolicy(), AgentActivationPolicy.class))
+                .compilation(toCompilationSummary(entity))
+                .latestRun(toLatestRun(entity))
+                .createdAt(entity.getDtCreatedat())
+                .updatedAt(entity.getDtUpdatedat())
+                .interpreterType(interpreterType == null ? null : AlertInterpreterType.fromString(interpreterType))
+                .triggerType(triggerType)
+                .inputModel(entity.getDscInputmodel())
+                .outputModel(entity.getDscOutputmodel());
+    }
+
     public Map<String, Object> toMap(Object value) {
         return OBJECT_MAPPER.convertValue(value, MAP_TYPE);
     }
@@ -108,6 +140,19 @@ public class AgentDefinitionMapper {
             }
         }
         return response;
+    }
+
+    private AgentCompilationSummary toCompilationSummary(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
+        var compilation = entity.getCodLatestcompilation();
+        var statusRef = compilation == null ? entity.getSglLatestcompilationstatus() : compilation.getSglStatus();
+        if (compilation == null && statusRef == null) {
+            return null;
+        }
+        return new AgentCompilationSummary()
+                .status(statusRef == null ? null : AgentCompilationStatus.fromString(statusRef.getSglStatus()))
+                .currentStep(compilation == null ? entity.getDscLatestcompilationstep() : compilation.getDscCurrentstep())
+                .completedAt(compilation == null ? entity.getDtLatestcompilationcompletedat() : compilation.getDtCompletedat());
     }
 
     private AgentRuntimeContract toRuntimeContract(
