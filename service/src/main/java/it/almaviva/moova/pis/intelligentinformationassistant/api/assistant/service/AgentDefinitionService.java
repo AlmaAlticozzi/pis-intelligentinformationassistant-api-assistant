@@ -76,6 +76,8 @@ public class AgentDefinitionService {
                     "JAVA_TEMPLATE generation mode is not supported in this MVP.");
         }
 
+        validateActivationPolicy(request.getActivationPolicy());
+
         Alert alert = agentDefinitionRepository.findAlert(alertId)
                 .orElseThrow(() -> new AgentDefinitionNotFoundException("alertId", "Alert not found."));
         validateAlert(alert, requestedAlertVersion);
@@ -93,8 +95,6 @@ public class AgentDefinitionService {
             throw rejected(AgentDefinitionCreateRejectedException.Reason.PROFILE_DISABLED,
                     "The selected Agent Profile is disabled.");
         }
-
-        validateActivationPolicy(request.getActivationPolicy());
 
         String networkPolicy = isBlank(profile.getNetworkPolicy()) ? "TOOL_GATEWAY_ONLY" : profile.getNetworkPolicy();
         List<String> allowedToolNames = contract.isScheduled() ? List.of(SCHEDULED_TOOL) : List.of();

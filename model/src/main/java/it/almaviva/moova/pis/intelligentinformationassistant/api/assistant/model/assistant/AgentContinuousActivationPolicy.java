@@ -74,12 +74,11 @@ public class AgentContinuousActivationPolicy extends AgentActivationPolicy  {
   public AgentContinuousActivationPolicy() {
   }
 
-  @JsonCreator
   public AgentContinuousActivationPolicy(
-    @JsonProperty(required = true, value = "type") AgentActivationPolicy.TypeEnum type,
-    @JsonProperty(required = true, value = "timezone") String timezone,
-    @JsonProperty(required = true, value = "validFrom") OffsetDateTime validFrom,
-    @JsonProperty(required = true, value = "validTo") OffsetDateTime validTo
+    AgentActivationPolicy.TypeEnum type,
+    String timezone,
+    OffsetDateTime validFrom,
+    OffsetDateTime validTo
   ) {
     super.setType(AgentActivationPolicy.TypeEnum.CONTINUOUS);
     super.setTimezone(timezone);

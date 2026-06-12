@@ -81,14 +81,13 @@ public class AgentDailyWindowActivationPolicy extends AgentActivationPolicy  {
   public AgentDailyWindowActivationPolicy() {
   }
 
-  @JsonCreator
   public AgentDailyWindowActivationPolicy(
-    @JsonProperty(required = true, value = "type") AgentActivationPolicy.TypeEnum type,
-    @JsonProperty(required = true, value = "timezone") String timezone,
-    @JsonProperty(required = true, value = "validFromDate") LocalDate validFromDate,
-    @JsonProperty(required = true, value = "validToDate") LocalDate validToDate,
-    @JsonProperty(required = true, value = "dailyStartTime") String dailyStartTime,
-    @JsonProperty(required = true, value = "dailyEndTime") String dailyEndTime
+    AgentActivationPolicy.TypeEnum type,
+    String timezone,
+    LocalDate validFromDate,
+    LocalDate validToDate,
+    String dailyStartTime,
+    String dailyEndTime
   ) {
     super.setType(AgentActivationPolicy.TypeEnum.DAILY_WINDOW);
     super.setTimezone(timezone);

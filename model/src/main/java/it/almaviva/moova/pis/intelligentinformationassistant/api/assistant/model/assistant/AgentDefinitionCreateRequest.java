@@ -149,7 +149,7 @@ public class AgentDefinitionCreateRequest   {
   
   @ApiModelProperty(required = true, value = "")
   @JsonProperty(required = true, value = "activationPolicy")
-  @NotNull @Valid public AgentActivationPolicy getActivationPolicy() {
+  @NotNull public AgentActivationPolicy getActivationPolicy() {
     return activationPolicy;
   }
 

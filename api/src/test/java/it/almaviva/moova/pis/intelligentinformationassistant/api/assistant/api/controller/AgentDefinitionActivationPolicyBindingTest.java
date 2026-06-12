@@ -6,13 +6,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DayOfWeek;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionService;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import jakarta.ws.rs.WebApplicationException;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +25,7 @@ import static org.mockito.Mockito.when;
 class AgentDefinitionActivationPolicyBindingTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final Validator VALIDATOR = Validation.buildDefaultValidatorFactory().getValidator();
     private static final String COMPILATION_NOT_IMPLEMENTED =
             "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
 
@@ -38,6 +41,16 @@ class AgentDefinitionActivationPolicyBindingTest {
     }
 
     @Test
+    void beanValidationDoesNotCascadeIntoDailyWindowFieldsForContinuousPolicy() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(continuousRequestJson(), AgentDefinitionCreateRequest.class);
+
+        assertThat(VALIDATOR.validate(request))
+                .noneMatch(violation -> violation.getPropertyPath().toString().contains("validFromDate"))
+                .noneMatch(violation -> violation.getPropertyPath().toString().contains("dailyStartTime"))
+                .noneMatch(violation -> violation.getPropertyPath().toString().contains("dailyEndTime"));
+    }
+
+    @Test
     void deserializesDailyWindowActivationPolicy() throws Exception {
         AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(dailyWindowRequestJson(), AgentDefinitionCreateRequest.class);
 
@@ -49,6 +62,15 @@ class AgentDefinitionActivationPolicyBindingTest {
         assertThat(policy.getDailyStartTime()).isEqualTo("07:00:00");
         assertThat(policy.getDailyEndTime()).isEqualTo("10:30:00");
         assertThat(policy.getDaysOfWeek()).containsExactly(DayOfWeek.MONDAY, DayOfWeek.TUESDAY);
+    }
+
+    @Test
+    void beanValidationDoesNotCascadeIntoContinuousFieldsForDailyWindowPolicy() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(dailyWindowRequestJson(), AgentDefinitionCreateRequest.class);
+
+        assertThat(VALIDATOR.validate(request))
+                .noneMatch(violation -> violation.getPropertyPath().toString().contains("validFrom"))
+                .noneMatch(violation -> violation.getPropertyPath().toString().contains("validTo"));
     }
 
     @Test
@@ -79,6 +101,36 @@ class AgentDefinitionActivationPolicyBindingTest {
                 });
     }
 
+    @Test
+    void createEndpointReturns400ApplicationErrorForContinuousMissingValidToWhenCompileFalse() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(continuousMissingValidToRequestJson(), AgentDefinitionCreateRequest.class);
+        AssistantV1Api api = apiWithRealServiceValidation();
+
+        assertThatThrownBy(() -> api.createAgentDefinition(request))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> {
+                    WebApplicationException webException = (WebApplicationException) ex;
+                    assertThat(webException.getResponse().getStatus()).isEqualTo(400);
+                    assertThat(webException.getResponse().getEntity().toString())
+                            .contains("CONTINUOUS activation policy requires validFrom, validTo and validTo > validFrom.");
+                });
+    }
+
+    @Test
+    void createEndpointReturns400ApplicationErrorForDailyWindowMissingDailyStartTimeWhenCompileFalse() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(dailyWindowMissingDailyStartTimeRequestJson(), AgentDefinitionCreateRequest.class);
+        AssistantV1Api api = apiWithRealServiceValidation();
+
+        assertThatThrownBy(() -> api.createAgentDefinition(request))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> {
+                    WebApplicationException webException = (WebApplicationException) ex;
+                    assertThat(webException.getResponse().getStatus()).isEqualTo(400);
+                    assertThat(webException.getResponse().getEntity().toString())
+                            .contains("A local time is required.");
+                });
+    }
+
     private AssistantV1Api apiRejectingCompilation(AgentDefinitionCreateRequest expectedRequest) {
         AgentDefinitionService service = mock(AgentDefinitionService.class);
         when(service.createAgentDefinition(argThat(actual -> actual == expectedRequest
@@ -89,6 +141,12 @@ class AgentDefinitionActivationPolicyBindingTest {
 
         AssistantV1Api api = new AssistantV1Api();
         api.agentDefinitionService = service;
+        return api;
+    }
+
+    private AssistantV1Api apiWithRealServiceValidation() {
+        AssistantV1Api api = new AssistantV1Api();
+        api.agentDefinitionService = new AgentDefinitionService();
         return api;
     }
 
@@ -126,6 +184,40 @@ class AgentDefinitionActivationPolicyBindingTest {
                     "dailyStartTime": "07:00:00",
                     "dailyEndTime": "10:30:00",
                     "daysOfWeek": ["MONDAY", "TUESDAY"]
+                  }
+                }
+                """;
+    }
+
+    private String continuousMissingValidToRequestJson() {
+        return """
+                {
+                  "alertId": "ALRTA2EEB011D1C44877A51DE91E234929AB",
+                  "agentProfileId": "MEDIUM",
+                  "generationMode": "AUTO",
+                  "compileImmediately": false,
+                  "activationPolicy": {
+                    "type": "CONTINUOUS",
+                    "timezone": "Europe/Rome",
+                    "validFrom": "2026-06-12T10:00:00+02:00"
+                  }
+                }
+                """;
+    }
+
+    private String dailyWindowMissingDailyStartTimeRequestJson() {
+        return """
+                {
+                  "alertId": "ALRTA2EEB011D1C44877A51DE91E234929AB",
+                  "agentProfileId": "MEDIUM",
+                  "generationMode": "AUTO",
+                  "compileImmediately": false,
+                  "activationPolicy": {
+                    "type": "DAILY_WINDOW",
+                    "timezone": "Europe/Rome",
+                    "validFromDate": "2026-06-12",
+                    "validToDate": "2026-12-31",
+                    "dailyEndTime": "10:30:00"
                   }
                 }
                 """;
