@@ -596,6 +596,42 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while reading the Agent profile.");
     }
 
+    public static Error agentDefinitionCreateInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-CRE-400-003",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionCreateNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-CRE-404-001")
+                .title("Referenced resource not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionCreateConflict(String detail) {
+        return new Error()
+                .code("IIA-AGD-CRE-409-001")
+                .title("Agent Definition creation rejected")
+                .detail(detail);
+    }
+
+    public static Error agentDefinitionCreateUnprocessable(String detail) {
+        return new Error()
+                .code("IIA-AGD-CRE-422-001")
+                .title("Agent Definition cannot be created")
+                .detail(detail);
+    }
+
+    public static Error agentDefinitionCreateUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-CRE-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while creating the Agent definition.");
+    }
+
     public static Error textImproveMissingBody() {
         return invalidParameter(
                 "IIA-UTL-TXI-400-001",

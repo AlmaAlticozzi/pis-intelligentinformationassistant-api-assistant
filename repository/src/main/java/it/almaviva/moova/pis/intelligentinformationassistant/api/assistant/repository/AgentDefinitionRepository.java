@@ -1,0 +1,116 @@
+package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository;
+
+import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentComplexity;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionAllowedTool;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionAllowedToolId;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionDayOfWeek;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionDayOfWeekId;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionRequiredSource;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionRequiredSourceId;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentGenerationMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.DataSourceCategory;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.DayOfWeek;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+@ApplicationScoped
+public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDefinition, String> {
+
+    @Inject
+    EntityManager entityManager;
+
+    public Optional<Alert> findAlert(String alertId) {
+        return entityManager.createQuery("from Alert where codAlert = :alertId", Alert.class)
+                .setParameter("alertId", alertId)
+                .getResultStream()
+                .findFirst();
+    }
+
+    @Transactional
+    public AgentDefinition create(
+            AgentDefinition definition,
+            List<String> requiredSources,
+            List<String> dayOfWeekValues,
+            List<String> allowedToolNames) {
+        persist(definition);
+        flush();
+
+        for (String requiredSource : requiredSources) {
+            AgentDefinitionRequiredSourceId id = new AgentDefinitionRequiredSourceId();
+            id.setCodAgentdefinition(definition.getCodAgentdefinition());
+            id.setSglCategory(requiredSource);
+
+            AgentDefinitionRequiredSource source = new AgentDefinitionRequiredSource();
+            source.setId(id);
+            source.setCodAgentdefinition(definition);
+            source.setSglCategory(entityManager.getReference(DataSourceCategory.class, requiredSource));
+            source.setFlgRequired(true);
+            source.setDscDescription("Required by Agent Definition technical specification.");
+            entityManager.persist(source);
+        }
+
+        for (String day : dayOfWeekValues) {
+            AgentDefinitionDayOfWeekId id = new AgentDefinitionDayOfWeekId();
+            id.setCodAgentdefinition(definition.getCodAgentdefinition());
+            id.setSglDayofweek(day);
+
+            AgentDefinitionDayOfWeek rel = new AgentDefinitionDayOfWeek();
+            rel.setId(id);
+            rel.setCodAgentdefinition(definition);
+            rel.setSglDayofweek(entityManager.getReference(DayOfWeek.class, day));
+            entityManager.persist(rel);
+        }
+
+        for (String toolName : allowedToolNames) {
+            AgentDefinitionAllowedToolId id = new AgentDefinitionAllowedToolId();
+            id.setCodAgentdefinition(definition.getCodAgentdefinition());
+            id.setDscToolname(toolName);
+
+            AgentDefinitionAllowedTool tool = new AgentDefinitionAllowedTool();
+            tool.setId(id);
+            tool.setCodAgentdefinition(definition);
+            tool.setJsnOperations(Map.of("operations", List.of(toolName)));
+            entityManager.persist(tool);
+        }
+
+        flush();
+        return definition;
+    }
+
+    public AgentDefinitionStatus statusReference(String status) {
+        return entityManager.getReference(AgentDefinitionStatus.class, status);
+    }
+
+    public AgentGenerationMode generationModeReference(String generationMode) {
+        return entityManager.getReference(AgentGenerationMode.class, generationMode);
+    }
+
+    public AgentActivationType activationTypeReference(String activationType) {
+        return entityManager.getReference(AgentActivationType.class, activationType);
+    }
+
+    public AgentArtifactType artifactTypeReference(String artifactType) {
+        return entityManager.getReference(AgentArtifactType.class, artifactType);
+    }
+
+    public AgentArtifactSignatureStatus signatureStatusReference(String signatureStatus) {
+        return entityManager.getReference(AgentArtifactSignatureStatus.class, signatureStatus);
+    }
+
+    public AgentComplexity complexityReference(String complexity) {
+        return entityManager.getReference(AgentComplexity.class, complexity);
+    }
+}

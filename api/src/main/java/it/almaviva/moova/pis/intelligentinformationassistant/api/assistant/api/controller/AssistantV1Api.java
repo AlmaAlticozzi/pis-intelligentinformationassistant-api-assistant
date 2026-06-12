@@ -7,6 +7,10 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertAgentGenerationPreviewRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionNotFoundException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
@@ -33,6 +37,9 @@ public class AssistantV1Api implements IAssistantV1Api {
 
     @Inject
     AgentProfileService agentProfileService;
+
+    @Inject
+    AgentDefinitionService agentDefinitionService;
 
     @Inject
     TextImproveUseCase textImproveUseCase;
@@ -83,8 +90,26 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentDefinitionDetail createAgentDefinition(@Valid @NotNull AgentDefinitionCreateRequest agentDefinitionCreateRequest) {
-        System.out.println("createAgentDefinition: " + "agentDefinitionCreateRequest=" + agentDefinitionCreateRequest);
-        return new AgentDefinitionDetail();
+        try {
+            return agentDefinitionService.createAgentDefinition(agentDefinitionCreateRequest);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionCreateInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionCreateNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionCreateRejectedException ex) {
+            throw agentDefinitionCreateRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_DEFINITION_CREATE] Unexpected error error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionCreateUnexpectedError())
+                    .build());
+        }
     }
 
     @POST
@@ -514,6 +539,20 @@ public class AssistantV1Api implements IAssistantV1Api {
             case INVALID_BLUEPRINT -> new WebApplicationException(
                     Response.status(422)
                             .entity(AssistantApiErrors.alertAgentGenerationPreviewInvalidBlueprint())
+                            .build());
+        };
+    }
+
+    private WebApplicationException agentDefinitionCreateRejected(AgentDefinitionCreateRejectedException ex) {
+        return switch (ex.reason()) {
+            case COMPILATION_NOT_IMPLEMENTED, ALERT_DELETED, ALERT_NOT_VERIFIED, ALERT_VERSION_MISMATCH ->
+                    new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                            .entity(AssistantApiErrors.agentDefinitionCreateConflict(ex.getMessage()))
+                            .build());
+            case MISSING_TECHNICAL_SPECIFICATION, UNSUPPORTED_TECHNICAL_SPECIFICATION, PROFILE_DISABLED,
+                 UNSUPPORTED_GENERATION_MODE, SCHEDULE_TOO_AGGRESSIVE, TOO_MANY_STOP_POINTS ->
+                    new WebApplicationException(Response.status(422)
+                            .entity(AssistantApiErrors.agentDefinitionCreateUnprocessable(ex.getMessage()))
                             .build());
         };
     }
