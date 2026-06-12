@@ -1,5 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
@@ -19,6 +21,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AgentDefinitionMapperTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
     @Test
     void mapsAgentDefinitionDetailContractAndReferences() {
@@ -46,7 +50,62 @@ class AgentDefinitionMapperTest {
         assertThat(detail.getAlertVersion()).isEqualTo(3);
     }
 
+    @Test
+    void serializesContinuousActivationPolicyWithSingleTypeAndOnlyContinuousFields() throws Exception {
+        AgentDefinitionDetail detail = mapper().toDto(definition(continuousActivationPolicy()), "EVENT_INTERPRETER", "EVENT");
+
+        String json = OBJECT_MAPPER.writeValueAsString(detail);
+        JsonNode activationPolicy = OBJECT_MAPPER.readTree(json).get("activationPolicy");
+
+        assertThat(countOccurrences(activationPolicy.toString(), "\"type\"")).isEqualTo(1);
+        assertThat(activationPolicy.get("type").asText()).isEqualTo("CONTINUOUS");
+        assertThat(activationPolicy.hasNonNull("validFrom")).isTrue();
+        assertThat(activationPolicy.hasNonNull("validTo")).isTrue();
+        assertThat(activationPolicy.has("validFromDate")).isFalse();
+        assertThat(activationPolicy.has("validToDate")).isFalse();
+        assertThat(activationPolicy.has("dailyStartTime")).isFalse();
+        assertThat(activationPolicy.has("dailyEndTime")).isFalse();
+    }
+
+    @Test
+    void serializesDailyWindowActivationPolicyWithSingleTypeAndOnlyDailyWindowFields() throws Exception {
+        AgentDefinitionDetail detail = mapper().toDto(definition(dailyWindowActivationPolicy()), "SCHEDULED_INTERPRETER", "SCHEDULE");
+
+        String json = OBJECT_MAPPER.writeValueAsString(detail);
+        JsonNode activationPolicy = OBJECT_MAPPER.readTree(json).get("activationPolicy");
+
+        assertThat(countOccurrences(activationPolicy.toString(), "\"type\"")).isEqualTo(1);
+        assertThat(activationPolicy.get("type").asText()).isEqualTo("DAILY_WINDOW");
+        assertThat(activationPolicy.hasNonNull("validFromDate")).isTrue();
+        assertThat(activationPolicy.hasNonNull("validToDate")).isTrue();
+        assertThat(activationPolicy.get("dailyStartTime").asText()).isEqualTo("07:00:00");
+        assertThat(activationPolicy.get("dailyEndTime").asText()).isEqualTo("10:30:00");
+        assertThat(activationPolicy.get("daysOfWeek")).hasSize(2);
+        assertThat(activationPolicy.has("validFrom")).isFalse();
+        assertThat(activationPolicy.has("validTo")).isFalse();
+    }
+
+    private AgentDefinitionMapper mapper() {
+        AgentDefinitionMapper mapper = new AgentDefinitionMapper();
+        mapper.agentProfileMapper = new AgentProfileMapper();
+        return mapper;
+    }
+
+    private int countOccurrences(String value, String needle) {
+        int count = 0;
+        int index = 0;
+        while ((index = value.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
+    }
+
     private AgentDefinition definition() {
+        return definition(continuousActivationPolicy());
+    }
+
+    private AgentDefinition definition(Map<String, Object> activationPolicy) {
         AgentDefinition definition = new AgentDefinition();
         definition.setCodAgentdefinition("AGDF1");
         definition.setDscName("Agent");
@@ -56,11 +115,7 @@ class AgentDefinitionMapperTest {
         definition.setCodAgentprofile(profile());
         definition.setSglStatus(statusRef("DRAFT"));
         definition.setSglGenerationmode(generationModeRef("AUTO"));
-        definition.setJsnActivationpolicy(Map.of(
-                "type", "CONTINUOUS",
-                "timezone", "Europe/Rome",
-                "validFrom", "2026-06-12T10:00:00+02:00",
-                "validTo", "2026-12-31T23:59:59+01:00"));
+        definition.setJsnActivationpolicy(activationPolicy);
         definition.setJsnBlueprint(Map.of("name", "Agent"));
         definition.setSglActivationtype(activationTypeRef("CONTINUOUS"));
         definition.setSglArtifacttype(artifactTypeRef("NONE"));
@@ -89,6 +144,25 @@ class AgentDefinitionMapperTest {
         definition.setDtCreatedat(now);
         definition.setDtUpdatedat(now);
         return definition;
+    }
+
+    private Map<String, Object> continuousActivationPolicy() {
+        return Map.of(
+                "type", "CONTINUOUS",
+                "timezone", "Europe/Rome",
+                "validFrom", "2026-06-12T10:00:00+02:00",
+                "validTo", "2026-12-31T23:59:59+01:00");
+    }
+
+    private Map<String, Object> dailyWindowActivationPolicy() {
+        return Map.of(
+                "type", "DAILY_WINDOW",
+                "timezone", "Europe/Rome",
+                "validFromDate", "2026-06-12",
+                "validToDate", "2026-12-31",
+                "dailyStartTime", "07:00:00",
+                "dailyEndTime", "10:30:00",
+                "daysOfWeek", List.of("MONDAY", "TUESDAY"));
     }
 
     private Alert alert() {
