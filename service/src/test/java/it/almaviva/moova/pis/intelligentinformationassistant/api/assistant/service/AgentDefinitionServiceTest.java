@@ -157,7 +157,49 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
-    void searchesPersistedEventAndScheduledAgentDefinitions() {
+    void searchesWithoutFiltersReturnsEventAndScheduledSummariesInRepositoryOrder() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition eventDefinition = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        eventDefinition.setDtCreatedat(OffsetDateTime.parse("2026-06-12T10:00:00Z"));
+        AgentDefinition scheduledDefinition = persistedDefinition(
+                scheduledTechnicalSpecification(600, 1),
+                "ServiceDataStopPointJourneysV2",
+                List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"));
+        scheduledDefinition.setCodAgentdefinition("AGDF2");
+        scheduledDefinition.setDtCreatedat(OffsetDateTime.parse("2026-06-12T11:00:00Z"));
+        when(definitionRepository.search(null, null, null, null, null))
+                .thenReturn(List.of(scheduledDefinition, eventDefinition));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, null, null, null, null));
+
+        assertThat(response.getItems()).hasSize(2);
+        assertThat(response.getItems()).extracting(item -> item.getId()).containsExactly("AGDF2", "AGDF1");
+        assertThat(response.getItems().get(0).getCreatedAt()).isAfter(response.getItems().get(1).getCreatedAt());
+        response.getItems().forEach(item -> {
+            assertThat(item.getId()).isNotBlank();
+            assertThat(item.getName()).isNotBlank();
+            assertThat(item.getStatus()).isNotNull();
+            assertThat(item.getAlert()).isNotNull();
+            assertThat(item.getAlert().getId()).isNotBlank();
+            assertThat(item.getAlert().getName()).isNotBlank();
+            assertThat(item.getAlertVersion()).isEqualTo(3);
+            assertThat(item.getProfile()).isNotNull();
+            assertThat(item.getGenerationMode()).isNotNull();
+            assertThat(item.getActivationPolicy()).isNotNull();
+            assertThat(item.getCreatedAt()).isNotNull();
+            assertThat(item.getUpdatedAt()).isNotNull();
+            assertThat(item.getInterpreterType()).isNotNull();
+            assertThat(item.getTriggerType()).isNotBlank();
+            assertThat(item.getInputModel()).isNotBlank();
+            assertThat(item.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+            assertThat(item.getCompilation()).isNull();
+            assertThat(item.getLatestRun()).isNull();
+        });
+    }
+
+    @Test
+    void searchesPersistedEventAndScheduledAgentDefinitionsWithCombinedFilters() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
         AgentDefinition eventDefinition = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
@@ -187,6 +229,79 @@ class AgentDefinitionServiceTest {
         assertThat(response.getItems().get(1).getInterpreterType().toString()).isEqualTo("EVENT_INTERPRETER");
         assertThat(response.getItems().get(1).getTriggerType()).isEqualTo("EVENT");
         verify(definitionRepository).search("DRAFT", ALERT_ID, "DSL", PROFILE_ID, "Gerusalemme");
+    }
+
+    @Test
+    void filtersSearchByStatus() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition draft = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        when(definitionRepository.search("DRAFT", null, null, null, null)).thenReturn(List.of(draft));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(
+                it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionStatus.DRAFT,
+                null,
+                null,
+                null,
+                null));
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().getFirst().getStatus().toString()).isEqualTo("DRAFT");
+        verify(definitionRepository).search("DRAFT", null, null, null, null);
+    }
+
+    @Test
+    void filtersSearchByAlertId() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition definition = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        when(definitionRepository.search(null, "ALRT2", null, null, null)).thenReturn(List.of(definition));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, " ALRT2 ", null, null, null));
+
+        assertThat(response.getItems()).hasSize(1);
+        verify(definitionRepository).search(null, "ALRT2", null, null, null);
+    }
+
+    @Test
+    void filtersSearchByGenerationMode() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition dsl = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        dsl.setSglGenerationmode(generationModeRef("DSL"));
+        when(definitionRepository.search(null, null, "DSL", null, null)).thenReturn(List.of(dsl));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, null, AgentGenerationMode.DSL, null, null));
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().getFirst().getGenerationMode().toString()).isEqualTo("DSL");
+        verify(definitionRepository).search(null, null, "DSL", null, null);
+    }
+
+    @Test
+    void filtersSearchByProfileId() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentDefinition small = persistedDefinition(eventTechnicalSpecification(), "ServiceDataV2", List.of());
+        small.setCodAgentprofile(profile(true, "SMALL"));
+        when(definitionRepository.search(null, null, null, "SMALL", null)).thenReturn(List.of(small));
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, null, null, " SMALL ", null));
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().getFirst().getProfile().getId()).isEqualTo("SMALL");
+        verify(definitionRepository).search(null, null, null, "SMALL", null);
+    }
+
+    @Test
+    void searchWithNoResultsReturnsEmptyList() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        when(definitionRepository.search(null, null, null, null, "missing")).thenReturn(List.of());
+
+        var response = service.searchAgentDefinitions(new AgentDefinitionSearchCriteria(null, null, null, null, "missing"));
+
+        assertThat(response.getItems()).isEmpty();
     }
 
     @Test
@@ -657,9 +772,13 @@ class AgentDefinitionServiceTest {
     }
 
     private AgentProfile profile(boolean enabled) {
+        return profile(enabled, PROFILE_ID);
+    }
+
+    private AgentProfile profile(boolean enabled, String profileId) {
         AgentProfile profile = new AgentProfile();
-        profile.setCodAgentprofile(PROFILE_ID);
-        profile.setDscName("Medium Agent");
+        profile.setCodAgentprofile(profileId);
+        profile.setDscName(profileId + " Agent");
         profile.setFlgEnabled(enabled);
         profile.setJsnRecommendedfor(List.of("Agent definitions"));
         profile.setNumCpurequestmillicores(250);

@@ -60,6 +60,18 @@ class AgentDefinitionSearchApiTest {
                 });
     }
 
+    @Test
+    void generatedStatusEnumRejectsInvalidQueryValueBeforeControllerLogic() {
+        assertThatThrownBy(() -> AgentDefinitionStatus.fromString("XXX"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void generatedGenerationModeEnumRejectsInvalidQueryValueBeforeControllerLogic() {
+        assertThatThrownBy(() -> AgentGenerationMode.fromString("XXX"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private AssistantV1Api api(AgentDefinitionService service) {
         AssistantV1Api api = new AssistantV1Api();
         api.agentDefinitionService = service;

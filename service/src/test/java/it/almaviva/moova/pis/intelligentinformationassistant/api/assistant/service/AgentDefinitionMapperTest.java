@@ -23,6 +23,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -114,6 +116,90 @@ class AgentDefinitionMapperTest {
         assertThat(dailyWindowPolicy.get("dailyStartTime").asText()).isEqualTo("07:00:00");
         assertThat(dailyWindowPolicy.has("validFrom")).isFalse();
         assertThat(dailyWindowPolicy.has("validTo")).isFalse();
+    }
+
+    @Test
+    void serializesSummaryAsLightweightGovernanceRowWithoutDetailOnlyFields() throws Exception {
+        AgentDefinition definition = definition(continuousActivationPolicy());
+
+        AgentDefinitionSummary summary = mapper().toSummary(definition, "EVENT_INTERPRETER", "EVENT");
+        JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(summary));
+
+        assertThat(summary.getId()).isEqualTo("AGDF1");
+        assertThat(summary.getName()).isEqualTo("Agent");
+        assertThat(summary.getStatus().toString()).isEqualTo("DRAFT");
+        assertThat(summary.getAlert().getId()).isEqualTo("ALRT1");
+        assertThat(summary.getAlert().getName()).isEqualTo("Verified alert");
+        assertThat(summary.getAlertVersion()).isEqualTo(3);
+        assertThat(summary.getProfile().getId()).isEqualTo("MEDIUM");
+        assertThat(summary.getGenerationMode().toString()).isEqualTo("AUTO");
+        assertThat(summary.getActivationPolicy()).isNotNull();
+        assertThat(summary.getCreatedAt()).isNotNull();
+        assertThat(summary.getUpdatedAt()).isNotNull();
+        assertThat(summary.getInterpreterType().toString()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(summary.getTriggerType()).isEqualTo("EVENT");
+        assertThat(summary.getInputModel()).isEqualTo("ServiceDataV2");
+        assertThat(summary.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(json.has("blueprint")).isFalse();
+        assertThat(json.has("artifact")).isFalse();
+        assertThat(json.has("runtimeContract")).isFalse();
+    }
+
+    @Test
+    void mapsScheduledSummaryContractWithoutRuntimeContractPayload() throws Exception {
+        AgentDefinition definition = definition(dailyWindowActivationPolicy());
+        definition.setDscInputmodel("ServiceDataStopPointJourneysV2");
+
+        AgentDefinitionSummary summary = mapper().toSummary(definition, "SCHEDULED_INTERPRETER", "SCHEDULE");
+        JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(summary));
+
+        assertThat(summary.getInterpreterType().toString()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(summary.getTriggerType()).isEqualTo("SCHEDULE");
+        assertThat(summary.getInputModel()).isEqualTo("ServiceDataStopPointJourneysV2");
+        assertThat(summary.getOutputModel()).isEqualTo("AgentOutput.CANDIDATE_SUGGESTION");
+        assertThat(json.has("runtimeContract")).isFalse();
+    }
+
+    @Test
+    void mapsSummaryActivationPolicyFromStructuredColumnsWhenJsonIsMissing() {
+        AgentDefinition definition = definition();
+        definition.setJsnActivationpolicy(null);
+        definition.setSglActivationtype(activationTypeRef("DAILY_WINDOW"));
+        definition.setDscTimezone("Europe/Rome");
+        definition.setDValidfromdate(LocalDate.parse("2026-06-12"));
+        definition.setDValidtodate(LocalDate.parse("2026-12-31"));
+        definition.setTDailystarttime(LocalTime.parse("07:00:00"));
+        definition.setTDailyendtime(LocalTime.parse("10:30:00"));
+
+        AgentDefinitionSummary summary = mapper().toSummary(definition, "SCHEDULED_INTERPRETER", "SCHEDULE");
+
+        assertThat(summary.getActivationPolicy()).isInstanceOf(AgentDailyWindowActivationPolicy.class);
+        AgentDailyWindowActivationPolicy policy = (AgentDailyWindowActivationPolicy) summary.getActivationPolicy();
+        assertThat(policy.getTimezone()).isEqualTo("Europe/Rome");
+        assertThat(policy.getValidFromDate()).isEqualTo(LocalDate.parse("2026-06-12"));
+        assertThat(policy.getValidToDate()).isEqualTo(LocalDate.parse("2026-12-31"));
+        assertThat(policy.getDailyStartTime()).isEqualTo("07:00");
+        assertThat(policy.getDailyEndTime()).isEqualTo("10:30");
+    }
+
+    @Test
+    void handlesSummaryMissingOptionalValuesWithoutNpe() {
+        AgentDefinition definition = definition();
+        definition.setDscDescription(null);
+        definition.setDtUpdatedat(null);
+        definition.setCodLatestcompilation(null);
+        definition.setCodLatestrun(null);
+        definition.setJsnActivationpolicy(null);
+        definition.setJsnRuntimecontract(null);
+        definition.setJsnAllowedtools(null);
+
+        AgentDefinitionSummary summary = mapper().toSummary(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(summary.getDescription()).isNull();
+        assertThat(summary.getUpdatedAt()).isNull();
+        assertThat(summary.getCompilation()).isNull();
+        assertThat(summary.getLatestRun()).isNull();
+        assertThat(summary.getActivationPolicy()).isInstanceOf(AgentContinuousActivationPolicy.class);
     }
 
     @Test

@@ -9,6 +9,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatusResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationSummary;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDailyWindowActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionSummary;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionStatus;
@@ -90,7 +92,7 @@ public class AgentDefinitionMapper {
                 .alertVersion(entity.getNumAlertversion())
                 .profile(agentProfileMapper.toDto(entity.getCodAgentprofile()))
                 .generationMode(entity.getSglGenerationmode() == null ? null : AgentGenerationMode.fromString(entity.getSglGenerationmode().getSglGenerationmode()))
-                .activationPolicy(convert(entity.getJsnActivationpolicy(), AgentActivationPolicy.class))
+                .activationPolicy(toSummaryActivationPolicy(entity))
                 .compilation(toCompilationSummary(entity))
                 .latestRun(toLatestRun(entity))
                 .createdAt(entity.getDtCreatedat())
@@ -140,6 +142,31 @@ public class AgentDefinitionMapper {
             }
         }
         return response;
+    }
+
+    private AgentActivationPolicy toSummaryActivationPolicy(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
+        if (entity.getJsnActivationpolicy() != null && !entity.getJsnActivationpolicy().isEmpty()) {
+            return convert(entity.getJsnActivationpolicy(), AgentActivationPolicy.class);
+        }
+        String activationType = entity.getSglActivationtype() == null ? null : entity.getSglActivationtype().getSglActivationtype();
+        if ("CONTINUOUS".equals(activationType)) {
+            return new AgentContinuousActivationPolicy()
+                    .type(AgentActivationPolicy.TypeEnum.CONTINUOUS)
+                    .timezone(entity.getDscTimezone())
+                    .validFrom(entity.getDtValidfrom())
+                    .validTo(entity.getDtValidto());
+        }
+        if ("DAILY_WINDOW".equals(activationType)) {
+            return new AgentDailyWindowActivationPolicy()
+                    .type(AgentActivationPolicy.TypeEnum.DAILY_WINDOW)
+                    .timezone(entity.getDscTimezone())
+                    .validFromDate(entity.getDValidfromdate())
+                    .validToDate(entity.getDValidtodate())
+                    .dailyStartTime(entity.getTDailystarttime() == null ? null : entity.getTDailystarttime().toString())
+                    .dailyEndTime(entity.getTDailyendtime() == null ? null : entity.getTDailyendtime().toString());
+        }
+        return null;
     }
 
     private AgentCompilationSummary toCompilationSummary(
