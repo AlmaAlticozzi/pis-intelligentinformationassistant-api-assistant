@@ -1897,6 +1897,14 @@ public class ScheduledAlertVerificationOutcomeValidator {
         }
 
         for (ScheduledServiceDataResolvedLocation location : requiredFilterLocations(context)) {
+            if (isPseudoJourneyCancellationFilterLocation(location)) {
+                System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][FILTER_SANITIZER] action=dropped_pseudo_location rawText="
+                        + location.rawText()
+                        + " role="
+                        + location.scheduledRole()
+                        + " reason=journey_cancellation_intent_not_location");
+                continue;
+            }
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR][LOCATION] checking filter rawText="
                     + location.rawText() + " role=" + location.scheduledRole() + " polarity=" + location.polarity());
             if (!isFilterCovered(location, leaves)) {
@@ -2005,6 +2013,22 @@ public class ScheduledAlertVerificationOutcomeValidator {
                 .filter(location -> location.scheduledRole() != ScheduledAlertLocationRole.MONITORED_STOP_POINT)
                 .forEach(locations::add);
         return locations;
+    }
+
+    private boolean isPseudoJourneyCancellationFilterLocation(ScheduledServiceDataResolvedLocation location) {
+        if (location == null || location.scheduledRole() != ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT) {
+            return false;
+        }
+        String normalized = normalizeText(location.rawText());
+        if (normalized.isBlank()) {
+            return false;
+        }
+        if (normalized.matches(".*\\b(fermata|fermate|stop|stops|station|stations|stazione|stazioni|call|calls)\\b.*")) {
+            return false;
+        }
+        boolean journeyWord = normalized.matches(".*\\b(corsa|corse|treno|treni|servizio|servizi|journey|journeys|train|trains|service|services)\\b.*");
+        boolean cancellationWord = normalized.matches(".*\\b(soppressa|soppresse|soppresso|soppressi|cancellata|cancellate|cancellato|cancellati|cancellazione|cancellazioni|suppressed|cancelled|canceled|cancellation|cancellations)\\b.*");
+        return journeyWord && cancellationWord;
     }
 
     private boolean isFilterCovered(ScheduledServiceDataResolvedLocation location, List<ConditionLeaf> leaves) {

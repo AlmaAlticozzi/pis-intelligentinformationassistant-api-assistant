@@ -76,6 +76,16 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - A stop point governed by "suppressed stop", "cancelled stop", "skipped stop", "cancelled call",
                   "fermata soppressa", "fermata cancellata", "salta la fermata" or equivalent wording is
                   FILTER_CANCELLED_CALL_STOP_POINT.
+                - Journey/service/train cancellation or suppression words are not locations. Phrases such as
+                  "corse soppresse", "corse cancellate", "treni soppressi", "suppressed journeys",
+                  "cancelled journeys", "cancelled trains" and "suppressed services" are non-location
+                  cancellation intent constraints.
+                - "suppressed journeys at X" means X is MONITORED_STOP_POINT and there is no
+                  FILTER_CANCELLED_CALL_STOP_POINT.
+                - "arrival suppressed journeys at X" means X is MONITORED_STOP_POINT, cancellation direction
+                  ARRIVAL, and there is no FILTER_CANCELLED_CALL_STOP_POINT.
+                - "journeys at X with cancelled stop Y" means X is MONITORED_STOP_POINT and Y is
+                  FILTER_CANCELLED_CALL_STOP_POINT.
                 - It is a filter/control location, not the monitored stop point, unless the prompt also says "at/in/for
                   location X" for monitoring.
                 - Example meaning: "at monitored location X, journeys with suppressed stop Y" -> X is

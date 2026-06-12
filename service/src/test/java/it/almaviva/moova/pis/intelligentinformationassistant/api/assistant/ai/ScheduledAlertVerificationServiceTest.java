@@ -1010,6 +1010,32 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesArrivalSuppressionAtGerusalemmeDespitePseudoCancelledCallFilter() {
+        ScheduledServiceDataLocationContext context = gerusalemmeContextWithPseudoCancelledCallFilter();
+        Map<String, Object> response = validReportResponse(context,
+                cancelledStopCondition(leaf("stopPoint.nameLong", "CONTAINS_NORMALIZED", "corse soppresse")));
+        withSchedule(response, 600, false, "ogni 10 min");
+        TestFixture fixture = fixture(json(response));
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Arrival Suppressed Journeys Count At Gerusalemme",
+                "Verify scheduled snapshot routing for arrival suppressed journeys at Gerusalemme.",
+                "Avvertimi ogni 10 min su quante corse soppresse in arrivo ci sono a Gerusalemme",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("serviceDataQuery")))
+                .contains(GERUSALEMME);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("arrivalStatuses[].status", "CONTAINS", "ARRIVAL_CANCELLATION")
+                .doesNotContain("nextCancelledCalls")
+                .doesNotContain("corse soppresse")
+                .doesNotContain("DEPARTURE_CANCELLATION");
+    }
+
+    @Test
     void verifiesDepartureSuppressionAtGerusalemmeWithoutArrivalRequirement() {
         ScheduledServiceDataLocationContext context = gerusalemmeContext();
         Map<String, Object> response = validReportResponse(context, conditionAnyElement("stopPointsJourneyDetails[]",
@@ -2029,6 +2055,52 @@ class ScheduledAlertVerificationServiceTest {
                 ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                 monitored,
                 List.of(),
+                List.of(),
+                List.of(GERUSALEMME),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GERUSALEMME),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext gerusalemmeContextWithPseudoCancelledCallFilter() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Gerusalemme",
+                "Gerusalemme",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GERUSALEMME),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(new ScheduledServiceDataResolvedLocation(
+                "corse soppresse",
+                "corse soppresse",
+                ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.UNRESOLVED,
+                List.of(),
+                List.of(),
+                true,
+                true,
+                List.of("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id",
+                        "stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.nameLong"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
                 List.of(),
                 List.of(GERUSALEMME),
                 false,

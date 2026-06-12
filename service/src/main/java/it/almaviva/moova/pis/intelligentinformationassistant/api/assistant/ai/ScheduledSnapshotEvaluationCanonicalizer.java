@@ -4,9 +4,11 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @ApplicationScoped
@@ -146,7 +148,28 @@ public class ScheduledSnapshotEvaluationCanonicalizer {
                 || text.contains("field=departureStatuses[].status")
                 || text.contains("\"field\":\"departureStatuses[].status\"")
                 || text.contains("field=stopPointsJourneyDetails[].arrivalStatuses[].status")
-                || text.contains("field=stopPointsJourneyDetails[].departureStatuses[].status");
+                || text.contains("field=stopPointsJourneyDetails[].departureStatuses[].status")
+                || containsPseudoCancelledCallJourneyIntent(condition);
+    }
+
+    private boolean containsPseudoCancelledCallJourneyIntent(Object condition) {
+        String text = String.valueOf(condition);
+        if (!text.contains("nextCancelledCalls")) {
+            return false;
+        }
+        String normalized = normalize(text);
+        boolean journeyWord = normalized.matches(".*\\b(corsa|corse|treno|treni|servizio|servizi|journey|journeys|train|trains|service|services)\\b.*");
+        boolean cancellationWord = normalized.matches(".*\\b(soppressa|soppresse|soppresso|soppressi|cancellata|cancellate|cancellato|cancellati|cancellazione|cancellazioni|suppressed|cancelled|canceled|cancellation|cancellations)\\b.*");
+        return journeyWord && cancellationWord;
+    }
+
+    private String normalize(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private Map<String, Object> journeyCancellationCondition(ScheduledAlertJourneyCancellationConstraint constraint) {

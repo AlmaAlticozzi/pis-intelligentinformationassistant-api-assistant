@@ -76,6 +76,44 @@ class ScheduledServiceDataLocationResolutionServiceTest {
     }
 
     @Test
+    void dropsJourneyCancellationIntentPseudoCancelledCallFilterLocations() {
+        for (String pseudoLocation : List.of(
+                "corse soppresse",
+                "corse soppresse in arrivo",
+                "corse soppresse in partenza",
+                "corse cancellate",
+                "treni soppressi",
+                "suppressed journeys",
+                "cancelled journeys",
+                "cancelled trains",
+                "suppressed services")) {
+            ScheduledServiceDataLocationContext context = service.resolve(result(
+                    ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                    monitored("Gerusalemme"),
+                    filter(pseudoLocation, ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT)));
+
+            assertThat(context.monitoredLocations()).hasSize(1);
+            assertThat(context.monitoredLocations().getFirst().rawText()).isEqualTo("Gerusalemme");
+            assertThat(context.serviceDataApiStopPoints()).containsExactlyElementsOf(selectedIds("Gerusalemme"));
+            assertThat(context.filterLocations()).isEmpty();
+        }
+    }
+
+    @Test
+    void keepsRealCancelledStopFilterLocations() {
+        ScheduledServiceDataLocationContext context = service.resolve(result(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored("Gerusalemme"),
+                filter("Cenisio", ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT)));
+
+        assertThat(context.serviceDataApiStopPoints()).containsExactlyElementsOf(selectedIds("Gerusalemme"));
+        assertThat(context.filterLocations()).hasSize(1);
+        assertThat(context.filterLocations().getFirst().rawText()).isEqualTo("Cenisio");
+        assertThat(context.filterLocations().getFirst().targetFieldHints())
+                .contains("stopPointsJourneyDetails[].nextCancelledCalls[].stopPoint.id");
+    }
+
+    @Test
     void duplicateMonitoredStopPointsAreDeduplicatedInApiStopPointsPreservingOrder() {
         List<String> varedoIds = selectedIds("Varedo");
         List<String> palazzoloIds = selectedIds("Palazzolo Milanese");

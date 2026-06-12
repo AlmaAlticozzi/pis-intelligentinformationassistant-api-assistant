@@ -52,6 +52,14 @@ public class ScheduledServiceDataLocationResolutionService {
         }
 
         for (ScheduledAlertLocationMention mention : safeResult.locations()) {
+            if (isPseudoJourneyCancellationFilterLocation(mention.role(), mention.rawText())) {
+                System.out.println("[IIA][ALERT_SCHEDULED_LOCATION][FILTER_SANITIZER] action=dropped_pseudo_location rawText="
+                        + mention.rawText()
+                        + " role="
+                        + mention.role()
+                        + " reason=journey_cancellation_intent_not_location");
+                continue;
+            }
             ScheduledServiceDataResolvedLocation resolved = resolveMention(mention, monitoringScope);
             if (!resolved.warningReason().isBlank()) {
                 warnings.add(resolved.warningReason());
@@ -300,6 +308,24 @@ public class ScheduledServiceDataLocationResolutionService {
             return false;
         }
         return normalized.matches(".*\\b(binario|platform|track|quay|banchina|marciapiede)\\b.*");
+    }
+
+    private boolean isPseudoJourneyCancellationFilterLocation(
+            ScheduledAlertLocationRole role,
+            String rawText) {
+        if (role != ScheduledAlertLocationRole.FILTER_CANCELLED_CALL_STOP_POINT) {
+            return false;
+        }
+        String normalized = normalize(rawText);
+        if (normalized == null) {
+            return false;
+        }
+        if (normalized.matches(".*\\b(fermata|fermate|stop|stops|station|stations|stazione|stazioni|call|calls)\\b.*")) {
+            return false;
+        }
+        boolean journeyWord = normalized.matches(".*\\b(corsa|corse|treno|treni|servizio|servizi|journey|journeys|train|trains|service|services)\\b.*");
+        boolean cancellationWord = normalized.matches(".*\\b(soppressa|soppresse|soppresso|soppressi|cancellata|cancellate|cancellato|cancellati|cancellazione|cancellazioni|suppressed|cancelled|canceled|cancellation|cancellations)\\b.*");
+        return journeyWord && cancellationWord;
     }
 
     private String normalize(String value) {
