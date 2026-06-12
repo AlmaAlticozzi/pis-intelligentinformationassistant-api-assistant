@@ -2326,6 +2326,20 @@ public class AlertService {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "MAIN_EVENT_INTENT",
                     derivation.intent().name()));
+            if (AlertLocationMainEventIntent.PLATFORM_CHANGE.equals(derivation.intent())) {
+                String platformChangeDirection = platformChangeDirection(prompt);
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "PLATFORM_CHANGE",
+                        "true"));
+                constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "PLATFORM_CHANGE_DIRECTION",
+                        platformChangeDirection));
+                if ("BOTH".equals(platformChangeDirection)) {
+                    constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                            "EXPECTED_MAIN_EVENT_TYPES",
+                            "[\"DEPARTURE_PLATFORM_CHANGED\",\"ARRIVAL_PLATFORM_CHANGED\"]"));
+                }
+            }
             if (delayThreshold != null) {
                 constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                         "DELAY_THRESHOLD",
@@ -2434,6 +2448,16 @@ public class AlertService {
         AlertEventWordingClassifier classifier = alertEventWordingClassifier == null
                 ? new AlertEventWordingClassifier()
                 : alertEventWordingClassifier;
+        if (AlertLocationMainEventIntent.PLATFORM_CHANGE.equals(intent) || isPlatformChangePrompt(prompt)) {
+            String direction = platformChangeDirection(prompt);
+            return new MainEventDerivation(
+                    AlertLocationMainEventIntent.PLATFORM_CHANGE,
+                    AlertEventPhase.AMBIGUOUS,
+                    platformChangeExpectedEventType(direction),
+                    accessoryDelay,
+                    "",
+                    "");
+        }
         AlertEventWordingClassifier.MainEventWording explicitMainEvent =
                 classifier.classifyExplicitMainEvent(prompt);
         if (explicitMainEvent != null) {
@@ -2457,6 +2481,42 @@ public class AlertService {
                 accessoryDelay,
                 explicitMainEvent == null ? "" : explicitMainEvent.mainEventPhrase(),
                 explicitMainEvent == null ? "" : explicitMainEvent.accessoryStatePhrase());
+    }
+
+    private boolean isPlatformChangePrompt(String prompt) {
+        String normalized = normalizeText(prompt);
+        return normalized != null && containsAny(
+                normalized,
+                "cambio di binario",
+                "cambio binario",
+                "cambia binario",
+                "cambiato il binario",
+                "spostato dal binario",
+                "platform change",
+                "platform changed",
+                "track changed");
+    }
+
+    private String platformChangeDirection(String prompt) {
+        String normalized = normalizeText(prompt);
+        if (normalized == null) {
+            return "BOTH";
+        }
+        if (containsAny(normalized, "in partenza", "departure", "departing")) {
+            return "DEPARTURE";
+        }
+        if (containsAny(normalized, "in arrivo", "arrival", "arriving")) {
+            return "ARRIVAL";
+        }
+        return "BOTH";
+    }
+
+    private String platformChangeExpectedEventType(String direction) {
+        return switch (direction) {
+            case "DEPARTURE" -> "DEPARTURE_PLATFORM_CHANGED";
+            case "ARRIVAL" -> "ARRIVAL_PLATFORM_CHANGED";
+            default -> null;
+        };
     }
 
     private String cancellationDirection(String prompt) {

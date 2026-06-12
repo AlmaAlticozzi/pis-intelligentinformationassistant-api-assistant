@@ -2339,6 +2339,93 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsDeparturePlatformChangeAtCurrentStopWithStructuralComparisonNotMovementEvent() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String timetabledField = detailsPath + ".timetabledDeparturePlatform.id";
+        String actualField = detailsPath + ".actualDeparturePlatform.platform.id";
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "all", List.of(
+                        Map.of("field", stopPointField, "operator", "EQUALS", "value", RHO_FIERAMILANO_ID),
+                        Map.of(
+                                "field", eventField,
+                                "operator", "CONTAINS",
+                                "value", "DEPARTURE_PLATFORM_CHANGED"),
+                        Map.of("anyElement", Map.of(
+                                "path", detailsPath,
+                                "conditions", platformFieldComparisonLeaf(
+                                        "timetabledDeparturePlatform.id",
+                                        "PLATFORM_NOT_EQUALS_FIELD",
+                                        "actualDeparturePlatform.platform.id")))));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                condition,
+                coverageFor(stopPointField, eventField, timetabledField, actualField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(condition.toString())
+                .contains("DEPARTURE_PLATFORM_CHANGED")
+                .contains("PLATFORM_NOT_EQUALS_FIELD")
+                .doesNotContain("DEPARTING")
+                .doesNotContain("DEPARTED");
+    }
+
+    @Test
+    void acceptsGenericPlatformChangeOnlyWithCompleteDepartureAndArrivalBranches() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        String timetabledDepartureField = detailsPath + ".timetabledDeparturePlatform.id";
+        String actualDepartureField = detailsPath + ".actualDeparturePlatform.platform.id";
+        String timetabledArrivalField = detailsPath + ".timetabledArrivalPlatform.id";
+        String actualArrivalField = detailsPath + ".actualArrivalPlatform.platform.id";
+        Map<String, Object> departureBranch = Map.of("all", List.of(
+                Map.of(
+                        "field", eventField,
+                        "operator", "CONTAINS",
+                        "value", "DEPARTURE_PLATFORM_CHANGED"),
+                Map.of("anyElement", Map.of(
+                        "path", detailsPath,
+                        "conditions", platformFieldComparisonLeaf(
+                                "timetabledDeparturePlatform.id",
+                                "PLATFORM_NOT_EQUALS_FIELD",
+                                "actualDeparturePlatform.platform.id")))));
+        Map<String, Object> arrivalBranch = Map.of("all", List.of(
+                Map.of(
+                        "field", eventField,
+                        "operator", "CONTAINS",
+                        "value", "ARRIVAL_PLATFORM_CHANGED"),
+                Map.of("anyElement", Map.of(
+                        "path", detailsPath,
+                        "conditions", platformFieldComparisonLeaf(
+                                "timetabledArrivalPlatform.id",
+                                "PLATFORM_NOT_EQUALS_FIELD",
+                                "actualArrivalPlatform.platform.id")))));
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "any", List.of(departureBranch, arrivalBranch));
+
+        AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
+                condition,
+                coverageFor(
+                        eventField,
+                        timetabledDepartureField,
+                        actualDepartureField,
+                        timetabledArrivalField,
+                        actualArrivalField)));
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(condition.toString())
+                .contains("DEPARTURE_PLATFORM_CHANGED")
+                .contains("ARRIVAL_PLATFORM_CHANGED")
+                .contains("timetabledDeparturePlatform.id")
+                .contains("actualDeparturePlatform.platform.id")
+                .contains("timetabledArrivalPlatform.id")
+                .contains("actualArrivalPlatform.platform.id");
+    }
+
+    @Test
     void acceptsUndirectedMovedPlatformEventWithDepartureAndArrivalBranches() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";

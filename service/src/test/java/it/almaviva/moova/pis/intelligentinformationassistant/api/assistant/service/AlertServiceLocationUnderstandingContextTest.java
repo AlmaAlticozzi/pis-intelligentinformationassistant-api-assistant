@@ -927,6 +927,81 @@ class AlertServiceLocationUnderstandingContextTest {
     }
 
     @Test
+    void derivesDeparturePlatformChangeAsPlatformChangeNotDepartureMovement() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa riceve un cambio di binario in partenza",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.DEPARTURE, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.PLATFORM,
+                                "cambio di binario in partenza")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "PLATFORM_CHANGE");
+        assertConstraint(context, "PLATFORM_CHANGE", "true");
+        assertConstraint(context, "PLATFORM_CHANGE_DIRECTION", "DEPARTURE");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "DEPARTURE_PLATFORM_CHANGED");
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("EXPECTED_MAIN_EVENT_TYPE");
+                    assertThat(constraint.rawText()).isIn("DEPARTING", "DEPARTED");
+                });
+    }
+
+    @Test
+    void derivesArrivalPlatformChangeAsPlatformChangeNotArrivalMovement() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa riceve un cambio di binario in arrivo",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.PLATFORM,
+                                "cambio di binario in arrivo")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "PLATFORM_CHANGE");
+        assertConstraint(context, "PLATFORM_CHANGE", "true");
+        assertConstraint(context, "PLATFORM_CHANGE_DIRECTION", "ARRIVAL");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPE", "ARRIVAL_PLATFORM_CHANGED");
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("EXPECTED_MAIN_EVENT_TYPE");
+                    assertThat(constraint.rawText()).isIn("ARRIVING", "ARRIVED");
+                });
+    }
+
+    @Test
+    void derivesGenericPlatformChangeEventTypesForBothDirections() {
+        AlertVerificationLocationContext context = verifyAndCaptureContext(
+                "Avvisami quando una corsa riceve un cambio di binario",
+                new AlertLocationUnderstandingResult(
+                        false,
+                        "it",
+                        new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.PLATFORM_CHANGE, 0.90),
+                        List.of(),
+                        List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                                AlertLocationNonLocationConstraintType.PLATFORM,
+                                "cambio di binario")),
+                        List.of()));
+
+        assertConstraint(context, "MAIN_EVENT_INTENT", "PLATFORM_CHANGE");
+        assertConstraint(context, "PLATFORM_CHANGE", "true");
+        assertConstraint(context, "PLATFORM_CHANGE_DIRECTION", "BOTH");
+        assertConstraint(context, "EXPECTED_MAIN_EVENT_TYPES", "[\"DEPARTURE_PLATFORM_CHANGED\",\"ARRIVAL_PLATFORM_CHANGED\"]");
+        assertThat(context.nonLocationConstraints())
+                .noneSatisfy(constraint -> {
+                    assertThat(constraint.type()).isEqualTo("EXPECTED_MAIN_EVENT_TYPE");
+                    assertThat(constraint.rawText()).isIn("DEPARTING", "DEPARTED", "ARRIVING", "ARRIVED");
+                });
+    }
+
+    @Test
     void removesAllLocationsScopeFromLocationCoverage() {
         AlertVerificationLocationContext context = verifyAndCaptureContext(
                 "Avvisami quando una corsa ha più di 10 minuti di ritardo in qualsiasi località",

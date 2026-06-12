@@ -190,7 +190,13 @@ Numeric/property platform mappings:
 
 Platform change:
 - "cambia binario", "cambio binario" and "platform changed" are represented by current payload.ongroundServiceEvent.eventsType evidence.
+- Platform change has priority over movement event wording. If the prompt contains "cambio binario", "cambia binario", "platform change", "platform changed" or "spostato dal binario", the main event is a platform change event, not DEPARTING, DEPARTED, ARRIVING or ARRIVED.
+- Directional words only select the platform change direction: "in partenza" or departure platform change -> DEPARTURE_PLATFORM_CHANGED; "in arrivo" or arrival platform change -> ARRIVAL_PLATFORM_CHANGED; no direction -> both departure and arrival platform change branches.
+- For "cambio binario in partenza", use payload.ongroundServiceEvent.eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED. Do not use DEPARTING or DEPARTED as the main event.
+- For "cambio binario in arrivo", use payload.ongroundServiceEvent.eventsType CONTAINS ARRIVAL_PLATFORM_CHANGED. Do not use ARRIVING or ARRIVED as the main event.
 - Platform change structural evidence means timetabled platform differs from actual platform; do not use changes CONTAINS PLATFORM_CHANGED as the only structural evidence.
+- A platform change branch is complete only if it contains current event evidence on payload.ongroundServiceEvent.eventsType and structural evidence inside payload.stopPointJourney.stopPointsJourneyDetails[] comparing timetabled platform with actual platform.
+- Event type alone is not sufficient for platform change verification when structural fields are catalog-supported.
 - For generic platform change, event evidence and structural evidence are both required when catalog-supported.
 - Prefer id field comparison: departure uses timetabledDeparturePlatform.id PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.id; arrival uses timetabledArrivalPlatform.id PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.id.
 - If id comparison is not catalog-supported, use dsc fallback: timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc; timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc.
@@ -209,6 +215,11 @@ Platform change:
 - payload.ongroundServiceEvent.eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED for departure platform changes.
 - payload.ongroundServiceEvent.eventsType CONTAINS ARRIVAL_PLATFORM_CHANGED for arrival platform changes.
 - payload.ongroundServiceEvent.eventsType CONTAINS_ANY ["DEPARTURE_PLATFORM_CHANGED","ARRIVAL_PLATFORM_CHANGED"] only when direction is truly ambiguous.
+
+Compact platform-change shapes:
+- Departure branch: {"all":[{"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTURE_PLATFORM_CHANGED"},{"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"field":"timetabledDeparturePlatform.dsc","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.dsc"}}}]}
+- Arrival branch: {"all":[{"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVAL_PLATFORM_CHANGED"},{"anyElement":{"path":"payload.stopPointJourney.stopPointsJourneyDetails[]","conditions":{"field":"timetabledArrivalPlatform.dsc","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualArrivalPlatform.platform.dsc"}}}]}
+- Generic platform change: {"any":[{departure branch},{arrival branch}]}
 
 Compact operator examples:
 - {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
