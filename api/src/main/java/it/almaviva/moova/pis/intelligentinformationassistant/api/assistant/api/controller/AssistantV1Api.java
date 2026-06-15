@@ -238,13 +238,30 @@ public class AssistantV1Api implements IAssistantV1Api {
         }
     }
 
-    @PATCH
+    @GET
     @Path("/agent-definitions/{agentDefinitionId}/compilation")
     @Produces({ "application/json" })
     @Override
     public AgentCompilationStatusResponse getAgentCompilationStatus(@PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId) {
-        System.out.println("getAgentCompilationStatus: " + "agentDefinitionId=" + agentDefinitionId);
-        return new AgentCompilationStatusResponse();
+        try {
+            return agentDefinitionService.getAgentDefinitionCompilation(agentDefinitionId);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionCompilationInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionCompilationNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_COMPILATION][GET] Unexpected error agentDefinitionId=" + agentDefinitionId
+                    + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionCompilationUnexpectedError())
+                    .build());
+        }
     }
 
     @GET

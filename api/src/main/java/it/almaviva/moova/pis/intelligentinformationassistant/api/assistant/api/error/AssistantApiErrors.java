@@ -654,6 +654,28 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while reading the Agent Definition.");
     }
 
+    public static Error agentDefinitionCompilationInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-CMS-400-001",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionCompilationNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-CMS-404-001")
+                .title("Agent compilation not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionCompilationUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-CMS-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while reading the Agent Definition compilation.");
+    }
+
     public static Error agentDefinitionSearchInvalidStatus() {
         return invalidParameter(
                 "IIA-AGD-SEA-400-001",

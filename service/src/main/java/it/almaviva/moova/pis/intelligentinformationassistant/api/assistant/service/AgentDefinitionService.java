@@ -6,11 +6,13 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionListResponse;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatusResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentProfile;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DayOfWeek;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.ToolReference;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentProfileRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
@@ -42,6 +44,9 @@ public class AgentDefinitionService {
     AgentDefinitionRepository agentDefinitionRepository;
 
     @Inject
+    AgentCompilationRepository agentCompilationRepository;
+
+    @Inject
     AgentProfileRepository agentProfileRepository;
 
     @Inject
@@ -49,6 +54,9 @@ public class AgentDefinitionService {
 
     @Inject
     AgentDefinitionMapper agentDefinitionMapper;
+
+    @Inject
+    AgentCompilationMapper agentCompilationMapper;
 
     @Transactional
     public AgentDefinitionDetail getAgentDefinition(String agentDefinitionId) {
@@ -88,6 +96,38 @@ public class AgentDefinitionService {
                 + " inputModel=" + (detail == null ? null : detail.getInputModel())
                 + " outputModel=" + (detail == null ? null : detail.getOutputModel()));
         return detail;
+    }
+
+    @Transactional
+    public AgentCompilationStatusResponse getAgentDefinitionCompilation(String agentDefinitionId) {
+        if (isBlank(agentDefinitionId)) {
+            throw invalid("agentDefinitionId", "The agentDefinitionId path parameter is empty or contains only whitespace characters.");
+        }
+        String id = agentDefinitionId.trim();
+        if (id.length() > 50) {
+            throw invalid("agentDefinitionId", "The agentDefinitionId path parameter exceeds 50 characters.");
+        }
+
+        System.out.println("[IIA][AGENT_COMPILATION][GET] start agentDefinitionId=" + id);
+        AgentDefinition definition = agentDefinitionRepository.findByDefinitionId(id)
+                .orElseThrow(() -> new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found."));
+        System.out.println("[IIA][AGENT_COMPILATION][GET] agent definition found agentDefinitionId=" + id);
+
+        var compilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
+                .orElseThrow(() -> {
+                    System.out.println("[IIA][AGENT_COMPILATION][GET] no compilation found agentDefinitionId=" + id);
+                    return new AgentDefinitionNotFoundException(
+                            "agentDefinitionId",
+                            "No compilation found for Agent Definition " + id + ".");
+                });
+        System.out.println("[IIA][AGENT_COMPILATION][GET] latest compilation found agentDefinitionId=" + id
+                + " compilationId=" + compilation.getCodAgentcompilation()
+                + " status=" + (compilation.getSglStatus() == null ? null : compilation.getSglStatus().getSglStatus()));
+
+        var steps = agentCompilationRepository.findStepsByCompilationId(compilation.getCodAgentcompilation());
+        AgentCompilationStatusResponse response = agentCompilationMapper.toResponse(definition, compilation, steps);
+        System.out.println("[IIA][AGENT_COMPILATION][GET] response mapped agentDefinitionId=" + id + " steps=" + steps.size());
+        return response;
     }
 
     @Transactional
