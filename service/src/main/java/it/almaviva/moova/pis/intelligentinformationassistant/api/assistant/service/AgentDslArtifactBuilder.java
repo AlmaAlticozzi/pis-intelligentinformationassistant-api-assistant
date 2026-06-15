@@ -103,6 +103,117 @@ public class AgentDslArtifactBuilder {
         return AgentDslArtifactBuildResult.success(dslArtifact);
     }
 
+    public AgentDslArtifactBuildResult buildScheduledArtifact(
+            AgentDefinition definition,
+            AgentCompilationPreconditionValidationResult validation,
+            OffsetDateTime createdAt) {
+        String agentDefinitionId = definition == null ? null : definition.getCodAgentdefinition();
+        String interpreterType = validation == null ? null : validation.interpreterType();
+        System.out.println("[IIA][AGENT_DSL][BUILDER] start agentDefinitionId=" + agentDefinitionId
+                + " interpreterType=" + interpreterType);
+
+        Map<String, Object> blueprint = mapValue(definition == null ? null : definition.getJsnBlueprint());
+        Map<String, Object> schedule = extractScheduledSchedule(blueprint);
+        if (schedule == null || schedule.isEmpty()) {
+            return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because schedule is missing.");
+        }
+        System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled schedule extracted agentDefinitionId=" + agentDefinitionId);
+
+        Map<String, Object> serviceDataQuery = extractScheduledServiceDataQuery(blueprint);
+        if (serviceDataQuery == null || serviceDataQuery.isEmpty()) {
+            return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because serviceDataQuery is missing.");
+        }
+        System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled serviceDataQuery extracted agentDefinitionId=" + agentDefinitionId);
+
+        Map<String, Object> snapshotEvaluation = extractScheduledSnapshotEvaluation(blueprint);
+        if (snapshotEvaluation == null || snapshotEvaluation.isEmpty()) {
+            return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because snapshotEvaluation is missing.");
+        }
+        System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled snapshotEvaluation extracted agentDefinitionId=" + agentDefinitionId);
+
+        Map<String, Object> outputPolicy = extractScheduledOutputPolicy(blueprint);
+        if (outputPolicy == null || outputPolicy.isEmpty()) {
+            return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because outputPolicy is missing.");
+        }
+        System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled outputPolicy extracted agentDefinitionId=" + agentDefinitionId);
+
+        String inputModel = firstNonBlank(validation == null ? null : validation.inputModel(), definition.getDscInputmodel(), "ServiceDataStopPointJourneysV2");
+        String outputModel = firstNonBlank(validation == null ? null : validation.outputModel(), definition.getDscOutputmodel(), "AgentOutput.CANDIDATE_SUGGESTION");
+        String evaluationMode = firstNonBlank(validation == null ? null : validation.evaluationMode(), "SCHEDULED_SNAPSHOT_MATCH");
+        String triggerType = firstNonBlank(validation == null ? null : validation.triggerType(), "SCHEDULE");
+        String executionModel = firstNonBlank(validation == null ? null : validation.executionModel(), runtimeValue(definition, "executionModel"), "SCHEDULED_POLLING");
+        String source = firstNonBlank(runtimeValue(definition, "source"), "SERVICE_DATA");
+        String accessMode = firstNonBlank(runtimeValue(definition, "accessMode"), diagnosticValue(validation, "accessMode"), "SERVICE_DATA_API_SNAPSHOT");
+        boolean requiresState = Boolean.TRUE.equals(booleanValue(runtimeValue(definition, "requiresState")));
+        List<Object> allowedTools = scheduledAllowedTools(definition);
+
+        Map<String, Object> artifact = new LinkedHashMap<>();
+        artifact.put("schemaVersion", SCHEMA_VERSION);
+        artifact.put("artifactType", ARTIFACT_TYPE);
+        artifact.put("agentDefinitionId", agentDefinitionId);
+        artifact.put("agentDefinitionVersion", 1);
+        artifact.put("source", Map.of(
+                "type", "AGENT_DEFINITION",
+                "alertId", definition == null || definition.getCodAlert() == null ? null : definition.getCodAlert().getCodAlert(),
+                "alertVersion", definition == null ? null : definition.getNumAlertversion()));
+        Map<String, Object> runtime = new LinkedHashMap<>();
+        runtime.put("engine", "STANDARD_AGENT_DSL_EVALUATOR");
+        runtime.put("executionModel", executionModel);
+        runtime.put("source", source);
+        runtime.put("accessMode", accessMode);
+        runtime.put("interpreterType", "SCHEDULED_INTERPRETER");
+        runtime.put("triggerType", triggerType);
+        runtime.put("inputModel", inputModel);
+        runtime.put("outputModel", outputModel);
+        runtime.put("evaluationMode", evaluationMode);
+        runtime.put("requiresScheduler", true);
+        runtime.put("requiresState", requiresState);
+        runtime.put("requiresExternalTools", false);
+        runtime.put("allowedTools", allowedTools);
+        artifact.put("runtime", runtime);
+        artifact.put("trigger", Map.of(
+                "type", triggerType,
+                "schedule", schedule));
+        artifact.put("toolAccess", Map.of("allowedTools", allowedTools));
+        artifact.put("query", Map.of(
+                "operation", firstNonBlank(stringValue(serviceDataQuery.get("operation")), "POST /v2/stoppointjourneys"),
+                "serviceDataQuery", serviceDataQuery));
+        artifact.put("evaluation", Map.of(
+                "mode", evaluationMode,
+                "snapshotEvaluation", snapshotEvaluation));
+        artifact.put("output", Map.of(
+                "type", "CANDIDATE_SUGGESTION",
+                "outputModel", outputModel,
+                "policy", outputPolicy,
+                "deduplicationKeyTemplate", "SERVICE_DATA_SCHEDULED:${agentDefinitionId}:${queryWindowStart}:${conditionHash}"));
+        artifact.put("governance", Map.of(
+                "generationMode", "DSL",
+                "compiledBy", "api-assistant",
+                "llmRuntimeExecutionAllowed", false,
+                "externalCodeExecutionAllowed", false,
+                "createdAt", (createdAt == null ? OffsetDateTime.now() : createdAt).toString()));
+
+        AgentDslArtifact dslArtifact = new AgentDslArtifact(
+                SCHEMA_VERSION,
+                ARTIFACT_TYPE,
+                agentDefinitionId,
+                "SCHEDULED_INTERPRETER",
+                triggerType,
+                inputModel,
+                outputModel,
+                evaluationMode,
+                artifact,
+                Map.of(
+                        "scheduleSource", "agentDefinition.jsnBlueprint",
+                        "serviceDataQuerySource", "agentDefinition.jsnBlueprint",
+                        "snapshotEvaluationSource", "agentDefinition.jsnBlueprint",
+                        "outputPolicySource", "agentDefinition.jsnBlueprint",
+                        "runtimeSource", "agentDefinition.jsnRuntimecontract"));
+        System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled artifact generated agentDefinitionId="
+                + agentDefinitionId + " schemaVersion=iia.agent.dsl/v1");
+        return AgentDslArtifactBuildResult.success(dslArtifact);
+    }
+
     Map<String, Object> extractEventCondition(Map<String, Object> blueprint) {
         return firstNonEmptyMap(
                 nestedMap(blueprint, "parameters", "condition"),
@@ -112,9 +223,52 @@ public class AgentDslArtifactBuilder {
                 nestedMap(blueprint, "parameters", "evaluation", "condition"));
     }
 
+    Map<String, Object> extractScheduledSchedule(Map<String, Object> blueprint) {
+        return firstNonEmptyMap(
+                nestedMap(blueprint, "parameters", "schedule"),
+                nestedMap(blueprint, "schedule"),
+                nestedMap(blueprint, "parameters", "technicalSpecification", "schedule"),
+                nestedMap(blueprint, "parameters", "runtimeContract", "schedule"));
+    }
+
+    Map<String, Object> extractScheduledServiceDataQuery(Map<String, Object> blueprint) {
+        return firstNonEmptyMap(
+                nestedMap(blueprint, "parameters", "serviceDataQuery"),
+                nestedMap(blueprint, "serviceDataQuery"),
+                nestedMap(blueprint, "parameters", "technicalSpecification", "serviceDataQuery"));
+    }
+
+    Map<String, Object> extractScheduledSnapshotEvaluation(Map<String, Object> blueprint) {
+        return firstNonEmptyMap(
+                nestedMap(blueprint, "parameters", "snapshotEvaluation"),
+                nestedMap(blueprint, "snapshotEvaluation"),
+                nestedMap(blueprint, "parameters", "technicalSpecification", "snapshotEvaluation"));
+    }
+
+    Map<String, Object> extractScheduledOutputPolicy(Map<String, Object> blueprint) {
+        return firstNonEmptyMap(
+                nestedMap(blueprint, "parameters", "outputPolicy"),
+                nestedMap(blueprint, "outputPolicy"),
+                nestedMap(blueprint, "parameters", "technicalSpecification", "outputPolicy"));
+    }
+
     private String runtimeValue(AgentDefinition definition, String key) {
         Map<String, Object> runtimeContract = mapValue(definition == null ? null : definition.getJsnRuntimecontract());
         return stringValue(runtimeContract == null ? null : runtimeContract.get(key));
+    }
+
+    private String diagnosticValue(AgentCompilationPreconditionValidationResult validation, String key) {
+        return stringValue(validation == null || validation.diagnosticDetails() == null
+                ? null
+                : validation.diagnosticDetails().get(key));
+    }
+
+    private List<Object> scheduledAllowedTools(AgentDefinition definition) {
+        List<Object> allowedTools = definition == null ? null : definition.getJsnAllowedtools();
+        if (allowedTools != null && !allowedTools.isEmpty()) {
+            return allowedTools;
+        }
+        return List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
     }
 
     @SafeVarargs

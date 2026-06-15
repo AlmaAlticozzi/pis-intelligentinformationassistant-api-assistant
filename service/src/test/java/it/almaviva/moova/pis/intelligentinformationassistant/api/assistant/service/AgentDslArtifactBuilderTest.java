@@ -65,6 +65,98 @@ class AgentDslArtifactBuilderTest {
                 "Event DSL artifact generation failed because no condition tree could be extracted from the validated blueprint.");
     }
 
+    @Test
+    void buildsScheduledDslArtifact() {
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
+        Map<String, Object> parameters = map(definition.getJsnBlueprint().get("parameters"));
+        AgentCompilationPreconditionValidationResult validation = scheduledValidation();
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                validation,
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> artifact = result.artifact().artifact();
+        assertThat(artifact)
+                .containsEntry("schemaVersion", "iia.agent.dsl/v1")
+                .containsEntry("artifactType", "DSL")
+                .containsEntry("agentDefinitionId", "AGDF1");
+        assertThat(map(artifact.get("runtime")))
+                .containsEntry("executionModel", "SCHEDULED_POLLING")
+                .containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT")
+                .containsEntry("requiresScheduler", true)
+                .containsEntry("requiresExternalTools", false);
+        assertThat(list(map(artifact.get("runtime")).get("allowedTools")))
+                .contains("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+        assertThat(map(artifact.get("trigger")))
+                .containsEntry("type", "SCHEDULE")
+                .containsEntry("schedule", parameters.get("schedule"));
+        assertThat(map(artifact.get("query")))
+                .containsEntry("serviceDataQuery", parameters.get("serviceDataQuery"));
+        assertThat(map(artifact.get("evaluation")))
+                .containsEntry("mode", "SCHEDULED_SNAPSHOT_MATCH")
+                .containsEntry("snapshotEvaluation", parameters.get("snapshotEvaluation"));
+        assertThat(map(artifact.get("output")))
+                .containsEntry("policy", parameters.get("outputPolicy"))
+                .containsEntry("deduplicationKeyTemplate", "SERVICE_DATA_SCHEDULED:${agentDefinitionId}:${queryWindowStart}:${conditionHash}");
+        assertThat(map(artifact.get("governance")))
+                .containsEntry("llmRuntimeExecutionAllowed", false)
+                .containsEntry("externalCodeExecutionAllowed", false);
+    }
+
+    @Test
+    void failsWhenScheduledScheduleIsMissing() {
+        AgentDefinition definition = scheduledWithout("schedule");
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errorMessage()).isEqualTo("Scheduled DSL artifact generation failed because schedule is missing.");
+    }
+
+    @Test
+    void failsWhenScheduledServiceDataQueryIsMissing() {
+        AgentDefinition definition = scheduledWithout("serviceDataQuery");
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errorMessage()).isEqualTo("Scheduled DSL artifact generation failed because serviceDataQuery is missing.");
+    }
+
+    @Test
+    void failsWhenScheduledSnapshotEvaluationIsMissing() {
+        AgentDefinition definition = scheduledWithout("snapshotEvaluation");
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errorMessage()).isEqualTo("Scheduled DSL artifact generation failed because snapshotEvaluation is missing.");
+    }
+
+    @Test
+    void failsWhenScheduledOutputPolicyIsMissing() {
+        AgentDefinition definition = scheduledWithout("outputPolicy");
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errorMessage()).isEqualTo("Scheduled DSL artifact generation failed because outputPolicy is missing.");
+    }
+
     private AgentCompilationPreconditionValidationResult validation() {
         return new AgentCompilationPreconditionValidationResult(
                 true,
@@ -80,9 +172,40 @@ class AgentDslArtifactBuilderTest {
                 Map.of("source", "SERVICE_DATA"));
     }
 
+    private AgentCompilationPreconditionValidationResult scheduledValidation() {
+        return new AgentCompilationPreconditionValidationResult(
+                true,
+                List.of(),
+                List.of(),
+                "SCHEDULED_INTERPRETER",
+                "SCHEDULE",
+                "ServiceDataStopPointJourneysV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                "SCHEDULED_SNAPSHOT_MATCH",
+                "DSL",
+                "SCHEDULED_POLLING",
+                Map.of("source", "SERVICE_DATA", "accessMode", "SERVICE_DATA_API_SNAPSHOT"));
+    }
+
+    private AgentDefinition scheduledWithout(String key) {
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
+        Map<String, Object> blueprint = map(definition.getJsnBlueprint());
+        Map<String, Object> parameters = new java.util.LinkedHashMap<>(map(blueprint.get("parameters")));
+        parameters.remove(key);
+        blueprint = new java.util.LinkedHashMap<>(blueprint);
+        blueprint.put("parameters", parameters);
+        definition.setJsnBlueprint(blueprint);
+        return definition;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> map(Object value) {
         return (Map<String, Object>) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> list(Object value) {
+        return (List<Object>) value;
     }
 
     private Map<String, Object> condition(AgentDefinition definition) {

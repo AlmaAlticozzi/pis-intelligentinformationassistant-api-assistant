@@ -235,19 +235,20 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
-    void compileKeepsScheduledDslGenerationNotImplemented() {
+    void compileGeneratesScheduledDslArtifactAndStopsAtStaticAnalysis() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("GENERATING_ARTIFACT");
-        failed.setDscErrormessage("Scheduled DSL artifact generation is not implemented yet.");
+        failed.setDscCurrentstep("STATIC_ANALYSIS");
+        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
-                step(3, "GENERATING_ARTIFACT", "FAILED"));
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
@@ -257,25 +258,39 @@ class AgentDefinitionCompilationServiceTest {
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
         assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("GENERATING_ARTIFACT");
-        assertThat(response.getErrors()).containsExactly("Scheduled DSL artifact generation is not implemented yet.");
+        assertThat(response.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(response.getErrors()).containsExactly("DSL runtime compatibility validator is not implemented yet.");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
-                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT");
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getStatus)
+                .containsExactly(
+                        AgentCompilationStep.StatusEnum.SUCCESS,
+                        AgentCompilationStep.StatusEnum.SUCCESS,
+                        AgentCompilationStep.StatusEnum.SUCCESS,
+                        AgentCompilationStep.StatusEnum.FAILED);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
         verify(compilationRepository).markFailed(
                 eq("AGCP1"),
                 eq("FAILED"),
-                eq("GENERATING_ARTIFACT"),
-                eq("Scheduled DSL artifact generation is not implemented yet."),
+                eq("STATIC_ANALYSIS"),
+                eq("DSL runtime compatibility validator is not implemented yet."),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
                 .containsEntry("preconditionsValid", true)
-                .containsEntry("artifactGenerated", false)
-                .containsEntry("interpreterType", "SCHEDULED_INTERPRETER");
+                .containsEntry("artifactGenerated", true)
+                .containsEntry("interpreterType", "SCHEDULED_INTERPRETER")
+                .containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT")
+                .containsEntry("schemaVersion", "iia.agent.dsl/v1");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dslArtifact = (Map<String, Object>) resultCaptor.getValue().get("dslArtifact");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> runtime = (Map<String, Object>) dslArtifact.get("runtime");
+        assertThat(runtime).containsEntry("executionModel", "SCHEDULED_POLLING");
         assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
     }
 

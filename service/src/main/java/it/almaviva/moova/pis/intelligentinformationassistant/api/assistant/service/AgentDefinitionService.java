@@ -44,8 +44,6 @@ public class AgentDefinitionService {
     private static final String DSL_ARTIFACT_NOT_IMPLEMENTED = "DSL artifact generation is not implemented yet.";
     private static final String DSL_RUNTIME_COMPATIBILITY_VALIDATOR_NOT_IMPLEMENTED =
             "DSL runtime compatibility validator is not implemented yet.";
-    private static final String SCHEDULED_DSL_ARTIFACT_NOT_IMPLEMENTED =
-            "Scheduled DSL artifact generation is not implemented yet.";
 
     @Inject
     AgentDefinitionRepository agentDefinitionRepository;
@@ -282,44 +280,15 @@ public class AgentDefinitionService {
                 compilationId,
                 AgentCompilationStatuses.GENERATING_ARTIFACT,
                 AgentCompilationStatuses.GENERATING_ARTIFACT);
-        if ("SCHEDULED_INTERPRETER".equals(validation.interpreterType())) {
-            agentCompilationRepository.addStep(
-                    compilationId,
-                    3,
-                    "GENERATING_ARTIFACT",
-                    AgentCompilationStatuses.FAILED,
-                    SCHEDULED_DSL_ARTIFACT_NOT_IMPLEMENTED,
-                    Map.of(
-                            "artifactGenerationImplemented", false,
-                            "nextImplementationStep", "Scheduled AgentDslArtifactBuilder"),
-                    artifactStartedAt,
-                    OffsetDateTime.now());
-            System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=GENERATING_ARTIFACT status=FAILED");
-
-            OffsetDateTime completedAt = OffsetDateTime.now();
-            agentCompilationRepository.markFailed(
-                    compilationId,
-                    AgentCompilationStatuses.FAILED,
-                    AgentCompilationStatuses.GENERATING_ARTIFACT,
-                    SCHEDULED_DSL_ARTIFACT_NOT_IMPLEMENTED,
-                    Map.of(
-                            "preconditionsValid", true,
-                            "artifactGenerated", false,
-                            "interpreterType", "SCHEDULED_INTERPRETER",
-                            "agentDefinitionStatusUpdated", false,
-                            "reason", SCHEDULED_DSL_ARTIFACT_NOT_IMPLEMENTED),
-                    completedAt);
-            System.out.println("[IIA][AGENT_COMPILATION][POST] completed skeleton compilationId=" + compilationId + " finalStatus=FAILED");
-
-            var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
-                    .orElse(compilation);
-            var steps = agentCompilationRepository.findStepsByCompilationId(latestCompilation.getCodAgentcompilation());
-            return agentCompilationMapper.toResponse(definition, latestCompilation, steps);
+        boolean scheduled = "SCHEDULED_INTERPRETER".equals(validation.interpreterType());
+        if (scheduled) {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] generating scheduled DSL artifact compilationId=" + compilationId);
+        } else {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] generating event DSL artifact compilationId=" + compilationId);
         }
-
-        System.out.println("[IIA][AGENT_COMPILATION][POST] generating event DSL artifact compilationId=" + compilationId);
-        AgentDslArtifactBuildResult buildResult =
-                agentDslArtifactBuilder.buildEventArtifact(definition, validation, artifactStartedAt);
+        AgentDslArtifactBuildResult buildResult = scheduled
+                ? agentDslArtifactBuilder.buildScheduledArtifact(definition, validation, artifactStartedAt)
+                : agentDslArtifactBuilder.buildEventArtifact(definition, validation, artifactStartedAt);
         if (!buildResult.success()) {
             agentCompilationRepository.addStep(
                     compilationId,
@@ -357,23 +326,31 @@ public class AgentDefinitionService {
         }
 
         AgentDslArtifact artifact = buildResult.artifact();
+        Map<String, Object> artifactStepDetails = new LinkedHashMap<>();
+        artifactStepDetails.put("schemaVersion", artifact.schemaVersion());
+        artifactStepDetails.put("artifactType", artifact.artifactType());
+        artifactStepDetails.put("interpreterType", artifact.interpreterType());
+        artifactStepDetails.put("triggerType", artifact.triggerType());
+        artifactStepDetails.put("inputModel", artifact.inputModel());
+        artifactStepDetails.put("evaluationMode", artifact.evaluationMode());
+        if (scheduled) {
+            artifactStepDetails.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        }
+        artifactStepDetails.put("artifactGenerated", true);
         agentCompilationRepository.addStep(
                 compilationId,
                 3,
                 "GENERATING_ARTIFACT",
                 AgentCompilationStatuses.READY,
-                "Event DSL artifact generated successfully.",
-                Map.of(
-                        "schemaVersion", artifact.schemaVersion(),
-                        "artifactType", artifact.artifactType(),
-                        "interpreterType", artifact.interpreterType(),
-                        "triggerType", artifact.triggerType(),
-                        "inputModel", artifact.inputModel(),
-                        "evaluationMode", artifact.evaluationMode(),
-                        "artifactGenerated", true),
+                scheduled ? "Scheduled DSL artifact generated successfully." : "Event DSL artifact generated successfully.",
+                artifactStepDetails,
                 artifactStartedAt,
                 OffsetDateTime.now());
-        System.out.println("[IIA][AGENT_COMPILATION][POST] event DSL artifact generated compilationId=" + compilationId);
+        if (scheduled) {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] scheduled DSL artifact generated compilationId=" + compilationId);
+        } else {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] event DSL artifact generated compilationId=" + compilationId);
+        }
         System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=GENERATING_ARTIFACT status=READY");
 
         OffsetDateTime staticAnalysisStartedAt = OffsetDateTime.now();
@@ -401,6 +378,9 @@ public class AgentDefinitionService {
         resultJson.put("schemaVersion", artifact.schemaVersion());
         resultJson.put("interpreterType", artifact.interpreterType());
         resultJson.put("triggerType", artifact.triggerType());
+        if (scheduled) {
+            resultJson.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        }
         resultJson.put("inputModel", artifact.inputModel());
         resultJson.put("evaluationMode", artifact.evaluationMode());
         resultJson.put("runtimeCompatibilityValidated", false);
