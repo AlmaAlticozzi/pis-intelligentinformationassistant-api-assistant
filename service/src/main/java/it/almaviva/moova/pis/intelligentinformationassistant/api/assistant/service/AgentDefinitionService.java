@@ -485,6 +485,10 @@ public class AgentDefinitionService {
         String networkPolicy = isBlank(profile.getNetworkPolicy()) ? "TOOL_GATEWAY_ONLY" : profile.getNetworkPolicy();
         List<String> allowedToolNames = contract.isScheduled() ? List.of(SCHEDULED_TOOL) : List.of();
         Map<String, Object> runtimeContract = runtimeContract(contract, allowedToolNames, networkPolicy);
+        if (contract.isScheduled()) {
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][SCHEDULED] runtimeContract=" + runtimeContract);
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][SCHEDULED] allowedTools=" + allowedToolNames);
+        }
         System.out.println("[IIA][AGENT_DEFINITION_CREATE][RUNTIME_CONTRACT] alertId=" + alertId
                 + " interpreterType=" + contract.interpreterType()
                 + " triggerType=" + contract.triggerType()
@@ -501,6 +505,19 @@ public class AgentDefinitionService {
         definition.setSglStatus(agentDefinitionRepository.statusReference("DRAFT"));
         definition.setSglGenerationmode(agentDefinitionRepository.generationModeReference(generationMode.toString()));
         Map<String, Object> blueprint = blueprint(alert, technicalSpecification, contract);
+        if (contract.isScheduled()) {
+            Map<String, Object> parameters = mapValue(blueprint.get("parameters"));
+            boolean hasSchedule = parameters != null && mapValue(parameters.get("schedule")) != null;
+            boolean hasServiceDataQuery = parameters != null && mapValue(parameters.get("serviceDataQuery")) != null;
+            boolean hasSnapshotEvaluation = parameters != null && mapValue(parameters.get("snapshotEvaluation")) != null;
+            boolean hasOutputPolicy = parameters != null && mapValue(parameters.get("outputPolicy")) != null;
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][SCHEDULED] blueprint parameters keys="
+                    + (parameters == null ? List.of() : parameters.keySet()));
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][SCHEDULED] hasSchedule=" + hasSchedule
+                    + " hasServiceDataQuery=" + hasServiceDataQuery
+                    + " hasSnapshotEvaluation=" + hasSnapshotEvaluation
+                    + " hasOutputPolicy=" + hasOutputPolicy);
+        }
         definition.setJsnBlueprint(blueprint);
         definition.setJsnDslpreview(mapValue(blueprint.get("dslPreview")));
         definition.setJsnValidationplan(mapValue(blueprint.get("validationPlan")));
@@ -717,7 +734,7 @@ public class AgentDefinitionService {
     private Map<String, Object> blueprint(Alert alert, Map<String, Object> technicalSpecification, TechnicalContract contract) {
         Map<String, Object> preview = mapValue(alert.getJsnAgentblueprintpreview());
         if (preview != null && !preview.isEmpty()) {
-            return preview;
+            return contract.isScheduled() ? normalizeScheduledBlueprint(preview, technicalSpecification) : preview;
         }
         Map<String, Object> blueprint = new LinkedHashMap<>();
         blueprint.put("schemaVersion", "iia.agent.blueprint/v1");
@@ -726,24 +743,37 @@ public class AgentDefinitionService {
         blueprint.put("triggerType", contract.triggerType());
         blueprint.put("requiredSources", List.of("SERVICE_DATA"));
         blueprint.put("requiredPermissions", List.of("SERVICE_DATA_READ"));
-        blueprint.put("parameters", Map.of(
-                "technicalSpecificationSource", "alert.jsn_technicalspecification",
-                "technicalSpecification", technicalSpecification));
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("technicalSpecificationSource", "alert.jsn_technicalspecification");
+        parameters.put("technicalSpecification", technicalSpecification);
+        if (contract.isScheduled()) {
+            copyMapIfPresent(technicalSpecification, parameters, "schedule");
+            copyMapIfPresent(technicalSpecification, parameters, "serviceDataQuery");
+            copyMapIfPresent(technicalSpecification, parameters, "snapshotEvaluation");
+            copyMapIfPresent(technicalSpecification, parameters, "outputPolicy");
+        }
+        blueprint.put("parameters", parameters);
         return blueprint;
     }
 
     private Map<String, Object> runtimeContract(TechnicalContract contract, List<String> allowedToolNames, String networkPolicy) {
-        List<Map<String, Object>> allowedTools = allowedToolNames.stream()
-                .map(toolName -> Map.<String, Object>of("toolName", toolName, "operations", List.of(toolName)))
-                .toList();
         Map<String, Object> runtimeContract = new LinkedHashMap<>();
         runtimeContract.put("runtimeExecutionModel", "STANDARD_DSL_EVALUATOR");
+        runtimeContract.put("executionModel", contract.isScheduled() ? "SCHEDULED_POLLING" : "KAFKA_EVENT");
         runtimeContract.put("interpreterType", contract.interpreterType());
         runtimeContract.put("triggerType", contract.triggerType());
+        runtimeContract.put("source", contract.source());
+        if (contract.isScheduled()) {
+            runtimeContract.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+        }
         runtimeContract.put("inputModel", contract.inputModel());
         runtimeContract.put("outputModel", contract.outputModel());
         runtimeContract.put("evaluationMode", contract.evaluationMode());
-        runtimeContract.put("allowedTools", allowedTools);
+        runtimeContract.put("requiresScheduler", contract.isScheduled());
+        runtimeContract.put("requiresState", false);
+        runtimeContract.put("requiresExternalTools", false);
+        runtimeContract.put("allowedTools", allowedToolNames);
+        runtimeContract.put("requiredPermissions", List.of("READ_SERVICE_DATA"));
         runtimeContract.put("networkPolicy", networkPolicy);
         runtimeContract.put("forbiddenCapabilities", List.of(
                 "ARBITRARY_CODE_EXECUTION",
@@ -755,6 +785,35 @@ public class AgentDefinitionService {
                 "minimumRuntimeVersion", "1.0.0",
                 "runtimeClass", "STANDARD_DSL_RUNTIME"));
         return runtimeContract;
+    }
+
+    private Map<String, Object> normalizeScheduledBlueprint(
+            Map<String, Object> preview,
+            Map<String, Object> technicalSpecification) {
+        Map<String, Object> normalized = new LinkedHashMap<>(preview);
+        Map<String, Object> parameters = mapValue(normalized.get("parameters"));
+        parameters = parameters == null ? new LinkedHashMap<>() : new LinkedHashMap<>(parameters);
+        parameters.putIfAbsent("technicalSpecificationSource", "alert.jsn_technicalspecification");
+        parameters.putIfAbsent("technicalSpecification", technicalSpecification);
+        copyMapIfAbsent(technicalSpecification, parameters, "schedule");
+        copyMapIfAbsent(technicalSpecification, parameters, "serviceDataQuery");
+        copyMapIfAbsent(technicalSpecification, parameters, "snapshotEvaluation");
+        copyMapIfAbsent(technicalSpecification, parameters, "outputPolicy");
+        normalized.put("parameters", parameters);
+        return normalized;
+    }
+
+    private void copyMapIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
+        Map<String, Object> value = mapValue(source.get(key));
+        if (value != null && !value.isEmpty()) {
+            target.put(key, value);
+        }
+    }
+
+    private void copyMapIfAbsent(Map<String, Object> source, Map<String, Object> target, String key) {
+        if (mapValue(target.get(key)) == null) {
+            copyMapIfPresent(source, target, key);
+        }
     }
 
     private List<Object> generationWarnings(Alert alert) {

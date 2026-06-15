@@ -52,7 +52,7 @@ public class AgentCompilationPreconditionValidator {
             errors.add("Agent Definition runtimeContract is missing; compilation cannot continue.");
         }
 
-        ContractShape contract = resolveContract(definition, runtimeContract, blueprint);
+        ContractShape contract = resolveContract(definition, runtimeContract, blueprint, warnings);
         System.out.println("[IIA][AGENT_COMPILATION][VALIDATOR] resolved contract agentDefinitionId=" + agentDefinitionId
                 + " interpreterType=" + contract.interpreterType()
                 + " triggerType=" + contract.triggerType()
@@ -152,7 +152,8 @@ public class AgentCompilationPreconditionValidator {
     private ContractShape resolveContract(
             AgentDefinition definition,
             Map<String, Object> runtimeContract,
-            Map<String, Object> blueprint) {
+            Map<String, Object> blueprint,
+            List<String> warnings) {
         Map<String, Object> parameters = mapValue(blueprint == null ? null : blueprint.get("parameters"));
         Map<String, Object> blueprintRuntimeContract = mapValue(parameters == null ? null : parameters.get("runtimeContract"));
 
@@ -199,6 +200,13 @@ public class AgentCompilationPreconditionValidator {
                 runtimeContract == null ? null : runtimeContract.get("requiresScheduler"),
                 blueprintRuntimeContract == null ? null : blueprintRuntimeContract.get("requiresScheduler"),
                 parameters == null ? null : parameters.get("requiresScheduler")));
+        if (requiresScheduler == null
+                && "SCHEDULED_INTERPRETER".equals(interpreterType)
+                && "SCHEDULE".equals(triggerType)
+                && "SCHEDULED_SNAPSHOT_MATCH".equals(evaluationMode)) {
+            requiresScheduler = true;
+            warnings.add("requiresScheduler was missing from runtimeContract and was derived from SCHEDULED_INTERPRETER contract.");
+        }
         List<Object> allowedTools = firstNonEmptyList(
                 listValue(runtimeContract == null ? null : runtimeContract.get("allowedTools")),
                 definition.getJsnAllowedtools(),
@@ -323,8 +331,14 @@ public class AgentCompilationPreconditionValidator {
             if (!hasAnyNonEmpty(blueprint, List.of("parameters", "outputPolicy"), List.of("outputPolicy"))) {
                 errors.add("Scheduled Agent blueprint is missing outputPolicy.");
             }
-            if (!hasAnyNonEmpty(blueprint, List.of("parameters", "schedule"), List.of("schedule"))
-                    && !hasAnyNonEmpty(runtimeContract, List.of("schedule"))) {
+            if (!hasAnyNonEmpty(blueprint,
+                    List.of("parameters", "schedule"),
+                    List.of("schedule"),
+                    List.of("parameters", "technicalSpecification", "schedule"),
+                    List.of("technicalSpecification", "schedule"),
+                    List.of("parameters", "runtimeContract", "schedule"))
+                    && !hasAnyNonEmpty(runtimeContract, List.of("schedule"))
+                    && !hasAnyNonEmpty(mapValue(runtimeContract == null ? null : runtimeContract.get("technicalSpecification")), List.of("schedule"))) {
                 errors.add("Scheduled Agent blueprint is missing schedule.");
             }
         }

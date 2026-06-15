@@ -105,6 +105,59 @@ class AgentCompilationPreconditionValidatorTest {
         assertThat(result.errors()).contains("Unsupported Agent runtime contract: interpreterType=EVENT_INTERPRETER, triggerType=EVENT, inputModel=UnknownModel, evaluationMode=STATELESS_EVENT_MATCH.");
     }
 
+    @Test
+    void derivesRequiresSchedulerForLegacyScheduledRuntimeContract() {
+        AgentDefinition definition = scheduledDefinition();
+        Map<String, Object> runtimeContract = new LinkedHashMap<>(definition.getJsnRuntimecontract());
+        runtimeContract.remove("requiresScheduler");
+        definition.setJsnRuntimecontract(runtimeContract);
+
+        AgentCompilationPreconditionValidationResult result = validator.validate(definition, "DSL");
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.warnings()).contains(
+                "requiresScheduler was missing from runtimeContract and was derived from SCHEDULED_INTERPRETER contract.");
+        assertThat(result.diagnosticDetails()).containsEntry("requiresScheduler", true);
+    }
+
+    @Test
+    void acceptsScheduledScheduleFromTechnicalSpecificationPath() {
+        AgentDefinition definition = scheduledDefinition();
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"));
+        parameters.put("snapshotEvaluation", Map.of("mode", "REPORT_COUNT"));
+        parameters.put("outputPolicy", Map.of("emit", "ON_MATCH"));
+        parameters.put("technicalSpecification", Map.of("schedule", Map.of("frequencySeconds", 600)));
+        definition.setJsnBlueprint(Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "triggerType", "SCHEDULE",
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "parameters", parameters));
+
+        AgentCompilationPreconditionValidationResult result = validator.validate(definition, "DSL");
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void rejectsScheduledWhenScheduleIsReallyMissing() {
+        AgentDefinition definition = scheduledDefinition();
+        definition.setJsnBlueprint(Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "triggerType", "SCHEDULE",
+                "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
+                "parameters", Map.of(
+                        "serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"),
+                        "snapshotEvaluation", Map.of("mode", "REPORT_COUNT"),
+                        "outputPolicy", Map.of("emit", "ON_MATCH"))));
+
+        AgentCompilationPreconditionValidationResult result = validator.validate(definition, "DSL");
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).contains("Scheduled Agent blueprint is missing schedule.");
+    }
+
     private AgentDefinition eventDefinition() {
         AgentDefinition definition = baseDefinition("EVENT_INTERPRETER");
         definition.setDscInputmodel("ServiceDataV2");

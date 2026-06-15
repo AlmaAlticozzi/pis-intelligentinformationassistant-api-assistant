@@ -580,8 +580,24 @@ class AgentDefinitionServiceTest {
                 eq(List.of()),
                 eq(List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys")));
         assertPersistedDraft(definitionCaptor.getValue(), "ServiceDataStopPointJourneysV2");
-        assertThat(definitionCaptor.getValue().getJsnAllowedtools())
+        AgentDefinition definition = definitionCaptor.getValue();
+        assertThat(definition.getJsnAllowedtools())
                 .containsExactly("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+        assertThat(definition.getJsnRuntimecontract())
+                .containsEntry("executionModel", "SCHEDULED_POLLING")
+                .containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT")
+                .containsEntry("requiresScheduler", true)
+                .containsEntry("requiresState", false)
+                .containsEntry("requiresExternalTools", false);
+        assertThat(definition.getJsnRuntimecontract().get("allowedTools"))
+                .asList()
+                .contains("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> parameters = (Map<String, Object>) definition.getJsnBlueprint().get("parameters");
+        assertThat(parameters.get("schedule")).isInstanceOf(Map.class);
+        assertThat(parameters.get("serviceDataQuery")).isInstanceOf(Map.class);
+        assertThat(parameters.get("snapshotEvaluation")).isInstanceOf(Map.class);
+        assertThat(parameters.get("outputPolicy")).isInstanceOf(Map.class);
     }
 
     @Test
@@ -820,7 +836,13 @@ class AgentDefinitionServiceTest {
                 "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
                 "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
                 "schedule", Map.of("frequencySeconds", frequencySeconds),
-                "serviceDataQuery", Map.of("stopPoints", stopPoints));
+                "serviceDataQuery", Map.of(
+                        "operation", "POST /v2/stoppointjourneys",
+                        "stopPoints", stopPoints),
+                "snapshotEvaluation", Map.of(
+                        "mode", "REPORT_COUNT",
+                        "condition", Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH")),
+                "outputPolicy", Map.of("emit", "ON_MATCH"));
     }
 
     private AgentProfile profile(boolean enabled) {

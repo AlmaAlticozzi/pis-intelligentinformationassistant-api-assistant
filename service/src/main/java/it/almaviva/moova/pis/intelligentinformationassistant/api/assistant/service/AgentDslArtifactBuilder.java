@@ -113,7 +113,11 @@ public class AgentDslArtifactBuilder {
                 + " interpreterType=" + interpreterType);
 
         Map<String, Object> blueprint = mapValue(definition == null ? null : definition.getJsnBlueprint());
-        Map<String, Object> schedule = extractScheduledSchedule(blueprint);
+        Map<String, Object> runtimeContract = mapValue(definition == null ? null : definition.getJsnRuntimecontract());
+        Map<String, Object> schedule = firstNonEmptyMap(
+                extractScheduledSchedule(blueprint),
+                nestedMap(runtimeContract, "schedule"),
+                nestedMap(runtimeContract, "technicalSpecification", "schedule"));
         if (schedule == null || schedule.isEmpty()) {
             return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because schedule is missing.");
         }
@@ -228,6 +232,7 @@ public class AgentDslArtifactBuilder {
                 nestedMap(blueprint, "parameters", "schedule"),
                 nestedMap(blueprint, "schedule"),
                 nestedMap(blueprint, "parameters", "technicalSpecification", "schedule"),
+                nestedMap(blueprint, "technicalSpecification", "schedule"),
                 nestedMap(blueprint, "parameters", "runtimeContract", "schedule"));
     }
 

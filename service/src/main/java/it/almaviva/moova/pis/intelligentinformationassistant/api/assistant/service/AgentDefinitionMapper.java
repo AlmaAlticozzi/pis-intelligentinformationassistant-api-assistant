@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentArtifact;
@@ -26,13 +27,16 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @ApplicationScoped
 public class AgentDefinitionMapper {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .findAndRegisterModules()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -186,7 +190,7 @@ public class AgentDefinitionMapper {
             it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity,
             String interpreterType,
             String triggerType) {
-        AgentRuntimeContract contract = convert(entity.getJsnRuntimecontract(), AgentRuntimeContract.class);
+        AgentRuntimeContract contract = convert(runtimeContractForDto(entity.getJsnRuntimecontract()), AgentRuntimeContract.class);
         if (contract == null) {
             contract = new AgentRuntimeContract();
         }
@@ -214,6 +218,21 @@ public class AgentDefinitionMapper {
                     .toList());
         }
         return contract;
+    }
+
+    private Object runtimeContractForDto(Map<String, Object> runtimeContract) {
+        if (runtimeContract == null) {
+            return null;
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>(runtimeContract);
+        Object allowedTools = normalized.get("allowedTools");
+        if (allowedTools instanceof List<?> list && list.stream().allMatch(String.class::isInstance)) {
+            normalized.put("allowedTools", list.stream()
+                    .map(String::valueOf)
+                    .map(tool -> Map.of("toolName", tool, "operations", List.of(tool)))
+                    .toList());
+        }
+        return normalized;
     }
 
     private AgentRunSummary toLatestRun(
