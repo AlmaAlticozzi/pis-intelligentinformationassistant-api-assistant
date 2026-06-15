@@ -1,8 +1,10 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.api.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDailyWindowActivationPolicy;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DayOfWeek;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
@@ -38,6 +40,63 @@ class AgentDefinitionActivationPolicyBindingTest {
         assertThat(policy.getTimezone()).isEqualTo("Europe/Rome");
         assertThat(policy.getValidFrom()).isEqualTo(OffsetDateTime.parse("2026-06-12T10:00:00+02:00"));
         assertThat(policy.getValidTo()).isEqualTo(OffsetDateTime.parse("2026-12-31T23:59:59+01:00"));
+    }
+
+    @Test
+    void deserializesContinuousActivationPolicyWithLocalDateTimesUsingTimezone() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(continuousLocalDateTimeRequestJson(), AgentDefinitionCreateRequest.class);
+
+        assertThat(request.getActivationPolicy()).isInstanceOf(AgentContinuousActivationPolicy.class);
+        AgentContinuousActivationPolicy policy = (AgentContinuousActivationPolicy) request.getActivationPolicy();
+        assertThat(policy.getTimezone()).isEqualTo("Europe/Rome");
+        assertThat(policy.getValidFrom()).isEqualTo(OffsetDateTime.parse("2026-06-12T00:00:00+02:00"));
+        assertThat(policy.getValidTo()).isEqualTo(OffsetDateTime.parse("2026-12-31T23:59:00+01:00"));
+    }
+
+    @Test
+    void createEndpointReachesServiceWithContinuousLocalDateTimes() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(realContinuousLocalDateTimeRequestJson(), AgentDefinitionCreateRequest.class);
+        AgentDefinitionService service = mock(AgentDefinitionService.class);
+        when(service.createAgentDefinition(argThat(actual -> actual == request
+                && actual.getActivationPolicy() instanceof AgentContinuousActivationPolicy
+                && ((AgentContinuousActivationPolicy) actual.getActivationPolicy()).getValidFrom()
+                .equals(OffsetDateTime.parse("2026-06-12T00:00:00+02:00")))))
+                .thenReturn(new AgentDefinitionDetail().id("AGDF1").name("Ambiguous Location Resolution Malpensa T2 Agent"));
+        AssistantV1Api api = new AssistantV1Api();
+        api.agentDefinitionService = service;
+
+        AgentDefinitionDetail detail = api.createAgentDefinition(request);
+
+        assertThat(detail.getId()).isEqualTo("AGDF1");
+    }
+
+    @Test
+    void rejectsContinuousLocalDateTimeWithInvalidTimezoneDuringBinding() {
+        assertThatThrownBy(() -> OBJECT_MAPPER.readValue(continuousLocalDateTimeRequestJson().replace("Europe/Rome", "Europe/Fake"), AgentDefinitionCreateRequest.class))
+                .isInstanceOf(JsonMappingException.class)
+                .hasMessageContaining("validFrom must be a valid date-time with offset or a local date-time interpreted using activationPolicy.timezone.");
+    }
+
+    @Test
+    void rejectsContinuousDateWithoutTimeDuringBinding() {
+        assertThatThrownBy(() -> OBJECT_MAPPER.readValue(continuousLocalDateTimeRequestJson().replace("2026-06-12T00:00", "2026-06-12"), AgentDefinitionCreateRequest.class))
+                .isInstanceOf(JsonMappingException.class)
+                .hasMessageContaining("validFrom must be a valid date-time with offset or a local date-time interpreted using activationPolicy.timezone.");
+    }
+
+    @Test
+    void createEndpointReturns400ApplicationErrorForContinuousValidToBeforeValidFrom() throws Exception {
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(continuousInvalidRangeRequestJson(), AgentDefinitionCreateRequest.class);
+        AssistantV1Api api = apiWithRealServiceValidation();
+
+        assertThatThrownBy(() -> api.createAgentDefinition(request))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> {
+                    WebApplicationException webException = (WebApplicationException) ex;
+                    assertThat(webException.getResponse().getStatus()).isEqualTo(400);
+                    assertThat(webException.getResponse().getEntity().toString())
+                            .contains("CONTINUOUS activation policy requires validFrom, validTo and validTo > validFrom.");
+                });
     }
 
     @Test
@@ -164,6 +223,62 @@ class AgentDefinitionActivationPolicyBindingTest {
                     "timezone": "Europe/Rome",
                     "validFrom": "2026-06-12T10:00:00+02:00",
                     "validTo": "2026-12-31T23:59:59+01:00"
+                  }
+                }
+                """;
+    }
+
+    private String continuousLocalDateTimeRequestJson() {
+        return """
+                {
+                  "alertId": "ALRTA2EEB011D1C44877A51DE91E234929AB",
+                  "agentProfileId": "MEDIUM",
+                  "name": "Agent Definition Test Local Date Time",
+                  "description": "Should bind local date-time using timezone.",
+                  "generationMode": "AUTO",
+                  "compileImmediately": true,
+                  "activationPolicy": {
+                    "type": "CONTINUOUS",
+                    "timezone": "Europe/Rome",
+                    "validFrom": "2026-06-12T00:00",
+                    "validTo": "2026-12-31T23:59"
+                  }
+                }
+                """;
+    }
+
+    private String realContinuousLocalDateTimeRequestJson() {
+        return """
+                {
+                  "alertId": "ALRT8BDC03E9A49143ADA2D071CE2383BE86",
+                  "name": "Ambiguous Location Resolution Malpensa T2 Agent",
+                  "agentProfileId": "MEDIUM",
+                  "generationMode": "DSL",
+                  "compileImmediately": false,
+                  "activationPolicy": {
+                    "type": "CONTINUOUS",
+                    "timezone": "Europe/Rome",
+                    "validFrom": "2026-06-12T00:00",
+                    "validTo": "2026-12-31T23:59"
+                  },
+                  "description": "Agent Definition generated from verified Alert \\"Ambiguous Location Resolution Malpensa T2\\".",
+                  "alertVersion": 1
+                }
+                """;
+    }
+
+    private String continuousInvalidRangeRequestJson() {
+        return """
+                {
+                  "alertId": "ALRTA2EEB011D1C44877A51DE91E234929AB",
+                  "agentProfileId": "MEDIUM",
+                  "generationMode": "AUTO",
+                  "compileImmediately": false,
+                  "activationPolicy": {
+                    "type": "CONTINUOUS",
+                    "timezone": "Europe/Rome",
+                    "validFrom": "2026-12-31T23:59",
+                    "validTo": "2026-06-12T00:00"
                   }
                 }
                 """;

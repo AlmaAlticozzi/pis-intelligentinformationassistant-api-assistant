@@ -44,9 +44,9 @@ public class AgentCompilation {
     @Column(name = "dsc_currentstep", length = 120)
     private String dscCurrentstep;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "dsc_requestedmode")
-    private AgentGenerationMode dscRequestedmode;
+    @Size(max = 30)
+    @Column(name = "dsc_requestedmode", length = 30)
+    private String dscRequestedmode;
 
     @NotNull
     @ColumnDefault("false")

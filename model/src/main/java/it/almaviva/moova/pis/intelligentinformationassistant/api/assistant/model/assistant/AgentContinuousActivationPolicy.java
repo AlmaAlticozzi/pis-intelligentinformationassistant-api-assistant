@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 
 import io.swagger.annotations.*;
 import java.util.Objects;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -17,6 +18,7 @@ import org.openapitools.jackson.nullable.JsonNullable;
 
 
 @JsonTypeName("CONTINUOUS")
+@JsonDeserialize(using = AgentContinuousActivationPolicyDeserializer.class)
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
 public class AgentContinuousActivationPolicy extends AgentActivationPolicy  {
   public enum TypeEnum {

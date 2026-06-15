@@ -1,5 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentContinuousActivationPolicy;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDailyWindowActivationPolicy;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.when;
 
 class AgentDefinitionServiceTest {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final String ALERT_ID = "ALRT1";
     private static final String PROFILE_ID = "MEDIUM";
     private static final String COMPILE_NOT_IMPLEMENTED =
@@ -75,6 +77,36 @@ class AgentDefinitionServiceTest {
         assertThat(detail.getActivationPolicy()).isNotNull();
         assertThat(detail.getProfile().getId()).isEqualTo(PROFILE_ID);
         assertThat(detail.getAlertVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void createsDraftAgentDefinitionFromRequestWithContinuousLocalDateTimes() throws Exception {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentDefinitionService service = service(definitionRepository, profileRepository);
+        stubReferences(definitionRepository);
+        when(definitionRepository.generationModeReference("DSL")).thenReturn(generationModeRef("DSL"));
+        Alert alert = verifiedAlert(eventTechnicalSpecification());
+        alert.setCodAlert("ALRT8BDC03E9A49143ADA2D071CE2383BE86");
+        alert.setNumVersion(1);
+        when(definitionRepository.findAlert("ALRT8BDC03E9A49143ADA2D071CE2383BE86")).thenReturn(Optional.of(alert));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> created(invocation.getArgument(0)));
+        AgentDefinitionCreateRequest request = OBJECT_MAPPER.readValue(realContinuousLocalDateTimeRequestJson(), AgentDefinitionCreateRequest.class);
+
+        var detail = service.createAgentDefinition(request);
+
+        ArgumentCaptor<AgentDefinition> definitionCaptor = ArgumentCaptor.forClass(AgentDefinition.class);
+        verify(definitionRepository).create(definitionCaptor.capture(), eq(List.of("SERVICE_DATA")), eq(List.of()), eq(List.of()));
+        AgentDefinition definition = definitionCaptor.getValue();
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getSglGenerationmode().getSglGenerationmode()).isEqualTo("DSL");
+        assertThat(definition.getDtValidfrom()).isEqualTo(OffsetDateTime.parse("2026-06-12T00:00:00+02:00"));
+        assertThat(definition.getDtValidto()).isEqualTo(OffsetDateTime.parse("2026-12-31T23:59:00+01:00"));
+        assertThat(detail.getId()).isEqualTo("AGDF1");
+        assertThat(detail.getStatus().toString()).isEqualTo("DRAFT");
+        assertThat(detail.getAlertVersion()).isEqualTo(1);
     }
 
     @Test
@@ -697,6 +729,26 @@ class AgentDefinitionServiceTest {
                 "orchestratorCompatibility", Map.of(
                         "minimumRuntimeVersion", "1.0.0",
                         "runtimeClass", "STANDARD_DSL_RUNTIME"));
+    }
+
+    private String realContinuousLocalDateTimeRequestJson() {
+        return """
+                {
+                  "alertId": "ALRT8BDC03E9A49143ADA2D071CE2383BE86",
+                  "name": "Ambiguous Location Resolution Malpensa T2 Agent",
+                  "agentProfileId": "MEDIUM",
+                  "generationMode": "DSL",
+                  "compileImmediately": false,
+                  "activationPolicy": {
+                    "type": "CONTINUOUS",
+                    "timezone": "Europe/Rome",
+                    "validFrom": "2026-06-12T00:00",
+                    "validTo": "2026-12-31T23:59"
+                  },
+                  "description": "Agent Definition generated from verified Alert \\"Ambiguous Location Resolution Malpensa T2\\".",
+                  "alertVersion": 1
+                }
+                """;
     }
 
     private String stringValue(Object value) {
