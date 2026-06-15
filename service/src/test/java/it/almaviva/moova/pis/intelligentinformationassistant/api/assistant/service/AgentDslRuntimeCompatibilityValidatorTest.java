@@ -133,6 +133,29 @@ class AgentDslRuntimeCompatibilityValidatorTest {
                 .contains("DSL contains forbidden dynamic execution content at $.script.");
     }
 
+    @Test
+    void rejectsExternalHttpUrlContent() {
+        Map<String, Object> artifact = eventDsl();
+        artifact.put("metadata", Map.of("endpointUrl", "https://example.invalid/runtime"));
+
+        AgentDslRuntimeCompatibilityValidationResult result = validator.validate(artifact);
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains("endpointUrl"));
+        assertThat(result.errors()).anyMatch(error -> error.contains("$.metadata.endpointUrl"));
+    }
+
+    @Test
+    void rejectsSqlContent() {
+        Map<String, Object> artifact = eventDsl();
+        artifact.put("diagnostics", Map.of("note", "SELECT * FROM users"));
+
+        AgentDslRuntimeCompatibilityValidationResult result = validator.validate(artifact);
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.errors()).contains("DSL contains forbidden dynamic execution content at $.diagnostics.note.");
+    }
+
     private Map<String, Object> eventDsl() {
         AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
         AgentDslArtifactBuildResult result = builder.buildEventArtifact(

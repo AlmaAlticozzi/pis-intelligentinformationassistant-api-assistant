@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -145,6 +146,19 @@ class AgentDefinitionCompilationServiceTest {
         assertThatThrownBy(() -> service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL)))
                 .isInstanceOf(AgentCompilationRejectedException.class)
                 .hasMessageContaining("cannot be compiled while status is ACTIVE");
+    }
+
+    @Test
+    void compileRejectsNonCompilableGovernanceStatuses() {
+        for (String status : List.of("ARCHIVED", "SUPERSEDED", "DELETED")) {
+            AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+            AgentDefinitionService service = service(definitionRepository, mock(AgentCompilationRepository.class));
+            when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition(status, "AUTO")));
+
+            assertThatThrownBy(() -> service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL)))
+                    .isInstanceOf(AgentCompilationRejectedException.class)
+                    .hasMessageContaining("cannot be compiled while status is " + status);
+        }
     }
 
     @Test
@@ -466,6 +480,85 @@ class AgentDefinitionCompilationServiceTest {
                 eq("Runtime compatibility rejected the generated DSL artifact."),
                 any(OffsetDateTime.class));
         assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("REJECTED");
+    }
+
+    @Test
+    void compileFailsWhenDslBuilderCannotGenerateArtifactAndKeepsDefinitionDraft() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDslArtifactBuilder artifactBuilder = mock(AgentDslArtifactBuilder.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        service.agentDslArtifactBuilder = artifactBuilder;
+        AgentDefinition definition = definition("DRAFT", "AUTO");
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation failed = compilation("FAILED");
+        failed.setDscCurrentstep("GENERATING_ARTIFACT");
+        failed.setDscErrormessage("Synthetic builder failure.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "FAILED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+        when(artifactBuilder.buildEventArtifact(any(), any(), any()))
+                .thenReturn(AgentDslArtifactBuildResult.failure("Synthetic builder failure."));
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+
+        assertThat(response.getStatus().toString()).isEqualTo("FAILED");
+        assertThat(response.getCurrentStep()).isEqualTo("GENERATING_ARTIFACT");
+        assertThat(response.getErrors()).containsExactly("Synthetic builder failure.");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT");
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getSglArtifacttype().getSglArtifacttype()).isEqualTo("NONE");
+        verify(definitionRepository, never()).markCompilationRejected(anyString(), anyString(), anyString(), anyString(), any());
+        verify(definitionRepository, never()).markCompilationReady(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void compileFailsSigningWhenHashServiceThrowsAndDoesNotMarkDefinitionReady() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentArtifactHashService hashService = mock(AgentArtifactHashService.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        service.agentArtifactHashService = hashService;
+        AgentDefinition definition = definition("DRAFT", "AUTO");
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation failed = compilation("FAILED");
+        failed.setDscCurrentstep("SIGNING");
+        failed.setDscErrormessage("Artifact hash or Agent Definition update failed: Synthetic hash failure.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "FAILED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+        when(hashService.hashDslArtifact(eq("AGDF1"), eq("AGCP1"), any()))
+                .thenThrow(new IllegalStateException("Synthetic hash failure."));
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+
+        assertThat(response.getStatus().toString()).isEqualTo("FAILED");
+        assertThat(response.getCurrentStep()).isEqualTo("SIGNING");
+        assertThat(response.getErrors()).containsExactly("Artifact hash or Agent Definition update failed: Synthetic hash failure.");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
+        assertThat(response.getSteps().getLast().getStatus()).isEqualTo(AgentCompilationStep.StatusEnum.FAILED);
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getCodLatestcompilation()).isNull();
+        verify(definitionRepository, never()).markCompilationReady(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), any(), any());
+        verify(definitionRepository, never()).markCompilationRejected(anyString(), anyString(), anyString(), anyString(), any());
     }
 
     @Test

@@ -203,6 +203,29 @@ class AgentDefinitionMapperTest {
     }
 
     @Test
+    void mapsReadySummaryWithCompilationSummaryWithoutSteps() throws Exception {
+        AgentDefinition definition = definition();
+        definition.setSglStatus(statusRef("READY"));
+        AgentCompilation compilation = new AgentCompilation();
+        compilation.setCodAgentcompilation("AGCP1");
+        compilation.setSglStatus(compilationStatusRef("READY"));
+        compilation.setDscCurrentstep("READY");
+        compilation.setDtStartedat(OffsetDateTime.parse("2026-06-12T10:10:00Z"));
+        compilation.setDtCompletedat(OffsetDateTime.parse("2026-06-12T10:11:00Z"));
+        definition.setCodLatestcompilation(compilation);
+
+        AgentDefinitionSummary summary = mapper().toSummary(definition, "EVENT_INTERPRETER", "EVENT");
+        JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(summary));
+
+        assertThat(summary.getStatus().toString()).isEqualTo("READY");
+        assertThat(summary.getCompilation()).isNotNull();
+        assertThat(summary.getCompilation().getStatus().toString()).isEqualTo("READY");
+        assertThat(summary.getCompilation().getCurrentStep()).isEqualTo("READY");
+        assertThat(summary.getCompilation().getCompletedAt()).isEqualTo(OffsetDateTime.parse("2026-06-12T10:11:00Z"));
+        assertThat(json.get("compilation").has("steps")).isFalse();
+    }
+
+    @Test
     void mapsScheduledDailyWindowDetailWithToolAndNoDuplicatedActivationType() throws Exception {
         AgentDefinition definition = definition(dailyWindowActivationPolicy());
         definition.setSglGenerationmode(generationModeRef("DSL"));

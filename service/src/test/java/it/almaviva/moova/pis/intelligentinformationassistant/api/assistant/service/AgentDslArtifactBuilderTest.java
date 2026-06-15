@@ -36,6 +36,7 @@ class AgentDslArtifactBuilderTest {
                 .containsEntry("source", "SERVICE_DATA")
                 .containsEntry("requiresScheduler", false)
                 .containsEntry("requiresExternalTools", false);
+        assertThat(list(map(artifact.get("runtime")).get("allowedTools"))).isEmpty();
         assertThat(map(artifact.get("trigger"))).containsEntry("type", "EVENT");
         assertThat(map(artifact.get("evaluation")))
                 .containsEntry("mode", "STATELESS_EVENT_MATCH")
@@ -103,6 +104,62 @@ class AgentDslArtifactBuilderTest {
         assertThat(map(artifact.get("governance")))
                 .containsEntry("llmRuntimeExecutionAllowed", false)
                 .containsEntry("externalCodeExecutionAllowed", false);
+    }
+
+    @Test
+    void buildsScheduledDslKeepingMonitoringStopPointInQueryAndDestinationInCondition() {
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
+        Map<String, Object> destinationAndCancellationCondition = Map.of(
+                "type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "all", List.of(
+                                        Map.of(
+                                                "field", "callEnd.stopPoint.id",
+                                                "operator", "EQUALS",
+                                                "value", "TNPNTS_BIGNAMI"),
+                                        Map.of(
+                                                "any", List.of(
+                                                        Map.of(
+                                                                "field", "arrivalStatuses",
+                                                                "operator", "CONTAINS_ANY",
+                                                                "values", List.of("ARRIVAL_CANCELLATION")),
+                                                        Map.of(
+                                                                "field", "departureStatuses",
+                                                                "operator", "CONTAINS_ANY",
+                                                                "values", List.of("DEPARTURE_CANCELLATION")),
+                                                        Map.of(
+                                                                "field", "changes",
+                                                                "operator", "CONTAINS_ANY",
+                                                                "values", List.of("CANCELLATION"))))))));
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(definition.getJsnBlueprint());
+        blueprint.put("parameters", Map.of(
+                "schedule", Map.of("frequencySeconds", 600),
+                "serviceDataQuery", Map.of(
+                        "operation", "POST /v2/stoppointjourneys",
+                        "stopPoints", List.of("TNPNTS_GERUSALEMME")),
+                "snapshotEvaluation", Map.of(
+                        "mode", "REPORT_COUNT",
+                        "condition", destinationAndCancellationCondition),
+                "outputPolicy", Map.of("emit", "EVERY_RUN_REPORT")));
+        definition.setJsnBlueprint(blueprint);
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> artifact = result.artifact().artifact();
+        assertThat(map(map(artifact.get("trigger")).get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(map(map(artifact.get("query")).get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of("TNPNTS_GERUSALEMME"));
+        assertThat(map(map(artifact.get("evaluation")).get("snapshotEvaluation")).get("condition"))
+                .isEqualTo(destinationAndCancellationCondition);
+        assertThat(map(map(artifact.get("output")).get("policy"))).containsEntry("emit", "EVERY_RUN_REPORT");
+        assertThat(list(map(artifact.get("runtime")).get("allowedTools")))
+                .contains("SERVICE_DATA_API.POST_/v2/stoppointjourneys");
     }
 
     @Test
