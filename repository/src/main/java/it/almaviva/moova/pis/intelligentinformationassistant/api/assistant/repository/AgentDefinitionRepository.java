@@ -4,6 +4,8 @@ import io.quarkus.hibernate.orm.panache.PanacheRepositoryBase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentComplexity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionAllowedTool;
@@ -22,6 +24,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -204,5 +207,68 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
 
     public AgentComplexity complexityReference(String complexity) {
         return entityManager.getReference(AgentComplexity.class, complexity);
+    }
+
+    @Transactional
+    public void markCompilationReady(
+            String agentDefinitionId,
+            String compilationId,
+            String artifactUri,
+            String artifactHash,
+            String runtimeImage,
+            String sdkVersion,
+            String implementationSummary,
+            Map<String, Object> dslArtifact,
+            OffsetDateTime completedAt) {
+        System.out.println("[IIA][AGENT_DEFINITION][REPOSITORY] mark READY agentDefinitionId="
+                + agentDefinitionId + " compilationId=" + compilationId);
+        AgentDefinition definition = entityManager.find(AgentDefinition.class, agentDefinitionId);
+        if (definition == null) {
+            return;
+        }
+        definition.setSglStatus(statusReference("READY"));
+        definition.setSglArtifacttype(artifactTypeReference("DSL"));
+        definition.setDscArtifacturi(artifactUri);
+        definition.setDscArtifacthash(artifactHash);
+        definition.setSglSignaturestatus(signatureStatusReference("SIGNED"));
+        definition.setDscRuntimeimage(runtimeImage);
+        definition.setDscSdkversion(sdkVersion);
+        definition.setDscImplementationsummary(implementationSummary);
+        definition.setCodLatestcompilation(entityManager.getReference(AgentCompilation.class, compilationId));
+        definition.setSglLatestcompilationstatus(entityManager.getReference(AgentCompilationStatus.class, "READY"));
+        definition.setDscLatestcompilationstep("READY");
+        definition.setDtLatestcompilationcompletedat(completedAt);
+        definition.setJsnDslpreview(dslArtifact);
+        definition.setDtUpdatedat(OffsetDateTime.now());
+        entityManager.flush();
+    }
+
+    @Transactional
+    public void markCompilationRejected(
+            String agentDefinitionId,
+            String compilationId,
+            String latestCompilationStep,
+            String implementationSummary,
+            OffsetDateTime completedAt) {
+        System.out.println("[IIA][AGENT_DEFINITION][REPOSITORY] mark REJECTED agentDefinitionId="
+                + agentDefinitionId + " compilationId=" + compilationId + " step=" + latestCompilationStep);
+        AgentDefinition definition = entityManager.find(AgentDefinition.class, agentDefinitionId);
+        if (definition == null) {
+            return;
+        }
+        definition.setSglStatus(statusReference("REJECTED"));
+        definition.setSglArtifacttype(artifactTypeReference("NONE"));
+        definition.setDscArtifacturi(null);
+        definition.setDscArtifacthash(null);
+        definition.setSglSignaturestatus(signatureStatusReference("NOT_SIGNED"));
+        definition.setDscRuntimeimage(null);
+        definition.setDscSdkversion(null);
+        definition.setDscImplementationsummary(implementationSummary);
+        definition.setCodLatestcompilation(entityManager.getReference(AgentCompilation.class, compilationId));
+        definition.setSglLatestcompilationstatus(entityManager.getReference(AgentCompilationStatus.class, "REJECTED"));
+        definition.setDscLatestcompilationstep(latestCompilationStep);
+        definition.setDtLatestcompilationcompletedat(completedAt);
+        definition.setDtUpdatedat(OffsetDateTime.now());
+        entityManager.flush();
     }
 }

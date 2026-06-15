@@ -42,8 +42,14 @@ public class AgentDefinitionService {
             "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
     private static final String SCHEDULED_TOOL = "SERVICE_DATA_API.POST_/v2/stoppointjourneys";
     private static final String DSL_ARTIFACT_NOT_IMPLEMENTED = "DSL artifact generation is not implemented yet.";
-    private static final String ARTIFACT_SIGNING_NOT_IMPLEMENTED =
-            "Artifact hash, signature and Agent Definition update are not implemented yet.";
+    private static final String RUNTIME_IMAGE = "STANDARD_AGENT_DSL_EVALUATOR";
+    private static final String SDK_VERSION = "iia.agent.dsl/v1";
+    private static final String SIGNED = "SIGNED";
+    private static final String READY_IMPLEMENTATION_SUMMARY =
+            "MVP logical signature based on backend-generated canonical DSL SHA-256 hash. "
+                    + "No external cryptographic signing service is used in this phase.";
+    private static final String RUNTIME_REJECTED_IMPLEMENTATION_SUMMARY =
+            "Runtime compatibility rejected the generated DSL artifact.";
 
     @Inject
     AgentDefinitionRepository agentDefinitionRepository;
@@ -71,6 +77,9 @@ public class AgentDefinitionService {
 
     @Inject
     AgentDslRuntimeCompatibilityValidator agentDslRuntimeCompatibilityValidator;
+
+    @Inject
+    AgentArtifactHashService agentArtifactHashService;
 
     @Transactional
     public AgentDefinitionDetail getAgentDefinition(String agentDefinitionId) {
@@ -257,6 +266,14 @@ public class AgentDefinitionService {
                             "errors", validation.errors(),
                             "warnings", validation.warnings()),
                     completedAt);
+            System.out.println("[IIA][AGENT_COMPILATION][POST] updating Agent Definition REJECTED agentDefinitionId="
+                    + id + " compilationId=" + compilationId + " reason=" + errorMessage);
+            agentDefinitionRepository.markCompilationRejected(
+                    id,
+                    compilationId,
+                    AgentCompilationStatuses.VALIDATING_BLUEPRINT,
+                    errorMessage,
+                    completedAt);
             System.out.println("[IIA][AGENT_COMPILATION][POST] completed skeleton compilationId="
                     + compilationId + " finalStatus=REJECTED");
 
@@ -393,6 +410,14 @@ public class AgentDefinitionService {
                     String.join("; ", runtimeValidation.errors()),
                     rejectedResultJson,
                     completedAt);
+            System.out.println("[IIA][AGENT_COMPILATION][POST] updating Agent Definition REJECTED agentDefinitionId="
+                    + id + " compilationId=" + compilationId + " reason=" + String.join("; ", runtimeValidation.errors()));
+            agentDefinitionRepository.markCompilationRejected(
+                    id,
+                    compilationId,
+                    AgentCompilationStatuses.STATIC_ANALYSIS,
+                    RUNTIME_REJECTED_IMPLEMENTATION_SUMMARY,
+                    completedAt);
 
             var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
                     .orElse(compilation);
@@ -416,47 +441,107 @@ public class AgentDefinitionService {
                 compilationId,
                 AgentCompilationStatuses.SIGNING,
                 AgentCompilationStatuses.SIGNING);
-        agentCompilationRepository.addStep(
-                compilationId,
-                5,
-                "SIGNING",
-                AgentCompilationStatuses.FAILED,
-                ARTIFACT_SIGNING_NOT_IMPLEMENTED,
-                Map.of(
-                        "canonicalHashImplemented", false,
-                        "signatureImplemented", false,
-                        "agentDefinitionUpdateImplemented", false,
-                        "nextImplementationStep", "Agent artifact hash, metadata and READY update"),
-                signingStartedAt,
-                OffsetDateTime.now());
+        try {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] signing artifact compilationId=" + compilationId);
+            AgentArtifactHashResult hashResult = artifactHashService().hashDslArtifact(id, compilationId, artifact.artifact());
+            String artifactUri = artifactUri(id, compilationId);
+            System.out.println("[IIA][AGENT_COMPILATION][POST] artifact metadata artifactUri="
+                    + artifactUri + " artifactHash=" + hashResult.artifactHash());
+            System.out.println("[IIA][AGENT_COMPILATION][POST] updating Agent Definition READY agentDefinitionId="
+                    + id + " compilationId=" + compilationId);
 
-        OffsetDateTime completedAt = OffsetDateTime.now();
-        Map<String, Object> resultJson = new LinkedHashMap<>();
-        resultJson.put("preconditionsValid", true);
-        resultJson.put("artifactGenerated", true);
-        resultJson.put("artifactType", artifact.artifactType());
-        resultJson.put("schemaVersion", artifact.schemaVersion());
-        resultJson.put("interpreterType", artifact.interpreterType());
-        resultJson.put("triggerType", artifact.triggerType());
-        if (scheduled) {
-            resultJson.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+            OffsetDateTime completedAt = OffsetDateTime.now();
+            Map<String, Object> signingDetails = new LinkedHashMap<>();
+            signingDetails.put("artifactType", artifact.artifactType());
+            signingDetails.put("artifactHash", hashResult.artifactHash());
+            signingDetails.put("artifactUri", artifactUri);
+            signingDetails.put("signatureStatus", SIGNED);
+            signingDetails.put("agentDefinitionStatus", "READY");
+            signingDetails.put("hashAlgorithm", hashResult.hashAlgorithm());
+            signingDetails.put("artifactSizeBytes", hashResult.artifactSizeBytes());
+
+            Map<String, Object> resultJson = new LinkedHashMap<>();
+            resultJson.put("preconditionsValid", true);
+            resultJson.put("artifactGenerated", true);
+            resultJson.put("runtimeCompatibilityValidated", true);
+            resultJson.put("artifactHashed", true);
+            resultJson.put("artifactHash", hashResult.artifactHash());
+            resultJson.put("artifactUri", artifactUri);
+            resultJson.put("artifactType", artifact.artifactType());
+            resultJson.put("schemaVersion", artifact.schemaVersion());
+            resultJson.put("signatureStatus", SIGNED);
+            resultJson.put("interpreterType", artifact.interpreterType());
+            resultJson.put("triggerType", artifact.triggerType());
+            if (scheduled) {
+                resultJson.put("accessMode", "SERVICE_DATA_API_SNAPSHOT");
+            }
+            resultJson.put("inputModel", artifact.inputModel());
+            resultJson.put("evaluationMode", artifact.evaluationMode());
+            resultJson.put("runtimeCompatibilityErrors", runtimeValidation.errors());
+            resultJson.put("runtimeCompatibilityWarnings", runtimeValidation.warnings());
+            resultJson.put("agentDefinitionStatusUpdated", true);
+            resultJson.put("agentDefinitionStatus", "READY");
+            resultJson.put("dslArtifact", artifact.artifact());
+
+            agentDefinitionRepository.markCompilationReady(
+                    id,
+                    compilationId,
+                    artifactUri,
+                    hashResult.artifactHash(),
+                    RUNTIME_IMAGE,
+                    SDK_VERSION,
+                    READY_IMPLEMENTATION_SUMMARY,
+                    artifact.artifact(),
+                    completedAt);
+            agentCompilationRepository.addStep(
+                    compilationId,
+                    5,
+                    "SIGNING",
+                    AgentCompilationStatuses.READY,
+                    "Artifact hash generated and Agent Definition updated successfully.",
+                    signingDetails,
+                    signingStartedAt,
+                    completedAt);
+            agentCompilationRepository.markCompleted(
+                    compilationId,
+                    AgentCompilationStatuses.READY,
+                    AgentCompilationStatuses.READY,
+                    resultJson,
+                    completedAt);
+            System.out.println("[IIA][AGENT_COMPILATION][POST] completed compilation READY compilationId=" + compilationId);
+        } catch (RuntimeException e) {
+            String errorMessage = "Artifact hash or Agent Definition update failed: " + e.getMessage();
+            agentCompilationRepository.addStep(
+                    compilationId,
+                    5,
+                    "SIGNING",
+                    AgentCompilationStatuses.FAILED,
+                    errorMessage,
+                    Map.of(
+                            "artifactHashed", false,
+                            "agentDefinitionStatusUpdated", false),
+                    signingStartedAt,
+                    OffsetDateTime.now());
+
+            OffsetDateTime completedAt = OffsetDateTime.now();
+            Map<String, Object> resultJson = new LinkedHashMap<>();
+            resultJson.put("preconditionsValid", true);
+            resultJson.put("artifactGenerated", true);
+            resultJson.put("runtimeCompatibilityValidated", true);
+            resultJson.put("artifactHashed", false);
+            resultJson.put("runtimeCompatibilityErrors", runtimeValidation.errors());
+            resultJson.put("runtimeCompatibilityWarnings", runtimeValidation.warnings());
+            resultJson.put("agentDefinitionStatusUpdated", false);
+            resultJson.put("dslArtifact", artifact.artifact());
+            resultJson.put("reason", errorMessage);
+            agentCompilationRepository.markFailed(
+                    compilationId,
+                    AgentCompilationStatuses.FAILED,
+                    AgentCompilationStatuses.SIGNING,
+                    errorMessage,
+                    resultJson,
+                    completedAt);
         }
-        resultJson.put("inputModel", artifact.inputModel());
-        resultJson.put("evaluationMode", artifact.evaluationMode());
-        resultJson.put("runtimeCompatibilityValidated", true);
-        resultJson.put("runtimeCompatibilityErrors", runtimeValidation.errors());
-        resultJson.put("runtimeCompatibilityWarnings", runtimeValidation.warnings());
-        resultJson.put("agentDefinitionStatusUpdated", false);
-        resultJson.put("dslArtifact", artifact.artifact());
-        resultJson.put("reason", ARTIFACT_SIGNING_NOT_IMPLEMENTED);
-        agentCompilationRepository.markFailed(
-                compilationId,
-                AgentCompilationStatuses.FAILED,
-                AgentCompilationStatuses.SIGNING,
-                ARTIFACT_SIGNING_NOT_IMPLEMENTED,
-                resultJson,
-                completedAt);
-        System.out.println("[IIA][AGENT_COMPILATION][POST] signing pending compilationId=" + compilationId + " finalStatus=FAILED");
 
         var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
                 .orElse(compilation);
@@ -468,6 +553,20 @@ public class AgentDefinitionService {
         return agentDslRuntimeCompatibilityValidator == null
                 ? new AgentDslRuntimeCompatibilityValidator()
                 : agentDslRuntimeCompatibilityValidator;
+    }
+
+    private AgentArtifactHashService artifactHashService() {
+        return agentArtifactHashService == null
+                ? new AgentArtifactHashService()
+                : agentArtifactHashService;
+    }
+
+    private String artifactUri(String agentDefinitionId, String compilationId) {
+        return "iia-agent-artifact://agent-definitions/"
+                + agentDefinitionId
+                + "/compilations/"
+                + compilationId
+                + "/dsl";
     }
 
     @Transactional

@@ -1,12 +1,19 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,5 +77,112 @@ class AgentDefinitionRepositoryTest {
         verify(entityManager).createQuery(jpqlCaptor.capture(), eq(AgentDefinition.class));
         assertThat(jpqlCaptor.getValue()).doesNotContain(" :status").doesNotContain(" :alertId").doesNotContain(" :textPattern");
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void markCompilationReadyUpdatesArtifactAndLatestCompilationFields() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        AgentDefinition definition = new AgentDefinition();
+        AgentCompilation compilation = new AgentCompilation();
+        AgentCompilationStatus readyCompilationStatus = compilationStatus("READY");
+        repository.entityManager = entityManager;
+
+        when(entityManager.find(AgentDefinition.class, "AGDF1")).thenReturn(definition);
+        when(entityManager.getReference(AgentDefinitionStatus.class, "READY")).thenReturn(definitionStatus("READY"));
+        when(entityManager.getReference(AgentArtifactType.class, "DSL")).thenReturn(artifactType("DSL"));
+        when(entityManager.getReference(AgentArtifactSignatureStatus.class, "SIGNED")).thenReturn(signatureStatus("SIGNED"));
+        when(entityManager.getReference(AgentCompilation.class, "AGCP1")).thenReturn(compilation);
+        when(entityManager.getReference(AgentCompilationStatus.class, "READY")).thenReturn(readyCompilationStatus);
+
+        OffsetDateTime completedAt = OffsetDateTime.parse("2026-06-15T10:15:00Z");
+        repository.markCompilationReady(
+                "AGDF1",
+                "AGCP1",
+                "iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl",
+                "sha256:abc",
+                "STANDARD_AGENT_DSL_EVALUATOR",
+                "iia.agent.dsl/v1",
+                "MVP logical signature.",
+                Map.of("schemaVersion", "iia.agent.dsl/v1"),
+                completedAt);
+
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("READY");
+        assertThat(definition.getSglArtifacttype().getSglArtifacttype()).isEqualTo("DSL");
+        assertThat(definition.getDscArtifacturi()).isEqualTo("iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl");
+        assertThat(definition.getDscArtifacthash()).isEqualTo("sha256:abc");
+        assertThat(definition.getSglSignaturestatus().getSglSignaturestatus()).isEqualTo("SIGNED");
+        assertThat(definition.getDscRuntimeimage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(definition.getDscSdkversion()).isEqualTo("iia.agent.dsl/v1");
+        assertThat(definition.getCodLatestcompilation()).isSameAs(compilation);
+        assertThat(definition.getSglLatestcompilationstatus()).isSameAs(readyCompilationStatus);
+        assertThat(definition.getDscLatestcompilationstep()).isEqualTo("READY");
+        assertThat(definition.getDtLatestcompilationcompletedat()).isEqualTo(completedAt);
+        verify(entityManager).flush();
+    }
+
+    @Test
+    void markCompilationRejectedClearsArtifactAndUpdatesLatestCompilationFields() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        AgentDefinition definition = new AgentDefinition();
+        definition.setDscArtifacturi("artifact://old");
+        definition.setDscArtifacthash("sha256:old");
+        AgentCompilation compilation = new AgentCompilation();
+        AgentCompilationStatus rejectedCompilationStatus = compilationStatus("REJECTED");
+        repository.entityManager = entityManager;
+
+        when(entityManager.find(AgentDefinition.class, "AGDF1")).thenReturn(definition);
+        when(entityManager.getReference(AgentDefinitionStatus.class, "REJECTED")).thenReturn(definitionStatus("REJECTED"));
+        when(entityManager.getReference(AgentArtifactType.class, "NONE")).thenReturn(artifactType("NONE"));
+        when(entityManager.getReference(AgentArtifactSignatureStatus.class, "NOT_SIGNED")).thenReturn(signatureStatus("NOT_SIGNED"));
+        when(entityManager.getReference(AgentCompilation.class, "AGCP1")).thenReturn(compilation);
+        when(entityManager.getReference(AgentCompilationStatus.class, "REJECTED")).thenReturn(rejectedCompilationStatus);
+
+        OffsetDateTime completedAt = OffsetDateTime.parse("2026-06-15T10:15:00Z");
+        repository.markCompilationRejected(
+                "AGDF1",
+                "AGCP1",
+                "STATIC_ANALYSIS",
+                "Runtime compatibility rejected the generated DSL artifact.",
+                completedAt);
+
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("REJECTED");
+        assertThat(definition.getSglArtifacttype().getSglArtifacttype()).isEqualTo("NONE");
+        assertThat(definition.getDscArtifacturi()).isNull();
+        assertThat(definition.getDscArtifacthash()).isNull();
+        assertThat(definition.getSglSignaturestatus().getSglSignaturestatus()).isEqualTo("NOT_SIGNED");
+        assertThat(definition.getDscRuntimeimage()).isNull();
+        assertThat(definition.getDscSdkversion()).isNull();
+        assertThat(definition.getDscImplementationsummary()).isEqualTo("Runtime compatibility rejected the generated DSL artifact.");
+        assertThat(definition.getCodLatestcompilation()).isSameAs(compilation);
+        assertThat(definition.getSglLatestcompilationstatus()).isSameAs(rejectedCompilationStatus);
+        assertThat(definition.getDscLatestcompilationstep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(definition.getDtLatestcompilationcompletedat()).isEqualTo(completedAt);
+        verify(entityManager).flush();
+    }
+
+    private AgentDefinitionStatus definitionStatus(String value) {
+        AgentDefinitionStatus status = new AgentDefinitionStatus();
+        status.setSglStatus(value);
+        return status;
+    }
+
+    private AgentArtifactType artifactType(String value) {
+        AgentArtifactType artifactType = new AgentArtifactType();
+        artifactType.setSglArtifacttype(value);
+        return artifactType;
+    }
+
+    private AgentArtifactSignatureStatus signatureStatus(String value) {
+        AgentArtifactSignatureStatus signatureStatus = new AgentArtifactSignatureStatus();
+        signatureStatus.setSglSignaturestatus(value);
+        return signatureStatus;
+    }
+
+    private AgentCompilationStatus compilationStatus(String value) {
+        AgentCompilationStatus status = new AgentCompilationStatus();
+        status.setSglStatus(value);
+        return status;
     }
 }

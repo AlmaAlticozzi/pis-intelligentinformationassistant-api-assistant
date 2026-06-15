@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
@@ -29,6 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -146,41 +148,45 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
-    void compileGeneratesEventDslArtifactAndStopsAtSigning() {
+    void compileGeneratesEventDslArtifactAndMarksDefinitionReady() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
-        AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("SIGNING");
-        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
-        failed.setJsnResult(Map.of(
-                "preconditionsValid", true,
-                "artifactGenerated", true,
-                "runtimeCompatibilityValidated", true,
-                "artifactType", "DSL",
-                "schemaVersion", "iia.agent.dsl/v1",
-                "dslArtifact", Map.of("schemaVersion", "iia.agent.dsl/v1"),
-                "agentDefinitionStatusUpdated", false,
-                "reason", "Artifact hash, signature and Agent Definition update are not implemented yet."));
+        AgentCompilation ready = compilation("READY");
+        ready.setDscCurrentstep("READY");
+        Map<String, Object> readyResult = new java.util.LinkedHashMap<>();
+        readyResult.put("preconditionsValid", true);
+        readyResult.put("artifactGenerated", true);
+        readyResult.put("runtimeCompatibilityValidated", true);
+        readyResult.put("artifactHashed", true);
+        readyResult.put("artifactHash", "sha256:test");
+        readyResult.put("artifactUri", "iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl");
+        readyResult.put("artifactType", "DSL");
+        readyResult.put("schemaVersion", "iia.agent.dsl/v1");
+        readyResult.put("dslArtifact", Map.of("schemaVersion", "iia.agent.dsl/v1"));
+        readyResult.put("agentDefinitionStatusUpdated", true);
+        readyResult.put("agentDefinitionStatus", "READY");
+        ready.setJsnResult(readyResult);
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
                 step(4, "STATIC_ANALYSIS", "READY"),
-                step(5, "SIGNING", "FAILED"));
+                step(5, "SIGNING", "READY"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkReady(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
-        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed));
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(ready));
         when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
 
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
-        assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("SIGNING");
-        assertThat(response.getErrors()).containsExactly("Artifact hash, signature and Agent Definition update are not implemented yet.");
+        assertThat(response.getStatus().toString()).isEqualTo("READY");
+        assertThat(response.getCurrentStep()).isEqualTo("READY");
+        assertThat(response.getErrors()).isEmpty();
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
                 .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
@@ -191,7 +197,12 @@ class AgentDefinitionCompilationServiceTest {
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
-                        AgentCompilationStep.StatusEnum.FAILED);
+                        AgentCompilationStep.StatusEnum.SUCCESS);
+        assertThat(response.getArtifact()).isNotNull();
+        assertThat(response.getArtifact().getArtifactHash()).startsWith("sha256:");
+        assertThat(response.getArtifact().getArtifactUri())
+                .isEqualTo("iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl");
+        assertThat(response.getArtifact().getSignatureStatus().toString()).isEqualTo("SIGNED");
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> requestJsonCaptor = ArgumentCaptor.forClass(Map.class);
@@ -221,50 +232,54 @@ class AgentDefinitionCompilationServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(compilationRepository).markFailed(
+        verify(compilationRepository).markCompleted(
                 eq("AGCP1"),
-                eq("FAILED"),
-                eq("SIGNING"),
-                eq("Artifact hash, signature and Agent Definition update are not implemented yet."),
+                eq("READY"),
+                eq("READY"),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
                 .containsEntry("preconditionsValid", true)
                 .containsEntry("artifactGenerated", true)
                 .containsEntry("runtimeCompatibilityValidated", true)
+                .containsEntry("artifactHashed", true)
                 .containsEntry("schemaVersion", "iia.agent.dsl/v1")
-                .containsEntry("agentDefinitionStatusUpdated", false);
+                .containsEntry("agentDefinitionStatusUpdated", true)
+                .containsEntry("agentDefinitionStatus", "READY");
         assertThat(resultCaptor.getValue().get("dslArtifact")).isInstanceOf(Map.class);
-        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("READY");
+        assertThat(definition.getDscArtifacthash()).startsWith("sha256:");
+        assertThat(definition.getSglArtifacttype().getSglArtifacttype()).isEqualTo("DSL");
+        assertThat(definition.getSglLatestcompilationstatus().getSglStatus()).isEqualTo("READY");
     }
 
     @Test
-    void compileGeneratesScheduledDslArtifactAndStopsAtSigning() {
+    void compileGeneratesScheduledDslArtifactAndMarksDefinitionReady() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
         AgentCompilation created = compilation("PENDING");
-        AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("SIGNING");
-        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
+        AgentCompilation ready = compilation("READY");
+        ready.setDscCurrentstep("READY");
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
                 step(4, "STATIC_ANALYSIS", "READY"),
-                step(5, "SIGNING", "FAILED"));
+                step(5, "SIGNING", "READY"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkReady(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
-        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed));
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(ready));
         when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
 
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
-        assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("SIGNING");
-        assertThat(response.getErrors()).containsExactly("Artifact hash, signature and Agent Definition update are not implemented yet.");
+        assertThat(response.getStatus().toString()).isEqualTo("READY");
+        assertThat(response.getCurrentStep()).isEqualTo("READY");
+        assertThat(response.getErrors()).isEmpty();
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
                 .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
@@ -275,21 +290,23 @@ class AgentDefinitionCompilationServiceTest {
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
-                        AgentCompilationStep.StatusEnum.FAILED);
+                        AgentCompilationStep.StatusEnum.SUCCESS);
+        assertThat(response.getArtifact()).isNotNull();
+        assertThat(response.getArtifact().getArtifactHash()).startsWith("sha256:");
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(compilationRepository).markFailed(
+        verify(compilationRepository).markCompleted(
                 eq("AGCP1"),
-                eq("FAILED"),
-                eq("SIGNING"),
-                eq("Artifact hash, signature and Agent Definition update are not implemented yet."),
+                eq("READY"),
+                eq("READY"),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
                 .containsEntry("preconditionsValid", true)
                 .containsEntry("artifactGenerated", true)
                 .containsEntry("runtimeCompatibilityValidated", true)
+                .containsEntry("artifactHashed", true)
                 .containsEntry("interpreterType", "SCHEDULED_INTERPRETER")
                 .containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT")
                 .containsEntry("schemaVersion", "iia.agent.dsl/v1");
@@ -298,7 +315,8 @@ class AgentDefinitionCompilationServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> runtime = (Map<String, Object>) dslArtifact.get("runtime");
         assertThat(runtime).containsEntry("executionModel", "SCHEDULED_POLLING");
-        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("READY");
+        assertThat(definition.getSglLatestcompilationstatus().getSglStatus()).isEqualTo("READY");
     }
 
     @Test
@@ -316,6 +334,7 @@ class AgentDefinitionCompilationServiceTest {
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "REJECTED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkRejected(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
         when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected));
@@ -360,7 +379,13 @@ class AgentDefinitionCompilationServiceTest {
                 .containsEntry("preconditionsValid", false)
                 .containsEntry("artifactGenerated", false)
                 .containsEntry("agentDefinitionStatusUpdated", false);
-        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        verify(definitionRepository).markCompilationRejected(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                eq("VALIDATING_BLUEPRINT"),
+                eq("Agent Definition blueprint is missing; compilation cannot continue."),
+                any(OffsetDateTime.class));
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("REJECTED");
     }
 
     @Test
@@ -381,6 +406,7 @@ class AgentDefinitionCompilationServiceTest {
                 step(3, "GENERATING_ARTIFACT", "READY"),
                 step(4, "STATIC_ANALYSIS", "REJECTED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkRejected(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
         when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected));
@@ -433,7 +459,13 @@ class AgentDefinitionCompilationServiceTest {
                 .containsEntry("agentDefinitionStatusUpdated", false);
         assertThat(resultCaptor.getValue().get("runtimeCompatibilityErrors"))
                 .isEqualTo(List.of("Unsupported DSL operator MAGIC_OPERATOR."));
-        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        verify(definitionRepository).markCompilationRejected(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                eq("STATIC_ANALYSIS"),
+                eq("Runtime compatibility rejected the generated DSL artifact."),
+                any(OffsetDateTime.class));
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("REJECTED");
     }
 
     @Test
@@ -443,28 +475,35 @@ class AgentDefinitionCompilationServiceTest {
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
-        AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("SIGNING");
-        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
+        AgentCompilation ready = compilation("READY");
+        ready.setDscCurrentstep("READY");
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
                 step(4, "STATIC_ANALYSIS", "READY"),
-                step(5, "SIGNING", "FAILED"));
+                step(5, "SIGNING", "READY"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkReady(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), anyBoolean(), any(), eq(null))).thenReturn(created);
-        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed), Optional.of(failed));
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(ready), Optional.of(ready));
         when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
 
         var postResponse = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
         var getResponse = service.getAgentDefinitionCompilation("AGDF1");
+        var detail = service.getAgentDefinition("AGDF1");
 
         assertThat(getResponse).isEqualTo(postResponse);
-        assertThat(getResponse.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(getResponse.getCurrentStep()).isEqualTo("SIGNING");
+        assertThat(getResponse.getStatus().toString()).isEqualTo("READY");
+        assertThat(getResponse.getCurrentStep()).isEqualTo("READY");
         assertThat(getResponse.getSteps()).hasSize(5);
+        assertThat(getResponse.getArtifact()).isNotNull();
+        assertThat(detail.getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getArtifact()).isNotNull();
+        assertThat(detail.getArtifact().getArtifactType().toString()).isEqualTo("DSL");
+        assertThat(detail.getArtifact().getArtifactHash()).startsWith("sha256:");
+        assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("READY");
     }
 
     @Test
@@ -480,6 +519,7 @@ class AgentDefinitionCompilationServiceTest {
         rejected.setDscErrormessage("Agent Definition runtimeContract is missing; compilation cannot continue.");
         var steps = List.of(step(1, "REQUEST_ACCEPTED", "READY"), step(2, "VALIDATING_BLUEPRINT", "REJECTED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkRejected(definitionRepository, definition);
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), anyBoolean(), any(), eq(null))).thenReturn(created);
         when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected), Optional.of(rejected));
@@ -494,7 +534,7 @@ class AgentDefinitionCompilationServiceTest {
         assertThat(getResponse.getSteps())
                 .extracting(AgentCompilationStep::getName)
                 .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT");
-        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("REJECTED");
     }
 
     private AgentDefinitionService service(
@@ -503,11 +543,14 @@ class AgentDefinitionCompilationServiceTest {
         AgentDefinitionService service = new AgentDefinitionService();
         service.agentDefinitionRepository = definitionRepository;
         service.agentCompilationRepository = compilationRepository;
+        service.agentDefinitionMapper = new AgentDefinitionMapper();
+        service.agentDefinitionMapper.agentProfileMapper = new AgentProfileMapper();
         service.agentCompilationMapper = new AgentCompilationMapper();
         service.agentCompilationMapper.stepStatusMapper = new AgentCompilationStepStatusMapper();
         service.agentCompilationPreconditionValidator = new AgentCompilationPreconditionValidator();
         service.agentDslArtifactBuilder = new AgentDslArtifactBuilder();
         service.agentDslRuntimeCompatibilityValidator = new AgentDslRuntimeCompatibilityValidator();
+        service.agentArtifactHashService = new AgentArtifactHashService();
         return service;
     }
 
@@ -528,6 +571,94 @@ class AgentDefinitionCompilationServiceTest {
         artifactType.setSglArtifacttype("NONE");
         definition.setSglArtifacttype(artifactType);
         return definition;
+    }
+
+    private void stubMarkReady(AgentDefinitionRepository repository, AgentDefinition definition) {
+        doAnswer(invocation -> {
+            String compilationId = invocation.getArgument(1);
+            String artifactUri = invocation.getArgument(2);
+            String artifactHash = invocation.getArgument(3);
+            String runtimeImage = invocation.getArgument(4);
+            String sdkVersion = invocation.getArgument(5);
+            String implementationSummary = invocation.getArgument(6);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> dslArtifact = invocation.getArgument(7, Map.class);
+            OffsetDateTime completedAt = invocation.getArgument(8);
+            AgentCompilation latestCompilation = compilation("READY");
+            latestCompilation.setCodAgentcompilation(compilationId);
+
+            definition.setSglStatus(definitionStatus("READY"));
+            definition.setSglArtifacttype(artifactType("DSL"));
+            definition.setDscArtifacturi(artifactUri);
+            definition.setDscArtifacthash(artifactHash);
+            definition.setSglSignaturestatus(signatureStatus("SIGNED"));
+            definition.setDscRuntimeimage(runtimeImage);
+            definition.setDscSdkversion(sdkVersion);
+            definition.setDscImplementationsummary(implementationSummary);
+            definition.setCodLatestcompilation(latestCompilation);
+            definition.setSglLatestcompilationstatus(compilationStatus("READY"));
+            definition.setDscLatestcompilationstep("READY");
+            definition.setDtLatestcompilationcompletedat(completedAt);
+            definition.setJsnDslpreview(dslArtifact);
+            return null;
+        }).when(repository).markCompilationReady(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                any(OffsetDateTime.class));
+    }
+
+    private void stubMarkRejected(AgentDefinitionRepository repository, AgentDefinition definition) {
+        doAnswer(invocation -> {
+            String compilationId = invocation.getArgument(1);
+            String latestStep = invocation.getArgument(2);
+            String implementationSummary = invocation.getArgument(3);
+            OffsetDateTime completedAt = invocation.getArgument(4);
+            AgentCompilation latestCompilation = compilation("REJECTED");
+            latestCompilation.setCodAgentcompilation(compilationId);
+
+            definition.setSglStatus(definitionStatus("REJECTED"));
+            definition.setSglArtifacttype(artifactType("NONE"));
+            definition.setDscArtifacturi(null);
+            definition.setDscArtifacthash(null);
+            definition.setSglSignaturestatus(signatureStatus("NOT_SIGNED"));
+            definition.setDscRuntimeimage(null);
+            definition.setDscSdkversion(null);
+            definition.setDscImplementationsummary(implementationSummary);
+            definition.setCodLatestcompilation(latestCompilation);
+            definition.setSglLatestcompilationstatus(compilationStatus("REJECTED"));
+            definition.setDscLatestcompilationstep(latestStep);
+            definition.setDtLatestcompilationcompletedat(completedAt);
+            return null;
+        }).when(repository).markCompilationRejected(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                anyString(),
+                anyString(),
+                any(OffsetDateTime.class));
+    }
+
+    private AgentDefinitionStatus definitionStatus(String value) {
+        AgentDefinitionStatus status = new AgentDefinitionStatus();
+        status.setSglStatus(value);
+        return status;
+    }
+
+    private AgentArtifactType artifactType(String value) {
+        AgentArtifactType artifactType = new AgentArtifactType();
+        artifactType.setSglArtifacttype(value);
+        return artifactType;
+    }
+
+    private AgentArtifactSignatureStatus signatureStatus(String value) {
+        AgentArtifactSignatureStatus signatureStatus = new AgentArtifactSignatureStatus();
+        signatureStatus.setSglSignaturestatus(value);
+        return signatureStatus;
     }
 
     private AgentCompilationRequest compileRequest(AgentGenerationMode generationMode) {
