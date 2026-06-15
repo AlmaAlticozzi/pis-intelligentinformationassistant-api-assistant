@@ -19,6 +19,9 @@ public class AlertRouteUnderstandingService {
     AlertRouteUnderstandingValidator validator;
 
     @Inject
+    AlertRouteUnderstandingFallbackClassifier fallbackClassifier;
+
+    @Inject
     Instance<LlmGateway> llmGateway;
 
     public AlertRouteUnderstandingResult understand(AlertVerificationPromptData promptData) {
@@ -34,9 +37,9 @@ public class AlertRouteUnderstandingService {
                 + hints.containsAttributeThresholdExpression());
 
         if (llmGateway == null || llmGateway.isUnsatisfied()) {
-            AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(
-                    "Alert route understanding cannot run because no LLM gateway is available.");
-            AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt, hints);
+            String reason = "Alert route understanding cannot run because no LLM gateway is available.";
+            AlertRouteUnderstandingResult validated = fallbackRoute(alertId, prompt, hints, reason)
+                    .orElseGet(() -> validator.validate(AlertRouteUnderstandingResult.rejected(reason), prompt, hints));
             printFinal(validated);
             return validated;
         }
@@ -52,9 +55,9 @@ public class AlertRouteUnderstandingService {
             if (parseResult.result().isEmpty()) {
                 System.out.println("[IIA][ALERT_ROUTE][PARSED] route=<empty> reason=" + parseResult.failureReason()
                         + " rawLength=" + parseResult.rawLength());
-                AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(
-                        "Alert route response could not be parsed: " + parseResult.failureReason());
-                AlertRouteUnderstandingResult validated = validator.validate(rejected, prompt, hints);
+                String reason = "Alert route response could not be parsed: " + parseResult.failureReason();
+                AlertRouteUnderstandingResult validated = fallbackRoute(alertId, prompt, hints, reason)
+                        .orElseGet(() -> validator.validate(AlertRouteUnderstandingResult.rejected(reason), prompt, hints));
                 System.out.println("[IIA][ALERT_ROUTE][VALIDATED] " + validated);
                 printFinal(validated);
                 return validated;
@@ -67,23 +70,39 @@ public class AlertRouteUnderstandingService {
             printFinal(validated);
             return validated;
         } catch (ProcessingException ex) {
-            return routeError(shortTechnicalMessage(ex), prompt);
+            return routeError(alertId, shortTechnicalMessage(ex), prompt, hints);
         } catch (RuntimeException ex) {
-            return routeError(shortTechnicalMessage(ex), prompt);
+            return routeError(alertId, shortTechnicalMessage(ex), prompt, hints);
         }
     }
 
-    private AlertRouteUnderstandingResult routeError(String message, String prompt) {
+    private AlertRouteUnderstandingResult routeError(
+            String alertId,
+            String message,
+            String prompt,
+            AlertRouteUnderstandingHints hints) {
         String reason = "Alert route understanding failed before technical verification: " + message;
         System.out.println("[IIA][ALERT_ROUTE] validation result=ERROR reason=" + reason);
-        AlertRouteUnderstandingResult rejected = AlertRouteUnderstandingResult.rejected(reason);
-        AlertRouteUnderstandingResult validated = validator.validate(
-                rejected,
-                prompt,
-                AlertRouteUnderstandingHints.fromPrompt(prompt));
+        AlertRouteUnderstandingResult validated = fallbackRoute(alertId, prompt, hints, reason)
+                .orElseGet(() -> validator.validate(
+                        AlertRouteUnderstandingResult.rejected(reason),
+                        prompt,
+                        hints == null ? AlertRouteUnderstandingHints.fromPrompt(prompt) : hints));
         System.out.println("[IIA][ALERT_ROUTE][VALIDATED] " + validated);
         printFinal(validated);
         return validated;
+    }
+
+    private java.util.Optional<AlertRouteUnderstandingResult> fallbackRoute(
+            String alertId,
+            String prompt,
+            AlertRouteUnderstandingHints hints,
+            String reason) {
+        AlertRouteUnderstandingFallbackClassifier classifier = fallbackClassifier == null
+                ? new AlertRouteUnderstandingFallbackClassifier()
+                : fallbackClassifier;
+        return classifier.classify(alertId, prompt, hints, reason)
+                .map(route -> validator.validate(route, prompt, hints));
     }
 
     private void printFinal(AlertRouteUnderstandingResult route) {

@@ -56,11 +56,21 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 Monitored stop points:
                 - MONITORED_STOP_POINT is a stop point that must be queried through ServiceData API POST /v2/stoppointjourneys.
                 - It will be used in body.stopPoints[] after resolution.
+                - In scheduled alerts, the monitored location is the place where the periodic snapshot check runs.
+                - The monitored location is the location used to build ServiceData API serviceDataQuery.stopPoints.
                 - Meanings such as "at stop X tell me how many journeys", "for location X", "in X are there delayed
                   trains", "between/among X and Y are there N arriving journeys", and "check X and Y" identify monitored
                   stop points.
                 - A location governed by phrases equivalent to "at/in/for location X", when the user asks about current
                   situation, counts, reports or conditions at that place, is MONITORED_STOP_POINT.
+                - In scheduled prompts shaped like "how many journeys ... are there at X" or "quante corse ... ci sono a X",
+                  X is MONITORED_STOP_POINT.
+                - In scheduled prompts shaped like "how many departing journeys are there from X" or
+                  "quante corse in partenza ci sono da X", X is MONITORED_STOP_POINT with departure orientation.
+                - In scheduled prompts shaped like "how many arriving journeys are there at X" or
+                  "quante corse in arrivo ci sono a X", X is MONITORED_STOP_POINT with arrival orientation.
+                - In scheduled prompts shaped like "how many journeys from X to Y" with no other explicit monitored
+                  location, X may be MONITORED_STOP_POINT with departure/origin orientation and Y is a destination filter.
                 - "all locations", "all stop points", "all known locations" and equivalent wording means
                   monitoringScope=ALL_KNOWN_STOP_POINTS and no explicit monitored location is required.
 
@@ -68,10 +78,19 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                 - FILTER_CURRENT_STOP_POINT is a filter on the current stop point inside returned journeys.
                 - A location governed by "origin/from where the journey starts" is FILTER_ORIGIN_STOP_POINT, unless
                   scheduled/planned/timetabled is explicit, then FILTER_TIMETABLED_ORIGIN_STOP_POINT.
+                - A location introduced by "con origine X", "origine X", "proveniente da X" or "provenienti da X" is
+                  FILTER_ORIGIN_STOP_POINT, not necessarily monitoring scope.
+                - Do not confuse "in partenza da X" in a scheduled count/report with a pure origin filter; if it is the
+                  place where the user wants the periodic check, X is MONITORED_STOP_POINT.
                 - A location governed by "destination/to where the journey ends" is FILTER_DESTINATION_STOP_POINT, unless
                   scheduled/planned/timetabled is explicit, then FILTER_TIMETABLED_DESTINATION_STOP_POINT.
+                - A location introduced by "con destinazione X", "destinazione X", "dirette a X", "diretti a X",
+                  "verso X" or "per X" is FILTER_DESTINATION_STOP_POINT when a monitored location is already clear.
                 - A location governed by "passes through/calls at/via" is FILTER_ROUTE_STOP_POINT.
+                - A location introduced by "che passano da X", "passano per X", "via X" or equivalent is
+                  FILTER_ROUTE_STOP_POINT, not monitoring scope unless the prompt also says the periodic check is at X.
                 - A location governed by "transits through/non-stopping transit" is FILTER_TRANSIT_STOP_POINT.
+                - A location introduced by "in transito da X" or "in transito a X" is FILTER_TRANSIT_STOP_POINT.
                 - A location governed by "cancelled/suppressed/skipped stop" is FILTER_CANCELLED_CALL_STOP_POINT.
                 - A stop point governed by "suppressed stop", "cancelled stop", "skipped stop", "cancelled call",
                   "fermata soppressa", "fermata cancellata", "salta la fermata" or equivalent wording is
@@ -80,6 +99,8 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                   "corse soppresse", "corse cancellate", "treni soppressi", "suppressed journeys",
                   "cancelled journeys", "cancelled trains" and "suppressed services" are non-location
                   cancellation intent constraints.
+                - Do not confuse "soppresse", "cancellate", "soppressione" or "cancellazione" with a cancelled stop
+                  location. These words usually describe journey status, not the role of the location.
                 - "suppressed journeys at X" means X is MONITORED_STOP_POINT and there is no
                   FILTER_CANCELLED_CALL_STOP_POINT.
                 - "arrival suppressed journeys at X" means X is MONITORED_STOP_POINT, cancellation direction
@@ -212,6 +233,19 @@ public class ScheduledAlertLocationUnderstandingPromptBuilder {
                   ],
                   "warnings": []
                 }
+
+                Scheduled examples:
+                1. Prompt: "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme"
+                   Expected: monitoringScope=EXPLICIT_STOP_POINTS, locations=[Gerusalemme as MONITORED_STOP_POINT],
+                   no conditional locations, suppression/cancellation is journey status.
+                2. Prompt: "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme con destinazione Bignami"
+                   Expected: Gerusalemme is MONITORED_STOP_POINT; Bignami is FILTER_DESTINATION_STOP_POINT.
+                3. Prompt: "Avvertimi ogni 10 min su quante corse in partenza ci sono da Lecco"
+                   Expected: Lecco is MONITORED_STOP_POINT with departure orientation.
+                4. Prompt: "Avvertimi ogni 10 min su quante corse in arrivo ci sono a Milano Garibaldi"
+                   Expected: Milano Garibaldi is MONITORED_STOP_POINT with arrival orientation.
+                5. Prompt: "Avvertimi ogni 10 min su quante corse a Gerusalemme passano da Bignami"
+                   Expected: Gerusalemme is MONITORED_STOP_POINT; Bignami is FILTER_ROUTE_STOP_POINT.
                 """.formatted(escapeForPrompt(prompt), hints.compactPromptSection());
     }
 

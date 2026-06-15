@@ -12,14 +12,22 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteIntentKind;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteInterpreterType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteOutputMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingFallbackClassifier;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingResult;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRouteUnderstandingValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationMention;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationPolarity;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationRelation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationRole;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingFallbackClassifier;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingPromptBuilder;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertLocationUnderstandingValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertVerificationService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertMonitoringScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
@@ -155,6 +163,98 @@ class AlertServiceTest {
         verify(service.alertLocationUnderstandingService, never()).understandLocations(any(), any());
         verify(service.scheduledAlertLocationUnderstandingService).understandLocations("Prompt", "ALRT1");
         verify(service.scheduledServiceDataLocationResolutionService).resolve(scheduledUnderstanding);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyRouteGatewayFailureFallsBackToScheduledRouteAndContinuesToScheduledLocationUnderstanding()
+            throws ReflectiveOperationException {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = routeUnderstandingServiceWithGatewayFailure("IIA-UTL-TXI-503-001");
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        service.locationUnderstandingEnabled = true;
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        String prompt = "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme";
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData("ALRT1", "Alert", null, prompt)));
+        ScheduledAlertLocationUnderstandingResult scheduledUnderstanding = scheduledUnderstanding(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                scheduledMention("Gerusalemme", ScheduledAlertLocationRole.MONITORED_STOP_POINT, true));
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                List.of(resolvedScheduledLocation("Gerusalemme", ScheduledAlertLocationRole.MONITORED_STOP_POINT, List.of("GERUSALEMME_ID"))),
+                List.of(),
+                List.of("GERUSALEMME_ID"),
+                false,
+                false,
+                List.of(),
+                List.of());
+        when(service.scheduledAlertLocationUnderstandingService.understandLocations(any(), any()))
+                .thenReturn(scheduledUnderstanding);
+        when(service.scheduledServiceDataLocationResolutionService.resolve(scheduledUnderstanding))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.scheduledAlertLocationUnderstandingService).understandLocations(any(), any());
+        verify(service.scheduledServiceDataLocationResolutionService).resolve(scheduledUnderstanding);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(outcome.getValue().requiredSources()).containsExactly("SERVICE_DATA");
+        assertThat(outcome.getValue().rejectedReason()).isEqualTo(
+                "The alert was recognized as a SERVICE_DATA scheduled snapshot alert, but SCHEDULED_INTERPRETER technical verification is not implemented yet.");
+        verify(service.alertVerificationPromptBuilder, never()).build(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void verifyScheduledLocationGatewayFailureFallsBackAndContinuesWithMonitoringAndDestinationFilter()
+            throws ReflectiveOperationException {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = mock(AlertRouteUnderstandingService.class);
+        service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+        service.scheduledAlertLocationUnderstandingService =
+                scheduledLocationUnderstandingServiceWithGatewayFailure("IIA-UTL-TXI-503-001");
+        service.scheduledServiceDataLocationResolutionService = mock(ScheduledServiceDataLocationResolutionService.class);
+        AlertVerificationRequest request = new AlertVerificationRequest();
+        String prompt = "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme con destinazione Bignami";
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData("ALRT1", "Alert", null, prompt)));
+        when(service.alertRouteUnderstandingService.understand(any())).thenReturn(scheduledRoute());
+        ScheduledServiceDataLocationContext scheduledContext = scheduledContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                List.of(resolvedScheduledLocation("Gerusalemme", ScheduledAlertLocationRole.MONITORED_STOP_POINT, List.of("GERUSALEMME_ID"))),
+                List.of(resolvedScheduledLocation("Bignami", ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT, List.of("BIGNAMI_ID"))),
+                List.of("GERUSALEMME_ID"),
+                false,
+                false,
+                List.of(),
+                List.of());
+        when(service.scheduledServiceDataLocationResolutionService.resolve(any()))
+                .thenReturn(scheduledContext);
+
+        service.verifyAlert("ALRT1", request);
+
+        ArgumentCaptor<ScheduledAlertLocationUnderstandingResult> scheduledUnderstanding =
+                ArgumentCaptor.forClass(ScheduledAlertLocationUnderstandingResult.class);
+        verify(service.scheduledServiceDataLocationResolutionService).resolve(scheduledUnderstanding.capture());
+        assertThat(scheduledUnderstanding.getValue().locations()).anySatisfy(location -> {
+            assertThat(location.rawText()).isEqualTo("Gerusalemme");
+            assertThat(location.role()).isEqualTo(ScheduledAlertLocationRole.MONITORED_STOP_POINT);
+        });
+        assertThat(scheduledUnderstanding.getValue().locations()).anySatisfy(location -> {
+            assertThat(location.rawText()).isEqualTo("Bignami");
+            assertThat(location.role()).isEqualTo(ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT);
+        });
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.eq(request), outcome.capture());
+        assertThat(outcome.getValue().interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
+        assertThat(outcome.getValue().warnings()).contains("SCHEDULED_SERVICE_DATA_API_STOP_POINTS=[GERUSALEMME_ID]");
     }
 
     @Test
@@ -1627,6 +1727,48 @@ class AlertServiceTest {
         service.fallbackOnInvalidLlm = fallbackEnabled;
         service.scheduledVerifyEnabled = false;
         return service;
+    }
+
+    private AlertRouteUnderstandingService routeUnderstandingServiceWithGatewayFailure(String reason)
+            throws ReflectiveOperationException {
+        AlertRouteUnderstandingService routeService = new AlertRouteUnderstandingService();
+        AlertRouteUnderstandingPromptBuilder promptBuilder = mock(AlertRouteUnderstandingPromptBuilder.class);
+        when(promptBuilder.build(any(), any())).thenReturn(
+                new LlmRequest(AiUseCase.ALERT_ROUTE_UNDERSTANDING, "system", "user", "gpt-4.1-mini", 0.1, 5000, "ALRT1"));
+        Instance<LlmGateway> llmGateway = mock(Instance.class);
+        LlmGateway gateway = mock(LlmGateway.class);
+        when(llmGateway.isUnsatisfied()).thenReturn(false);
+        when(llmGateway.get()).thenReturn(gateway);
+        when(gateway.generateText(any())).thenThrow(new RuntimeException(reason));
+
+        setField(routeService, "promptBuilder", promptBuilder);
+        setField(routeService, "responseParser", new AlertRouteUnderstandingResponseParser());
+        setField(routeService, "validator", new AlertRouteUnderstandingValidator());
+        setField(routeService, "fallbackClassifier", new AlertRouteUnderstandingFallbackClassifier());
+        setField(routeService, "llmGateway", llmGateway);
+        return routeService;
+    }
+
+    private ScheduledAlertLocationUnderstandingService scheduledLocationUnderstandingServiceWithGatewayFailure(String reason)
+            throws ReflectiveOperationException {
+        Instance<LlmGateway> llmGateway = mock(Instance.class);
+        LlmGateway gateway = mock(LlmGateway.class);
+        when(llmGateway.isUnsatisfied()).thenReturn(false);
+        when(llmGateway.get()).thenReturn(gateway);
+        when(gateway.generateText(any())).thenThrow(new RuntimeException(reason));
+        ScheduledAlertLocationUnderstandingService scheduledService = new ScheduledAlertLocationUnderstandingService();
+        setField(scheduledService, "promptBuilder", new ScheduledAlertLocationUnderstandingPromptBuilder());
+        setField(scheduledService, "parser", new ScheduledAlertLocationUnderstandingResponseParser());
+        setField(scheduledService, "validator", new ScheduledAlertLocationUnderstandingValidator());
+        setField(scheduledService, "fallbackClassifier", new ScheduledAlertLocationUnderstandingFallbackClassifier());
+        setField(scheduledService, "llmGateway", llmGateway);
+        return scheduledService;
+    }
+
+    private void setField(Object target, String fieldName, Object value) throws ReflectiveOperationException {
+        java.lang.reflect.Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
     }
 
     private Alert verifiedTechnicalSpecificationAlert(Object technicalSpecification) {

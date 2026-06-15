@@ -185,6 +185,88 @@ class AlertRouteUnderstandingServiceTest {
         }
     }
 
+    @Test
+    void fallsBackToScheduledRouteWhenRouteGatewayFailsForPollingCountSnapshotPrompt() {
+        AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("IIA-UTL-TXI-503-001"))
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Route",
+                        null,
+                        "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(result.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        assertThat(result.accessMode()).isEqualTo(AlertRouteAccessMode.SERVICE_DATA_API_SNAPSHOT);
+        assertThat(result.requiresPolling()).isTrue();
+        assertThat(result.requiresServiceDataApi()).isTrue();
+        assertThat(result.requiresKafkaEvent()).isFalse();
+        assertThat(result.warnings()).anySatisfy(warning ->
+                assertThat(warning).contains("IIA-UTL-TXI-503-001", "SCHEDULED_INTERPRETER"));
+    }
+
+    @Test
+    void fallsBackToEventRouteWhenRouteGatewayFailsForEventPrompt() {
+        AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("timeout"))
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Route",
+                        null,
+                        "Avvertimi quando una corsa soppressa arriva a Garibaldi"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(result.interpreterType()).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+        assertThat(result.accessMode()).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+        assertThat(result.requiresPolling()).isFalse();
+        assertThat(result.requiresServiceDataApi()).isFalse();
+        assertThat(result.requiresKafkaEvent()).isTrue();
+    }
+
+    @Test
+    void fallsBackWhenRouteResponseCannotBeParsed() {
+        AlertRouteUnderstandingResult result = serviceWithResponse("not-json")
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Route",
+                        null,
+                        "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.ROUTED);
+        assertThat(result.interpreterType()).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+    }
+
+    @Test
+    void doesNotFallBackWhenLlmReturnsValidSemanticRejection() {
+        AlertRouteUnderstandingResult result = serviceWithResponse("""
+                {
+                  "decision":"REJECTED",
+                  "rejectedReason":"Weather alerts are unsupported.",
+                  "summary":"Unsupported route.",
+                  "warnings":["Weather alerts are unsupported."]
+                }
+                """).understand(new AlertVerificationPromptData(
+                "ALRT1",
+                "Route",
+                null,
+                "Avvisami quando piove a Garibaldi"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(result.interpreterType()).isEqualTo(AlertRouteInterpreterType.UNKNOWN);
+        assertThat(result.rejectedReason()).contains("Weather");
+    }
+
+    @Test
+    void keepsUnsupportedPromptRejectedWhenRouteGatewayFails() {
+        AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("IIA-UTL-TXI-503-001"))
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Route",
+                        null,
+                        "Avvisami ogni 10 minuti se piove a Garibaldi"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(result.rejectedReason()).contains("Weather");
+    }
+
     private AlertRouteUnderstandingPromptBuilder promptBuilder() {
         AiConfiguration configuration = mock(AiConfiguration.class);
         AiConfiguration.AlertVerify alertVerify = mock(AiConfiguration.AlertVerify.class);
@@ -203,11 +285,26 @@ class AlertRouteUnderstandingServiceTest {
         service.promptBuilder = promptBuilder();
         service.responseParser = new AlertRouteUnderstandingResponseParser();
         service.validator = new AlertRouteUnderstandingValidator();
+        service.fallbackClassifier = new AlertRouteUnderstandingFallbackClassifier();
         service.llmGateway = mock(Instance.class);
         LlmGateway gateway = mock(LlmGateway.class);
         when(service.llmGateway.isUnsatisfied()).thenReturn(false);
         when(service.llmGateway.get()).thenReturn(gateway);
         when(gateway.generateText(any())).thenReturn(new LlmResponse(response, "FAKE", "fake-model", null, null, null));
+        return service;
+    }
+
+    private AlertRouteUnderstandingService serviceWithGatewayFailure(RuntimeException exception) {
+        AlertRouteUnderstandingService service = new AlertRouteUnderstandingService();
+        service.promptBuilder = promptBuilder();
+        service.responseParser = new AlertRouteUnderstandingResponseParser();
+        service.validator = new AlertRouteUnderstandingValidator();
+        service.fallbackClassifier = new AlertRouteUnderstandingFallbackClassifier();
+        service.llmGateway = mock(Instance.class);
+        LlmGateway gateway = mock(LlmGateway.class);
+        when(service.llmGateway.isUnsatisfied()).thenReturn(false);
+        when(service.llmGateway.get()).thenReturn(gateway);
+        when(gateway.generateText(any())).thenThrow(exception);
         return service;
     }
 
