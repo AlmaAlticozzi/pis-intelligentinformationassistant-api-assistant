@@ -140,6 +140,35 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
+    void verifiesWithDeterministicFallbackWhenProviderFailsForResolvedScheduledReport() {
+        TestFixture fixture = fixtureWithProviderFailure(new LlmProviderException("IIA-UTL-TXI-503-001"));
+        ScheduledServiceDataLocationContext context = gerusalemmeWithDestinationFilterContext();
+
+        AlertVerificationOutcome outcome = fixture.service.verify(
+                "ALRT1",
+                "Scheduled Suppressed Journeys Count At Gerusalemme To Bignami",
+                "Verify deterministic Scheduled fallback for suppressed journeys at Gerusalemme with destination Bignami.",
+                "Avvertimi ogni 10 min su quante corse soppresse ci sono a Gerusalemme con destinazione Bignami",
+                route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
+                context);
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of(GERUSALEMME));
+        assertThat(map(outcome.technicalSpecification().get("schedule"))).containsEntry("frequencySeconds", 600);
+        assertThat(String.valueOf(outcome.technicalSpecification().get("snapshotEvaluation")))
+                .contains("callEnd.stopPoint.id", GORLA)
+                .contains("ARRIVAL_CANCELLATION", "DEPARTURE_CANCELLATION")
+                .doesNotContain("value=" + GERUSALEMME);
+        assertThat(outcome.agentBlueprintPreview()).isNotNull();
+        assertThat(map(outcome.agentBlueprintPreview().get("runtimeContract")))
+                .containsEntry("requiresScheduler", true)
+                .containsEntry("executionModel", "SCHEDULED_POLLING");
+        assertThat(outcome.warnings()).anySatisfy(warning ->
+                assertThat(warning).contains("deterministic fallback", "IIA-UTL-TXI-503-001"));
+    }
+
+    @Test
     void rejectsInventedStopPointId() {
         TestFixture fixture = fixture(json(validResponse(explicitContext(),
                 conditionAnyElement("stopPointsJourneyDetails[]",
@@ -2055,6 +2084,51 @@ class ScheduledAlertVerificationServiceTest {
                 ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                 monitored,
                 List.of(),
+                List.of(),
+                List.of(GERUSALEMME),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GERUSALEMME),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext gerusalemmeWithDestinationFilterContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Gerusalemme",
+                "Gerusalemme",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GERUSALEMME),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        List<ScheduledServiceDataResolvedLocation> filters = List.of(new ScheduledServiceDataResolvedLocation(
+                "Bignami",
+                "Bignami",
+                ScheduledAlertLocationRole.FILTER_DESTINATION_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                false,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GORLA),
+                List.of(),
+                false,
+                false,
+                List.of("stopPointsJourneyDetails[].callEnd.stopPoint.id"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                filters,
                 List.of(),
                 List.of(GERUSALEMME),
                 false,

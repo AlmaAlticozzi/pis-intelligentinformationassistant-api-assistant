@@ -47,6 +47,9 @@ public class ScheduledAlertVerificationService {
     @Inject
     ScheduledAlertReplacementHintsExtractor replacementHintsExtractor;
 
+    @Inject
+    ScheduledAlertDeterministicTechnicalSpecificationBuilder deterministicTechnicalSpecificationBuilder;
+
     @ConfigProperty(name = "iia.alert-scheduled-verification.prompt-size-warning-threshold", defaultValue = "25000")
     int promptSizeWarningThreshold = 25000;
 
@@ -213,9 +216,35 @@ public class ScheduledAlertVerificationService {
             printOutcome(validated);
             return validated;
         } catch (ProcessingException ex) {
-            return providerFailure(alertId, request, ex);
+            return providerFailure(
+                    alertId,
+                    originalPrompt,
+                    route,
+                    locationContext,
+                    temporalHints,
+                    platformHints,
+                    changeHints,
+                    journeyCancellationHints,
+                    cancelledCallHints,
+                    replacementHints,
+                    unsupportedReason,
+                    request,
+                    ex);
         } catch (LlmProviderException ex) {
-            return providerFailure(alertId, request, ex);
+            return providerFailure(
+                    alertId,
+                    originalPrompt,
+                    route,
+                    locationContext,
+                    temporalHints,
+                    platformHints,
+                    changeHints,
+                    journeyCancellationHints,
+                    cancelledCallHints,
+                    replacementHints,
+                    unsupportedReason,
+                    request,
+                    ex);
         } catch (RuntimeException ex) {
             return rejected(
                     alertId,
@@ -306,9 +335,61 @@ public class ScheduledAlertVerificationService {
                 && route.dataDomains().contains("SERVICE_DATA");
     }
 
-    private AlertVerificationOutcome providerFailure(String alertId, LlmRequest request, RuntimeException ex) {
+    private AlertVerificationOutcome providerFailure(
+            String alertId,
+            String originalPrompt,
+            AlertRouteUnderstandingResult route,
+            ScheduledServiceDataLocationContext locationContext,
+            ScheduledAlertTemporalHints temporalHints,
+            ScheduledAlertPlatformHints platformHints,
+            ScheduledAlertChangeHints changeHints,
+            ScheduledAlertJourneyCancellationHints journeyCancellationHints,
+            ScheduledAlertCancelledCallHints cancelledCallHints,
+            ScheduledAlertReplacementHints replacementHints,
+            String unsupportedReason,
+            LlmRequest request,
+            RuntimeException ex) {
+        String reason = shortTechnicalMessage(ex);
         System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][ERROR] provider failure alertId="
-                + alertId + " reason=" + shortTechnicalMessage(ex));
+                + alertId + " reason=" + reason);
+        System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][DETERMINISTIC_FALLBACK] provider failure alertId="
+                + alertId + " reason=" + reason);
+        ScheduledAlertDeterministicTechnicalSpecificationBuilder builder = deterministicTechnicalSpecificationBuilder == null
+                ? new ScheduledAlertDeterministicTechnicalSpecificationBuilder()
+                : deterministicTechnicalSpecificationBuilder;
+        java.util.Optional<AlertVerificationOutcome> fallback = builder.build(
+                alertId,
+                originalPrompt,
+                route,
+                locationContext,
+                temporalHints,
+                platformHints,
+                changeHints,
+                journeyCancellationHints,
+                cancelledCallHints,
+                replacementHints,
+                unsupportedReason,
+                reason,
+                request == null ? null : request.model(),
+                PROMPT_VERSION);
+        if (fallback.isPresent()) {
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] decision before validation="
+                    + fallback.get().decision());
+            AlertVerificationOutcome validated = outcomeValidator.validate(
+                    fallback.get(),
+                    locationContext,
+                    route,
+                    temporalHints,
+                    platformHints,
+                    changeHints,
+                    journeyCancellationHints,
+                    cancelledCallHints,
+                    replacementHints);
+            System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][VALIDATOR] final validator decision="
+                    + validated.decision() + " rejectedReason=" + validated.rejectedReason());
+            printOutcome(validated);
+            return validated;
+        }
         AlertVerificationOutcome outcome = technicalErrorOutcome(request == null ? null : request.model());
         printOutcome(outcome);
         return outcome;
