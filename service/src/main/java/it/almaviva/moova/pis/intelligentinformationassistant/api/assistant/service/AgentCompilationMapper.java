@@ -1,7 +1,5 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentArtifact;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentArtifactType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatusResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStep;
@@ -11,12 +9,17 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Map;
 
 @ApplicationScoped
 public class AgentCompilationMapper {
 
     @Inject
     AgentCompilationStepStatusMapper stepStatusMapper;
+
+    @Inject
+    AgentArtifactMapper agentArtifactMapper;
 
     public AgentCompilationStatusResponse toResponse(
             AgentDefinition definition,
@@ -32,9 +35,9 @@ public class AgentCompilationMapper {
                 .completedAt(compilation.getDtCompletedat())
                 .currentStep(compilation.getDscCurrentstep())
                 .steps(toSteps(steps))
-                .artifact(toArtifact(definition))
+                .artifact(artifactMapper().toArtifact(definition))
                 .errors(toErrors(compilation))
-                .warnings(List.of());
+                .warnings(toWarnings(compilation));
     }
 
     private List<AgentCompilationStep> toSteps(
@@ -52,30 +55,47 @@ public class AgentCompilationMapper {
                 .toList();
     }
 
-    private AgentArtifact toArtifact(AgentDefinition definition) {
-        String artifactType = definition.getSglArtifacttype() == null ? null : definition.getSglArtifacttype().getSglArtifacttype();
-        if (artifactType == null || "NONE".equals(artifactType)) {
-            return null;
-        }
-
-        AgentArtifact artifact = new AgentArtifact()
-                .artifactType(AgentArtifactType.fromString(artifactType))
-                .artifactUri(definition.getDscArtifacturi())
-                .artifactHash(definition.getDscArtifacthash())
-                .runtimeImage(definition.getDscRuntimeimage())
-                .sdkVersion(definition.getDscSdkversion())
-                .implementationSummary(definition.getDscImplementationsummary());
-        if (definition.getSglSignaturestatus() != null) {
-            artifact.signatureStatus(AgentArtifact.SignatureStatusEnum.fromString(definition.getSglSignaturestatus().getSglSignaturestatus()));
-        }
-        return artifact;
-    }
-
     private List<String> toErrors(AgentCompilation compilation) {
-        String errorMessage = compilation.getDscErrormessage();
-        if (errorMessage == null || errorMessage.isBlank()) {
+        String status = compilation.getSglStatus() == null ? null : compilation.getSglStatus().getSglStatus();
+        if ("READY".equals(status)) {
             return List.of();
         }
-        return List.of(errorMessage);
+        LinkedHashSet<String> errors = new LinkedHashSet<>();
+        Map<String, Object> result = compilation.getJsnResult();
+        addStringList(errors, result == null ? null : result.get("errors"));
+        addStringList(errors, result == null ? null : result.get("runtimeCompatibilityErrors"));
+        String errorMessage = compilation.getDscErrormessage();
+        if (errorMessage != null && !errorMessage.isBlank()) {
+            errors.add(errorMessage);
+        }
+        return List.copyOf(errors);
+    }
+
+    private List<String> toWarnings(AgentCompilation compilation) {
+        LinkedHashSet<String> warnings = new LinkedHashSet<>();
+        Map<String, Object> result = compilation.getJsnResult();
+        addStringList(warnings, result == null ? null : result.get("warnings"));
+        addStringList(warnings, result == null ? null : result.get("runtimeCompatibilityWarnings"));
+        return List.copyOf(warnings);
+    }
+
+    private void addStringList(LinkedHashSet<String> target, Object value) {
+        if (value instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                String text = item == null ? null : String.valueOf(item).trim();
+                if (text != null && !text.isBlank()) {
+                    target.add(text);
+                }
+            }
+        } else {
+            String text = value == null ? null : String.valueOf(value).trim();
+            if (text != null && !text.isBlank()) {
+                target.add(text);
+            }
+        }
+    }
+
+    private AgentArtifactMapper artifactMapper() {
+        return agentArtifactMapper == null ? new AgentArtifactMapper() : agentArtifactMapper;
     }
 }

@@ -504,6 +504,14 @@ class AgentDefinitionCompilationServiceTest {
         assertThat(detail.getArtifact().getArtifactType().toString()).isEqualTo("DSL");
         assertThat(detail.getArtifact().getArtifactHash()).startsWith("sha256:");
         assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getCompilation().getCurrentStep()).isEqualTo("READY");
+        assertThat(detail.getCompilation().getSteps()).hasSize(5);
+        assertThat(detail.getCompilation().getSteps())
+                .extracting(AgentCompilationStep::getStatus)
+                .containsOnly(AgentCompilationStep.StatusEnum.SUCCESS);
+        assertThat(detail.getCompilation().getArtifact()).isNotNull();
+        assertThat(detail.getRuntimeContract().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getRuntimeContract().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
     }
 
     @Test
@@ -586,6 +594,8 @@ class AgentDefinitionCompilationServiceTest {
             OffsetDateTime completedAt = invocation.getArgument(8);
             AgentCompilation latestCompilation = compilation("READY");
             latestCompilation.setCodAgentcompilation(compilationId);
+            latestCompilation.setDscCurrentstep("READY");
+            latestCompilation.setDtCompletedat(completedAt);
 
             definition.setSglStatus(definitionStatus("READY"));
             definition.setSglArtifacttype(artifactType("DSL"));

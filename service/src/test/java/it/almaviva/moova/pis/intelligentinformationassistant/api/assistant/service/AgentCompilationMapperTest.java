@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,6 +78,35 @@ class AgentCompilationMapperTest {
         assertThat(response.getSteps()).isEmpty();
         assertThat(response.getErrors()).containsExactly("Compilation failed.");
         assertThat(response.getArtifact()).isNull();
+    }
+
+    @Test
+    void mapsRejectedErrorsAndWarningsFromResultJsonWithoutDuplicates() {
+        AgentCompilation compilation = compilation("REJECTED");
+        compilation.setDscErrormessage("Runtime rejected.");
+        compilation.setJsnResult(Map.of(
+                "errors", List.of("Runtime rejected."),
+                "runtimeCompatibilityErrors", List.of("Unsupported DSL operator MAGIC_OPERATOR."),
+                "warnings", List.of("Functional warning."),
+                "runtimeCompatibilityWarnings", List.of("Runtime warning.")));
+
+        var response = mapper().toResponse(definition("NONE"), compilation, List.of());
+
+        assertThat(response.getErrors())
+                .containsExactly("Runtime rejected.", "Unsupported DSL operator MAGIC_OPERATOR.");
+        assertThat(response.getWarnings())
+                .containsExactly("Functional warning.", "Runtime warning.");
+    }
+
+    @Test
+    void ignoresHistoricErrorsWhenCompilationIsReady() {
+        AgentCompilation compilation = compilation("READY");
+        compilation.setDscErrormessage("Old transient message.");
+        compilation.setJsnResult(Map.of("errors", List.of("Old functional error.")));
+
+        var response = mapper().toResponse(definition("DSL"), compilation, List.of());
+
+        assertThat(response.getErrors()).isEmpty();
     }
 
     private AgentCompilationMapper mapper() {

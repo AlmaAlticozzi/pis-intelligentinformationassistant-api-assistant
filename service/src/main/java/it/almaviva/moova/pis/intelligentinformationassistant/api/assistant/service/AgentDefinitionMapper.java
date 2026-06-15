@@ -4,8 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationPolicy;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentArtifact;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentArtifactType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentBlueprint;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationStatusResponse;
@@ -43,6 +41,9 @@ public class AgentDefinitionMapper {
     @Inject
     AgentProfileMapper agentProfileMapper;
 
+    @Inject
+    AgentArtifactMapper agentArtifactMapper;
+
     public AgentDefinitionDetail toDto(
             it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity,
             String interpreterType,
@@ -64,7 +65,7 @@ public class AgentDefinitionMapper {
                 .generationMode(entity.getSglGenerationmode() == null ? null : AgentGenerationMode.fromString(entity.getSglGenerationmode().getSglGenerationmode()))
                 .activationPolicy(convert(entity.getJsnActivationpolicy(), AgentActivationPolicy.class))
                 .blueprint(convert(entity.getJsnBlueprint(), AgentBlueprint.class))
-                .artifact(toArtifact(entity))
+                .artifact(artifactMapper().toArtifact(entity))
                 .compilation(toCompilation(entity))
                 .runtimeContract(toRuntimeContract(entity, interpreterType, triggerType))
                 .latestRun(toLatestRun(entity))
@@ -111,21 +112,6 @@ public class AgentDefinitionMapper {
         return OBJECT_MAPPER.convertValue(value, MAP_TYPE);
     }
 
-    private AgentArtifact toArtifact(
-            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
-        AgentArtifact artifact = new AgentArtifact()
-                .artifactType(entity.getSglArtifacttype() == null ? null : AgentArtifactType.fromString(entity.getSglArtifacttype().getSglArtifacttype()))
-                .artifactUri(entity.getDscArtifacturi())
-                .artifactHash(entity.getDscArtifacthash())
-                .runtimeImage(entity.getDscRuntimeimage())
-                .sdkVersion(entity.getDscSdkversion())
-                .implementationSummary(entity.getDscImplementationsummary());
-        if (entity.getSglSignaturestatus() != null) {
-            artifact.signatureStatus(AgentArtifact.SignatureStatusEnum.fromString(entity.getSglSignaturestatus().getSglSignaturestatus()));
-        }
-        return artifact;
-    }
-
     private AgentCompilationStatusResponse toCompilation(
             it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
         var compilation = entity.getCodLatestcompilation();
@@ -138,7 +124,7 @@ public class AgentDefinitionMapper {
                 .status(statusRef == null ? null : AgentCompilationStatus.fromString(statusRef.getSglStatus()))
                 .currentStep(compilation == null ? entity.getDscLatestcompilationstep() : compilation.getDscCurrentstep())
                 .completedAt(compilation == null ? entity.getDtLatestcompilationcompletedat() : compilation.getDtCompletedat())
-                .artifact(toArtifact(entity));
+                .artifact(artifactMapper().toArtifact(entity));
         if (compilation != null) {
             response.startedAt(compilation.getDtStartedat());
             if (compilation.getDscErrormessage() != null && !compilation.getDscErrormessage().isBlank()) {
@@ -209,6 +195,12 @@ public class AgentDefinitionMapper {
         if ((contract.getTriggerType() == null || contract.getTriggerType().isBlank()) && triggerType != null) {
             contract.triggerType(triggerType);
         }
+        if (contract.getRuntimeImage() == null || contract.getRuntimeImage().isBlank()) {
+            contract.runtimeImage(runtimeImageFallback(entity));
+        }
+        if (contract.getSdkVersion() == null || contract.getSdkVersion().isBlank()) {
+            contract.sdkVersion(sdkVersionFallback(entity));
+        }
         if ((contract.getAllowedTools() == null || contract.getAllowedTools().isEmpty())
                 && entity.getJsnAllowedtools() != null
                 && !entity.getJsnAllowedtools().isEmpty()) {
@@ -233,6 +225,38 @@ public class AgentDefinitionMapper {
                     .toList());
         }
         return normalized;
+    }
+
+    private String runtimeImageFallback(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
+        if (entity.getDscRuntimeimage() != null && !entity.getDscRuntimeimage().isBlank()) {
+            return entity.getDscRuntimeimage();
+        }
+        if (isDslArtifact(entity)) {
+            return "STANDARD_AGENT_DSL_EVALUATOR";
+        }
+        return null;
+    }
+
+    private String sdkVersionFallback(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
+        if (entity.getDscSdkversion() != null && !entity.getDscSdkversion().isBlank()) {
+            return entity.getDscSdkversion();
+        }
+        if (isDslArtifact(entity)) {
+            return "iia.agent.dsl/v1";
+        }
+        return null;
+    }
+
+    private boolean isDslArtifact(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition entity) {
+        return entity.getSglArtifacttype() != null
+                && "DSL".equals(entity.getSglArtifacttype().getSglArtifacttype());
+    }
+
+    private AgentArtifactMapper artifactMapper() {
+        return agentArtifactMapper == null ? new AgentArtifactMapper() : agentArtifactMapper;
     }
 
     private AgentRunSummary toLatestRun(

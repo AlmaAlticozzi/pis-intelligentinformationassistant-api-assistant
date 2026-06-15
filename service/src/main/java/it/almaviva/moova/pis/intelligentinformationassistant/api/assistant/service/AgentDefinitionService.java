@@ -38,8 +38,6 @@ public class AgentDefinitionService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
-    private static final String COMPILE_NOT_IMPLEMENTED_MESSAGE =
-            "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
     private static final String SCHEDULED_TOOL = "SERVICE_DATA_API.POST_/v2/stoppointjourneys";
     private static final String DSL_ARTIFACT_NOT_IMPLEMENTED = "DSL artifact generation is not implemented yet.";
     private static final String RUNTIME_IMAGE = "STANDARD_AGENT_DSL_EVALUATOR";
@@ -109,6 +107,10 @@ public class AgentDefinitionService {
                 + " outputModel=" + definition.getDscOutputmodel());
 
         AgentDefinitionDetail detail = agentDefinitionMapper.toDto(definition, runtimeShape.interpreterType(), runtimeShape.triggerType());
+        AgentCompilationStatusResponse fullCompilation = toFullLatestCompilation(definition);
+        if (fullCompilation != null) {
+            detail.compilation(fullCompilation);
+        }
         System.out.println("[IIA][AGENT_DEFINITION_GET][MAP] agentDefinitionId=" + id
                 + " status=" + (detail == null ? null : detail.getStatus())
                 + " alertId=" + (detail == null || detail.getAlert() == null ? null : detail.getAlert().getId())
@@ -119,6 +121,22 @@ public class AgentDefinitionService {
                 + " inputModel=" + (detail == null ? null : detail.getInputModel())
                 + " outputModel=" + (detail == null ? null : detail.getOutputModel()));
         return detail;
+    }
+
+    private AgentCompilationStatusResponse toFullLatestCompilation(AgentDefinition definition) {
+        if (definition == null || agentCompilationRepository == null) {
+            return null;
+        }
+        var compilation = definition.getCodLatestcompilation();
+        if (compilation == null) {
+            compilation = agentCompilationRepository.findLatestByAgentDefinitionId(definition.getCodAgentdefinition())
+                    .orElse(null);
+        }
+        if (compilation == null) {
+            return null;
+        }
+        var steps = agentCompilationRepository.findStepsByCompilationId(compilation.getCodAgentcompilation());
+        return agentCompilationMapper.toResponse(definition, compilation, steps);
     }
 
     @Transactional
@@ -609,17 +627,12 @@ public class AgentDefinitionService {
         String alertId = request.getAlertId().trim();
         String agentProfileId = request.getAgentProfileId().trim();
         Integer requestedAlertVersion = request.getAlertVersion();
-        boolean compileImmediately = !Boolean.FALSE.equals(request.getCompileImmediately());
+        boolean compileImmediately = Boolean.TRUE.equals(request.getCompileImmediately());
 
         System.out.println("[IIA][AGENT_DEFINITION_CREATE] requested alertId=" + alertId
                 + " requestedAlertVersion=" + requestedAlertVersion
                 + " agentProfileId=" + agentProfileId
                 + " compileImmediately=" + request.getCompileImmediately());
-
-        if (compileImmediately) {
-            throw rejected(AgentDefinitionCreateRejectedException.Reason.COMPILATION_NOT_IMPLEMENTED,
-                    COMPILE_NOT_IMPLEMENTED_MESSAGE);
-        }
 
         AgentGenerationMode generationMode = request.getGenerationMode() == null
                 ? AgentGenerationMode.AUTO
@@ -720,7 +733,34 @@ public class AgentDefinitionService {
                 + " status=DRAFT"
                 + " agentDefinitionId=" + created.getCodAgentdefinition());
 
+        System.out.println("[IIA][AGENT_DEFINITION][CREATE] compileImmediately="
+                + compileImmediately + " agentDefinitionId=" + created.getCodAgentdefinition());
+        if (compileImmediately) {
+            return compileImmediately(created.getCodAgentdefinition(), generationMode);
+        }
+
         return agentDefinitionMapper.toDto(created, contract.interpreterType(), contract.triggerType());
+    }
+
+    private AgentDefinitionDetail compileImmediately(String agentDefinitionId, AgentGenerationMode generationMode) {
+        System.out.println("[IIA][AGENT_DEFINITION][CREATE][COMPILE_IMMEDIATELY] start agentDefinitionId=" + agentDefinitionId);
+        AgentCompilationRequest compileRequest = new AgentCompilationRequest()
+                .force(false)
+                .generationMode(generationMode)
+                .runSimulation(false)
+                .note("Compilation requested during Agent Definition creation.");
+        AgentCompilationStatusResponse compilation = compileAgentDefinition(agentDefinitionId, compileRequest);
+        String status = compilation == null || compilation.getStatus() == null ? null : compilation.getStatus().toString();
+        System.out.println("[IIA][AGENT_DEFINITION][CREATE][COMPILE_IMMEDIATELY] completed agentDefinitionId="
+                + agentDefinitionId + " compilationStatus=" + status);
+        if ("REJECTED".equals(status)) {
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][COMPILE_IMMEDIATELY] rejected agentDefinitionId="
+                    + agentDefinitionId + " errors=" + compilation.getErrors());
+        } else if ("FAILED".equals(status)) {
+            System.out.println("[IIA][AGENT_DEFINITION][CREATE][COMPILE_IMMEDIATELY] failed agentDefinitionId="
+                    + agentDefinitionId + " errors=" + compilation.getErrors());
+        }
+        return getAgentDefinition(agentDefinitionId);
     }
 
     private void validateBasicRequest(AgentDefinitionCreateRequest request) {

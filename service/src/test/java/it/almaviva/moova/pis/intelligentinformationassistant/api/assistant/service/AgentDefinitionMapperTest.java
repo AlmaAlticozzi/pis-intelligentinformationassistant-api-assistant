@@ -236,6 +236,39 @@ class AgentDefinitionMapperTest {
     }
 
     @Test
+    void mapsRuntimeImageAndSdkVersionFromCompiledArtifactMetadata() {
+        AgentDefinition definition = definition();
+        definition.setSglStatus(statusRef("READY"));
+        definition.setSglArtifacttype(artifactTypeRef("DSL"));
+        definition.setDscArtifacturi("iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl");
+        definition.setDscArtifacthash("sha256:abc");
+        definition.setSglSignaturestatus(signatureRef("SIGNED"));
+        definition.setDscRuntimeimage("STANDARD_AGENT_DSL_EVALUATOR");
+        definition.setDscSdkversion("iia.agent.dsl/v1");
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(detail.getArtifact()).isNotNull();
+        assertThat(detail.getArtifact().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getArtifact().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
+        assertThat(detail.getRuntimeContract().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getRuntimeContract().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
+    }
+
+    @Test
+    void mapsRuntimeImageAndSdkVersionFallbackForDslArtifact() {
+        AgentDefinition definition = definition();
+        definition.setSglArtifacttype(artifactTypeRef("DSL"));
+        definition.setDscRuntimeimage(null);
+        definition.setDscSdkversion(null);
+
+        AgentDefinitionDetail detail = mapper().toDto(definition, "EVENT_INTERPRETER", "EVENT");
+
+        assertThat(detail.getRuntimeContract().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getRuntimeContract().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
+    }
+
+    @Test
     void handlesMissingOptionalJsonWithoutNpeAndUsesStructuredFallbacks() {
         AgentDefinition definition = definition();
         definition.setJsnActivationpolicy(null);

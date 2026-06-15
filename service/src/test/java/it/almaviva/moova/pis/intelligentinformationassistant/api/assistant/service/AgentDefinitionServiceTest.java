@@ -8,11 +8,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentGenerationMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DayOfWeek;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentProfileRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactSignatureStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentComplexity;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStepId;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentProfile;
@@ -31,10 +35,14 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,9 +51,6 @@ class AgentDefinitionServiceTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final String ALERT_ID = "ALRT1";
     private static final String PROFILE_ID = "MEDIUM";
-    private static final String COMPILE_NOT_IMPLEMENTED =
-            "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
-
     @Test
     void createsDraftEventAgentDefinitionWhenCompileImmediatelyFalse() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
@@ -384,27 +389,152 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
-    void rejectsCompileImmediatelyTrueBeforeLoadingAlert() {
+    void createsEventAgentDefinitionReadyWhenCompileImmediatelyTrue() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
-        AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = serviceWithCompilation(definitionRepository, profileRepository, compilationRepository);
+        AgentDefinition[] stored = new AgentDefinition[1];
+        stubReferences(definitionRepository);
+        stubCompilationReferences(definitionRepository);
+        Alert alert = verifiedAlert(eventTechnicalSpecification());
+        alert.setJsnAgentblueprintpreview(Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "parameters", Map.of(
+                        "condition", Map.of(
+                                "field", "payload.status",
+                                "operator", "EQUALS",
+                                "value", "SUPPRESSED"))));
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(alert));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> {
+                    stored[0] = created(invocation.getArgument(0));
+                    return stored[0];
+                });
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenAnswer(invocation -> Optional.of(stored[0]));
+        stubCompilationPipeline(definitionRepository, compilationRepository, stored);
 
-        assertThatThrownBy(() -> service.createAgentDefinition(baseRequest(true, continuousPolicy())))
-                .isInstanceOf(AgentDefinitionCreateRejectedException.class)
-                .hasMessage(COMPILE_NOT_IMPLEMENTED)
-                .extracting(ex -> ((AgentDefinitionCreateRejectedException) ex).reason())
-                .isEqualTo(AgentDefinitionCreateRejectedException.Reason.COMPILATION_NOT_IMPLEMENTED);
-        verify(definitionRepository, never()).findAlert(any());
+        var detail = service.createAgentDefinition(baseRequest(true, continuousPolicy()).generationMode(AgentGenerationMode.DSL));
+
+        assertThat(detail.getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getArtifact()).isNotNull();
+        assertThat(detail.getArtifact().getArtifactType().toString()).isEqualTo("DSL");
+        assertThat(detail.getArtifact().getArtifactHash()).startsWith("sha256:");
+        assertThat(detail.getCompilation()).isNotNull();
+        assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getCompilation().getCurrentStep()).isEqualTo("READY");
+        assertThat(detail.getCompilation().getSteps()).hasSize(5);
+        assertThat(detail.getCompilation().getSteps())
+                .extracting(step -> step.getStatus().toString())
+                .containsOnly("SUCCESS");
+        assertThat(detail.getRuntimeContract().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getRuntimeContract().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
+        assertThat(stored[0].getSglStatus().getSglStatus()).isEqualTo("READY");
+        assertThat(stored[0].getCodLatestcompilation()).isNotNull();
+        assertThat(stored[0].getSglLatestcompilationstatus().getSglStatus()).isEqualTo("READY");
+        verify(compilationRepository).createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null));
     }
 
     @Test
-    void rejectsNullCompileImmediatelyAsContractDefaultTrue() {
-        AgentDefinitionService service = service(mock(AgentDefinitionRepository.class), mock(AgentProfileRepository.class));
+    void treatsNullCompileImmediatelyAsFalse() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentDefinitionService service = service(definitionRepository, profileRepository);
+        stubReferences(definitionRepository);
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(eventTechnicalSpecification())));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> created(invocation.getArgument(0)));
         AgentDefinitionCreateRequest request = baseRequest(false, continuousPolicy());
         request.setCompileImmediately(null);
 
-        assertThatThrownBy(() -> service.createAgentDefinition(request))
-                .isInstanceOf(AgentDefinitionCreateRejectedException.class)
-                .hasMessage(COMPILE_NOT_IMPLEMENTED);
+        var detail = service.createAgentDefinition(request);
+
+        assertThat(detail.getStatus().toString()).isEqualTo("DRAFT");
+        assertThat(detail.getCompilation()).isNull();
+    }
+
+    @Test
+    void createsScheduledAgentDefinitionReadyWhenCompileImmediatelyTrue() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = serviceWithCompilation(definitionRepository, profileRepository, compilationRepository);
+        AgentDefinition[] stored = new AgentDefinition[1];
+        stubReferences(definitionRepository);
+        stubCompilationReferences(definitionRepository);
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(scheduledTechnicalSpecification(600, 1))));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> {
+                    stored[0] = created(invocation.getArgument(0));
+                    return stored[0];
+                });
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenAnswer(invocation -> Optional.of(stored[0]));
+        stubCompilationPipeline(definitionRepository, compilationRepository, stored);
+
+        var detail = service.createAgentDefinition(baseRequest(true, continuousPolicy()).generationMode(AgentGenerationMode.DSL));
+
+        assertThat(detail.getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getArtifact()).isNotNull();
+        assertThat(detail.getCompilation()).isNotNull();
+        assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("READY");
+        assertThat(detail.getCompilation().getSteps()).hasSize(5);
+        assertThat(detail.getCompilation().getSteps())
+                .extracting(step -> step.getStatus().toString())
+                .containsOnly("SUCCESS");
+        assertThat(detail.getRuntimeContract().getRuntimeImage()).isEqualTo("STANDARD_AGENT_DSL_EVALUATOR");
+        assertThat(detail.getRuntimeContract().getSdkVersion()).isEqualTo("iia.agent.dsl/v1");
+        assertThat(stored[0].getSglStatus().getSglStatus()).isEqualTo("READY");
+        assertThat(stored[0].getSglLatestcompilationstatus().getSglStatus()).isEqualTo("READY");
+        assertThat(stored[0].getJsnDslpreview()).isNotEmpty();
+    }
+
+    @Test
+    void createsRejectedAgentDefinitionWhenCompileImmediatelyPreconditionsFail() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = serviceWithCompilation(definitionRepository, profileRepository, compilationRepository);
+        AgentDefinition[] stored = new AgentDefinition[1];
+        stubReferences(definitionRepository);
+        stubCompilationReferences(definitionRepository);
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(eventTechnicalSpecification())));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> {
+                    stored[0] = created(invocation.getArgument(0));
+                    return stored[0];
+                });
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenAnswer(invocation -> Optional.of(stored[0]));
+        stubCompilationPipeline(definitionRepository, compilationRepository, stored);
+        AgentCompilation rejected = compilation("REJECTED");
+        rejected.setDscCurrentstep("VALIDATING_BLUEPRINT");
+        rejected.setDscErrormessage("Event Agent blueprint does not contain an evaluable condition.");
+        rejected.setJsnResult(Map.of(
+                "preconditionsValid", false,
+                "artifactGenerated", false,
+                "errors", List.of("Event Agent blueprint does not contain an evaluable condition.")));
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenAnswer(invocation -> Optional.of(rejected));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "REJECTED")));
+
+        var detail = service.createAgentDefinition(baseRequest(true, continuousPolicy()).generationMode(AgentGenerationMode.DSL));
+
+        assertThat(detail.getStatus().toString()).isEqualTo("REJECTED");
+        assertThat(detail.getArtifact()).isNull();
+        assertThat(detail.getCompilation()).isNotNull();
+        assertThat(detail.getCompilation().getStatus().toString()).isEqualTo("REJECTED");
+        assertThat(detail.getCompilation().getCurrentStep()).isEqualTo("VALIDATING_BLUEPRINT");
+        assertThat(detail.getCompilation().getSteps())
+                .extracting(step -> step.getName())
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT");
+        assertThat(detail.getCompilation().getErrors())
+                .contains("Event Agent blueprint does not contain an evaluable condition.");
+        assertThat(stored[0].getSglStatus().getSglStatus()).isEqualTo("REJECTED");
+        assertThat(stored[0].getSglArtifacttype().getSglArtifacttype()).isEqualTo("NONE");
     }
 
     @Test
@@ -668,18 +798,158 @@ class AgentDefinitionServiceTest {
         return service;
     }
 
+    private AgentDefinitionService serviceWithCompilation(
+            AgentDefinitionRepository definitionRepository,
+            AgentProfileRepository profileRepository,
+            AgentCompilationRepository compilationRepository) {
+        AgentDefinitionService service = service(definitionRepository, profileRepository);
+        service.agentCompilationRepository = compilationRepository;
+        service.agentCompilationMapper = new AgentCompilationMapper();
+        service.agentCompilationMapper.stepStatusMapper = new AgentCompilationStepStatusMapper();
+        service.agentCompilationPreconditionValidator = new AgentCompilationPreconditionValidator();
+        service.agentDslArtifactBuilder = new AgentDslArtifactBuilder();
+        service.agentDslRuntimeCompatibilityValidator = new AgentDslRuntimeCompatibilityValidator();
+        service.agentArtifactHashService = new AgentArtifactHashService();
+        return service;
+    }
+
+    private void stubCompilationPipeline(
+            AgentDefinitionRepository definitionRepository,
+            AgentCompilationRepository compilationRepository,
+            AgentDefinition[] stored) {
+        AgentCompilation createdCompilation = compilation("PENDING");
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null)))
+                .thenReturn(createdCompilation);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1"))
+                .thenAnswer(invocation -> Optional.ofNullable(stored[0] == null ? null : stored[0].getCodLatestcompilation()));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "READY")));
+        doAnswer(invocation -> {
+            AgentDefinition definition = stored[0];
+            String compilationId = invocation.getArgument(1);
+            String artifactUri = invocation.getArgument(2);
+            String artifactHash = invocation.getArgument(3);
+            String runtimeImage = invocation.getArgument(4);
+            String sdkVersion = invocation.getArgument(5);
+            String implementationSummary = invocation.getArgument(6);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> dslArtifact = invocation.getArgument(7, Map.class);
+            OffsetDateTime completedAt = invocation.getArgument(8);
+            AgentCompilation latestCompilation = compilation("READY");
+            latestCompilation.setCodAgentcompilation(compilationId);
+            latestCompilation.setDscCurrentstep("READY");
+            latestCompilation.setDtCompletedat(completedAt);
+
+            definition.setSglStatus(statusRef("READY"));
+            definition.setSglArtifacttype(artifactTypeRef("DSL"));
+            definition.setDscArtifacturi(artifactUri);
+            definition.setDscArtifacthash(artifactHash);
+            definition.setSglSignaturestatus(signatureRef("SIGNED"));
+            definition.setDscRuntimeimage(runtimeImage);
+            definition.setDscSdkversion(sdkVersion);
+            definition.setDscImplementationsummary(implementationSummary);
+            definition.setCodLatestcompilation(latestCompilation);
+            definition.setSglLatestcompilationstatus(compilationStatus("READY"));
+            definition.setDscLatestcompilationstep("READY");
+            definition.setDtLatestcompilationcompletedat(completedAt);
+            definition.setJsnDslpreview(dslArtifact);
+            return null;
+        }).when(definitionRepository).markCompilationReady(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                any(),
+                any(OffsetDateTime.class));
+        doAnswer(invocation -> {
+            AgentDefinition definition = stored[0];
+            String compilationId = invocation.getArgument(1);
+            String latestStep = invocation.getArgument(2);
+            String implementationSummary = invocation.getArgument(3);
+            OffsetDateTime completedAt = invocation.getArgument(4);
+            AgentCompilation latestCompilation = compilation("REJECTED");
+            latestCompilation.setCodAgentcompilation(compilationId);
+            latestCompilation.setDscCurrentstep(latestStep);
+            latestCompilation.setDscErrormessage(implementationSummary);
+            latestCompilation.setDtCompletedat(completedAt);
+
+            definition.setSglStatus(statusRef("REJECTED"));
+            definition.setSglArtifacttype(artifactTypeRef("NONE"));
+            definition.setDscArtifacturi(null);
+            definition.setDscArtifacthash(null);
+            definition.setSglSignaturestatus(signatureRef("NOT_SIGNED"));
+            definition.setDscRuntimeimage(null);
+            definition.setDscSdkversion(null);
+            definition.setDscImplementationsummary(implementationSummary);
+            definition.setCodLatestcompilation(latestCompilation);
+            definition.setSglLatestcompilationstatus(compilationStatus("REJECTED"));
+            definition.setDscLatestcompilationstep(latestStep);
+            definition.setDtLatestcompilationcompletedat(completedAt);
+            return null;
+        }).when(definitionRepository).markCompilationRejected(
+                eq("AGDF1"),
+                eq("AGCP1"),
+                anyString(),
+                anyString(),
+                any(OffsetDateTime.class));
+    }
+
     private void stubReferences(AgentDefinitionRepository repository) {
         when(repository.statusReference("DRAFT")).thenReturn(statusRef("DRAFT"));
         when(repository.generationModeReference("AUTO")).thenReturn(generationModeRef("AUTO"));
+        when(repository.generationModeReference("DSL")).thenReturn(generationModeRef("DSL"));
         when(repository.activationTypeReference(any())).thenAnswer(invocation -> activationRef(invocation.getArgument(0)));
         when(repository.artifactTypeReference("NONE")).thenReturn(artifactTypeRef("NONE"));
         when(repository.signatureStatusReference("NOT_SIGNED")).thenReturn(signatureRef("NOT_SIGNED"));
         when(repository.complexityReference(any())).thenAnswer(invocation -> complexityRef(invocation.getArgument(0)));
     }
 
+    private void stubCompilationReferences(AgentDefinitionRepository repository) {
+        when(repository.statusReference("READY")).thenReturn(statusRef("READY"));
+        when(repository.statusReference("REJECTED")).thenReturn(statusRef("REJECTED"));
+        when(repository.artifactTypeReference("DSL")).thenReturn(artifactTypeRef("DSL"));
+        when(repository.signatureStatusReference("SIGNED")).thenReturn(signatureRef("SIGNED"));
+    }
+
     private AgentDefinition created(AgentDefinition definition) {
         definition.setCodAgentdefinition("AGDF1");
         return definition;
+    }
+
+    private AgentCompilation compilation(String statusValue) {
+        AgentCompilation compilation = new AgentCompilation();
+        compilation.setCodAgentcompilation("AGCP1");
+        compilation.setSglStatus(compilationStatus(statusValue));
+        return compilation;
+    }
+
+    private it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStep step(
+            int order,
+            String name,
+            String statusValue) {
+        AgentCompilationStepId id = new AgentCompilationStepId();
+        id.setCodAgentcompilation("AGCP1");
+        id.setNumSteporder(order);
+        it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStep step =
+                new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStep();
+        step.setId(id);
+        step.setDscStepname(name);
+        step.setSglStatus(compilationStatus(statusValue));
+        return step;
+    }
+
+    private AgentCompilationStatus compilationStatus(String statusValue) {
+        AgentCompilationStatus status = new AgentCompilationStatus();
+        status.setSglStatus(statusValue);
+        return status;
     }
 
     private AgentDefinition persistedDefinition(
