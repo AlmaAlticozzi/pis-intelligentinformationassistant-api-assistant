@@ -146,24 +146,28 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
-    void compileCreatesSkeletonCompilationAndReturnsFailedResponse() {
+    void compileGeneratesEventDslArtifactAndStopsAtStaticAnalysis() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("GENERATING_ARTIFACT");
-        failed.setDscErrormessage("DSL artifact generation is not implemented yet.");
+        failed.setDscCurrentstep("STATIC_ANALYSIS");
+        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
         failed.setJsnResult(Map.of(
-                "skeleton", true,
-                "artifactGenerated", false,
+                "preconditionsValid", true,
+                "artifactGenerated", true,
+                "artifactType", "DSL",
+                "schemaVersion", "iia.agent.dsl/v1",
+                "dslArtifact", Map.of("schemaVersion", "iia.agent.dsl/v1"),
                 "agentDefinitionStatusUpdated", false,
-                "reason", "DSL artifact generation is not implemented yet."));
+                "reason", "DSL runtime compatibility validator is not implemented yet."));
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
-                step(3, "GENERATING_ARTIFACT", "FAILED"));
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
@@ -173,14 +177,15 @@ class AgentDefinitionCompilationServiceTest {
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
         assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("GENERATING_ARTIFACT");
-        assertThat(response.getErrors()).containsExactly("DSL artifact generation is not implemented yet.");
+        assertThat(response.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(response.getErrors()).containsExactly("DSL runtime compatibility validator is not implemented yet.");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
-                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT");
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getStatus)
                 .containsExactly(
+                        AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.FAILED);
@@ -199,7 +204,7 @@ class AgentDefinitionCompilationServiceTest {
 
         ArgumentCaptor<Integer> stepOrderCaptor = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<String> stepNameCaptor = ArgumentCaptor.forClass(String.class);
-        verify(compilationRepository, org.mockito.Mockito.times(3)).addStep(
+        verify(compilationRepository, org.mockito.Mockito.times(4)).addStep(
                 eq("AGCP1"),
                 stepOrderCaptor.capture(),
                 stepNameCaptor.capture(),
@@ -208,8 +213,55 @@ class AgentDefinitionCompilationServiceTest {
                 any(),
                 any(),
                 any());
-        assertThat(stepOrderCaptor.getAllValues()).containsExactly(1, 2, 3);
-        assertThat(stepNameCaptor.getAllValues()).containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT");
+        assertThat(stepOrderCaptor.getAllValues()).containsExactly(1, 2, 3, 4);
+        assertThat(stepNameCaptor.getAllValues()).containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(compilationRepository).markFailed(
+                eq("AGCP1"),
+                eq("FAILED"),
+                eq("STATIC_ANALYSIS"),
+                eq("DSL runtime compatibility validator is not implemented yet."),
+                resultCaptor.capture(),
+                any(OffsetDateTime.class));
+        assertThat(resultCaptor.getValue())
+                .containsEntry("preconditionsValid", true)
+                .containsEntry("artifactGenerated", true)
+                .containsEntry("schemaVersion", "iia.agent.dsl/v1")
+                .containsEntry("agentDefinitionStatusUpdated", false);
+        assertThat(resultCaptor.getValue().get("dslArtifact")).isInstanceOf(Map.class);
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void compileKeepsScheduledDslGenerationNotImplemented() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation failed = compilation("FAILED");
+        failed.setDscCurrentstep("GENERATING_ARTIFACT");
+        failed.setDscErrormessage("Scheduled DSL artifact generation is not implemented yet.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "FAILED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(failed));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+
+        assertThat(response.getStatus().toString()).isEqualTo("FAILED");
+        assertThat(response.getCurrentStep()).isEqualTo("GENERATING_ARTIFACT");
+        assertThat(response.getErrors()).containsExactly("Scheduled DSL artifact generation is not implemented yet.");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT");
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
@@ -217,13 +269,13 @@ class AgentDefinitionCompilationServiceTest {
                 eq("AGCP1"),
                 eq("FAILED"),
                 eq("GENERATING_ARTIFACT"),
-                eq("DSL artifact generation is not implemented yet."),
+                eq("Scheduled DSL artifact generation is not implemented yet."),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
-                .containsEntry("skeleton", true)
+                .containsEntry("preconditionsValid", true)
                 .containsEntry("artifactGenerated", false)
-                .containsEntry("agentDefinitionStatusUpdated", false);
+                .containsEntry("interpreterType", "SCHEDULED_INTERPRETER");
         assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
     }
 
@@ -297,9 +349,13 @@ class AgentDefinitionCompilationServiceTest {
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("GENERATING_ARTIFACT");
-        failed.setDscErrormessage("DSL artifact generation is not implemented yet.");
-        var steps = List.of(step(1, "REQUEST_ACCEPTED", "READY"), step(3, "GENERATING_ARTIFACT", "FAILED"));
+        failed.setDscCurrentstep("STATIC_ANALYSIS");
+        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), anyBoolean(), any(), eq(null))).thenReturn(created);
@@ -311,7 +367,8 @@ class AgentDefinitionCompilationServiceTest {
 
         assertThat(getResponse).isEqualTo(postResponse);
         assertThat(getResponse.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(getResponse.getSteps()).hasSize(2);
+        assertThat(getResponse.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(getResponse.getSteps()).hasSize(4);
     }
 
     @Test
@@ -353,6 +410,7 @@ class AgentDefinitionCompilationServiceTest {
         service.agentCompilationMapper = new AgentCompilationMapper();
         service.agentCompilationMapper.stepStatusMapper = new AgentCompilationStepStatusMapper();
         service.agentCompilationPreconditionValidator = new AgentCompilationPreconditionValidator();
+        service.agentDslArtifactBuilder = new AgentDslArtifactBuilder();
         return service;
     }
 
@@ -361,9 +419,7 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     private AgentDefinition definition(String statusValue, String generationModeValue) {
-        AgentDefinition definition = new AgentDefinition();
-        definition.setCodAgentdefinition("AGDF1");
-        definition.setDscName("Compiled Agent");
+        AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
         AgentDefinitionStatus status = new AgentDefinitionStatus();
         status.setSglStatus(statusValue);
         definition.setSglStatus(status);
@@ -374,44 +430,6 @@ class AgentDefinitionCompilationServiceTest {
         AgentArtifactType artifactType = new AgentArtifactType();
         artifactType.setSglArtifacttype("NONE");
         definition.setSglArtifacttype(artifactType);
-        Alert alert = new Alert();
-        alert.setCodAlert("ALRT1");
-        AlertInterpreterType interpreterType = new AlertInterpreterType();
-        interpreterType.setSglInterpretertype("EVENT_INTERPRETER");
-        alert.setSglInterpretertype(interpreterType);
-        definition.setCodAlert(alert);
-        definition.setNumAlertversion(1);
-        AgentProfile profile = new AgentProfile();
-        profile.setCodAgentprofile("MEDIUM");
-        profile.setFlgEnabled(true);
-        definition.setCodAgentprofile(profile);
-        AgentActivationType activationType = new AgentActivationType();
-        activationType.setSglActivationtype("CONTINUOUS");
-        definition.setSglActivationtype(activationType);
-        definition.setJsnActivationpolicy(Map.of("type", "CONTINUOUS", "timezone", "Europe/Rome"));
-        definition.setDscInputmodel("ServiceDataV2");
-        definition.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
-        definition.setJsnAllowedtools(List.of());
-        definition.setJsnRuntimecontract(Map.of(
-                "source", "SERVICE_DATA",
-                "interpreterType", "EVENT_INTERPRETER",
-                "triggerType", "EVENT",
-                "inputModel", "ServiceDataV2",
-                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
-                "evaluationMode", "STATELESS_EVENT_MATCH",
-                "executionModel", "KAFKA_EVENT",
-                "requiresScheduler", false,
-                "allowedTools", List.of()));
-        definition.setJsnBlueprint(Map.of(
-                "schemaVersion", "iia.agent.blueprint/v1",
-                "triggerType", "EVENT",
-                "evaluationMode", "STATELESS_EVENT_MATCH",
-                "parameters", Map.of(
-                        "condition", Map.of(
-                                "type", "SERVICE_DATA_FIELD_MATCH",
-                                "field", "payload.status",
-                                "operator", "EQUALS",
-                                "value", "ARRIVING"))));
         return definition;
     }
 
