@@ -42,8 +42,8 @@ public class AgentDefinitionService {
             "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
     private static final String SCHEDULED_TOOL = "SERVICE_DATA_API.POST_/v2/stoppointjourneys";
     private static final String DSL_ARTIFACT_NOT_IMPLEMENTED = "DSL artifact generation is not implemented yet.";
-    private static final String DSL_RUNTIME_COMPATIBILITY_VALIDATOR_NOT_IMPLEMENTED =
-            "DSL runtime compatibility validator is not implemented yet.";
+    private static final String ARTIFACT_SIGNING_NOT_IMPLEMENTED =
+            "Artifact hash, signature and Agent Definition update are not implemented yet.";
 
     @Inject
     AgentDefinitionRepository agentDefinitionRepository;
@@ -68,6 +68,9 @@ public class AgentDefinitionService {
 
     @Inject
     AgentDslArtifactBuilder agentDslArtifactBuilder;
+
+    @Inject
+    AgentDslRuntimeCompatibilityValidator agentDslRuntimeCompatibilityValidator;
 
     @Transactional
     public AgentDefinitionDetail getAgentDefinition(String agentDefinitionId) {
@@ -358,16 +361,73 @@ public class AgentDefinitionService {
                 compilationId,
                 AgentCompilationStatuses.STATIC_ANALYSIS,
                 AgentCompilationStatuses.STATIC_ANALYSIS);
+        System.out.println("[IIA][AGENT_COMPILATION][POST] validating DSL runtime compatibility compilationId=" + compilationId);
+        AgentDslRuntimeCompatibilityValidationResult runtimeValidation =
+                runtimeCompatibilityValidator().validate(artifact.artifact());
+        if (!runtimeValidation.compatible()) {
+            agentCompilationRepository.addStep(
+                    compilationId,
+                    4,
+                    "STATIC_ANALYSIS",
+                    AgentCompilationStatuses.REJECTED,
+                    "DSL runtime compatibility validation rejected the artifact.",
+                    runtimeValidation.toDetailsJson(),
+                    staticAnalysisStartedAt,
+                    OffsetDateTime.now());
+            System.out.println("[IIA][AGENT_COMPILATION][POST] DSL runtime rejected compilationId="
+                    + compilationId + " errors=" + runtimeValidation.errors());
+
+            OffsetDateTime completedAt = OffsetDateTime.now();
+            Map<String, Object> rejectedResultJson = new LinkedHashMap<>();
+            rejectedResultJson.put("preconditionsValid", true);
+            rejectedResultJson.put("artifactGenerated", true);
+            rejectedResultJson.put("runtimeCompatibilityValidated", false);
+            rejectedResultJson.put("runtimeCompatibilityErrors", runtimeValidation.errors());
+            rejectedResultJson.put("runtimeCompatibilityWarnings", runtimeValidation.warnings());
+            rejectedResultJson.put("agentDefinitionStatusUpdated", false);
+            rejectedResultJson.put("dslArtifact", artifact.artifact());
+            agentCompilationRepository.markFailed(
+                    compilationId,
+                    AgentCompilationStatuses.REJECTED,
+                    AgentCompilationStatuses.STATIC_ANALYSIS,
+                    String.join("; ", runtimeValidation.errors()),
+                    rejectedResultJson,
+                    completedAt);
+
+            var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
+                    .orElse(compilation);
+            var steps = agentCompilationRepository.findStepsByCompilationId(latestCompilation.getCodAgentcompilation());
+            return agentCompilationMapper.toResponse(definition, latestCompilation, steps);
+        }
+
         agentCompilationRepository.addStep(
                 compilationId,
                 4,
                 "STATIC_ANALYSIS",
-                AgentCompilationStatuses.FAILED,
-                DSL_RUNTIME_COMPATIBILITY_VALIDATOR_NOT_IMPLEMENTED,
-                Map.of(
-                        "runtimeCompatibilityValidatorImplemented", false,
-                        "nextImplementationStep", "AgentDslRuntimeCompatibilityValidator"),
+                AgentCompilationStatuses.READY,
+                "DSL runtime compatibility validation completed successfully.",
+                runtimeValidation.toDetailsJson(),
                 staticAnalysisStartedAt,
+                OffsetDateTime.now());
+        System.out.println("[IIA][AGENT_COMPILATION][POST] DSL runtime compatible compilationId=" + compilationId);
+
+        OffsetDateTime signingStartedAt = OffsetDateTime.now();
+        agentCompilationRepository.updateStatus(
+                compilationId,
+                AgentCompilationStatuses.SIGNING,
+                AgentCompilationStatuses.SIGNING);
+        agentCompilationRepository.addStep(
+                compilationId,
+                5,
+                "SIGNING",
+                AgentCompilationStatuses.FAILED,
+                ARTIFACT_SIGNING_NOT_IMPLEMENTED,
+                Map.of(
+                        "canonicalHashImplemented", false,
+                        "signatureImplemented", false,
+                        "agentDefinitionUpdateImplemented", false,
+                        "nextImplementationStep", "Agent artifact hash, metadata and READY update"),
+                signingStartedAt,
                 OffsetDateTime.now());
 
         OffsetDateTime completedAt = OffsetDateTime.now();
@@ -383,23 +443,31 @@ public class AgentDefinitionService {
         }
         resultJson.put("inputModel", artifact.inputModel());
         resultJson.put("evaluationMode", artifact.evaluationMode());
-        resultJson.put("runtimeCompatibilityValidated", false);
+        resultJson.put("runtimeCompatibilityValidated", true);
+        resultJson.put("runtimeCompatibilityErrors", runtimeValidation.errors());
+        resultJson.put("runtimeCompatibilityWarnings", runtimeValidation.warnings());
         resultJson.put("agentDefinitionStatusUpdated", false);
         resultJson.put("dslArtifact", artifact.artifact());
-        resultJson.put("reason", DSL_RUNTIME_COMPATIBILITY_VALIDATOR_NOT_IMPLEMENTED);
+        resultJson.put("reason", ARTIFACT_SIGNING_NOT_IMPLEMENTED);
         agentCompilationRepository.markFailed(
                 compilationId,
                 AgentCompilationStatuses.FAILED,
-                AgentCompilationStatuses.STATIC_ANALYSIS,
-                DSL_RUNTIME_COMPATIBILITY_VALIDATOR_NOT_IMPLEMENTED,
+                AgentCompilationStatuses.SIGNING,
+                ARTIFACT_SIGNING_NOT_IMPLEMENTED,
                 resultJson,
                 completedAt);
-        System.out.println("[IIA][AGENT_COMPILATION][POST] static analysis pending compilationId=" + compilationId + " finalStatus=FAILED");
+        System.out.println("[IIA][AGENT_COMPILATION][POST] signing pending compilationId=" + compilationId + " finalStatus=FAILED");
 
         var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
                 .orElse(compilation);
         var steps = agentCompilationRepository.findStepsByCompilationId(latestCompilation.getCodAgentcompilation());
         return agentCompilationMapper.toResponse(definition, latestCompilation, steps);
+    }
+
+    private AgentDslRuntimeCompatibilityValidator runtimeCompatibilityValidator() {
+        return agentDslRuntimeCompatibilityValidator == null
+                ? new AgentDslRuntimeCompatibilityValidator()
+                : agentDslRuntimeCompatibilityValidator;
     }
 
     @Transactional

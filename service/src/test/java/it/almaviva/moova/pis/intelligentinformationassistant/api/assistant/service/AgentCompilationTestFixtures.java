@@ -59,14 +59,22 @@ final class AgentCompilationTestFixtures {
                 "allowedTools", List.of(Map.of(
                         "toolName", "SERVICE_DATA_API.POST_/v2/stoppointjourneys",
                         "operations", List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys")))));
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "stopPointsJourneyDetails[]",
+                        "conditions", Map.of(
+                                "field", "arrivalStatuses[].status",
+                                "operator", "CONTAINS",
+                                "value", "ARRIVAL_CANCELLATION")));
         definition.setJsnBlueprint(Map.of(
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "triggerType", "SCHEDULE",
                 "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
                 "parameters", Map.of(
                         "serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"),
-                        "snapshotEvaluation", Map.of("mode", "REPORT_COUNT"),
-                        "outputPolicy", Map.of("emit", "ON_MATCH"),
+                        "snapshotEvaluation", Map.of("mode", "REPORT_COUNT", "condition", condition),
+                        "outputPolicy", Map.of("emit", "EVERY_RUN"),
                         "schedule", Map.of("frequencySeconds", 600))));
         return definition;
     }

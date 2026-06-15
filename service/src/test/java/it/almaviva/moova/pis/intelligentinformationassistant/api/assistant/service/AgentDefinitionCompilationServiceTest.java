@@ -146,28 +146,30 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
-    void compileGeneratesEventDslArtifactAndStopsAtStaticAnalysis() {
+    void compileGeneratesEventDslArtifactAndStopsAtSigning() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("STATIC_ANALYSIS");
-        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
+        failed.setDscCurrentstep("SIGNING");
+        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
         failed.setJsnResult(Map.of(
                 "preconditionsValid", true,
                 "artifactGenerated", true,
+                "runtimeCompatibilityValidated", true,
                 "artifactType", "DSL",
                 "schemaVersion", "iia.agent.dsl/v1",
                 "dslArtifact", Map.of("schemaVersion", "iia.agent.dsl/v1"),
                 "agentDefinitionStatusUpdated", false,
-                "reason", "DSL runtime compatibility validator is not implemented yet."));
+                "reason", "Artifact hash, signature and Agent Definition update are not implemented yet."));
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
-                step(4, "STATIC_ANALYSIS", "FAILED"));
+                step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
@@ -177,14 +179,15 @@ class AgentDefinitionCompilationServiceTest {
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
         assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
-        assertThat(response.getErrors()).containsExactly("DSL runtime compatibility validator is not implemented yet.");
+        assertThat(response.getCurrentStep()).isEqualTo("SIGNING");
+        assertThat(response.getErrors()).containsExactly("Artifact hash, signature and Agent Definition update are not implemented yet.");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
-                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getStatus)
                 .containsExactly(
+                        AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
@@ -204,7 +207,7 @@ class AgentDefinitionCompilationServiceTest {
 
         ArgumentCaptor<Integer> stepOrderCaptor = ArgumentCaptor.forClass(Integer.class);
         ArgumentCaptor<String> stepNameCaptor = ArgumentCaptor.forClass(String.class);
-        verify(compilationRepository, org.mockito.Mockito.times(4)).addStep(
+        verify(compilationRepository, org.mockito.Mockito.times(5)).addStep(
                 eq("AGCP1"),
                 stepOrderCaptor.capture(),
                 stepNameCaptor.capture(),
@@ -213,21 +216,22 @@ class AgentDefinitionCompilationServiceTest {
                 any(),
                 any(),
                 any());
-        assertThat(stepOrderCaptor.getAllValues()).containsExactly(1, 2, 3, 4);
-        assertThat(stepNameCaptor.getAllValues()).containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+        assertThat(stepOrderCaptor.getAllValues()).containsExactly(1, 2, 3, 4, 5);
+        assertThat(stepNameCaptor.getAllValues()).containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
         verify(compilationRepository).markFailed(
                 eq("AGCP1"),
                 eq("FAILED"),
-                eq("STATIC_ANALYSIS"),
-                eq("DSL runtime compatibility validator is not implemented yet."),
+                eq("SIGNING"),
+                eq("Artifact hash, signature and Agent Definition update are not implemented yet."),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
                 .containsEntry("preconditionsValid", true)
                 .containsEntry("artifactGenerated", true)
+                .containsEntry("runtimeCompatibilityValidated", true)
                 .containsEntry("schemaVersion", "iia.agent.dsl/v1")
                 .containsEntry("agentDefinitionStatusUpdated", false);
         assertThat(resultCaptor.getValue().get("dslArtifact")).isInstanceOf(Map.class);
@@ -235,20 +239,21 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
-    void compileGeneratesScheduledDslArtifactAndStopsAtStaticAnalysis() {
+    void compileGeneratesScheduledDslArtifactAndStopsAtSigning() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
         AgentDefinitionService service = service(definitionRepository, compilationRepository);
         AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("STATIC_ANALYSIS");
-        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
+        failed.setDscCurrentstep("SIGNING");
+        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
-                step(4, "STATIC_ANALYSIS", "FAILED"));
+                step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
@@ -258,14 +263,15 @@ class AgentDefinitionCompilationServiceTest {
         var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
 
         assertThat(response.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(response.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
-        assertThat(response.getErrors()).containsExactly("DSL runtime compatibility validator is not implemented yet.");
+        assertThat(response.getCurrentStep()).isEqualTo("SIGNING");
+        assertThat(response.getErrors()).containsExactly("Artifact hash, signature and Agent Definition update are not implemented yet.");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getName)
-                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS", "SIGNING");
         assertThat(response.getSteps())
                 .extracting(AgentCompilationStep::getStatus)
                 .containsExactly(
+                        AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
                         AgentCompilationStep.StatusEnum.SUCCESS,
@@ -276,13 +282,14 @@ class AgentDefinitionCompilationServiceTest {
         verify(compilationRepository).markFailed(
                 eq("AGCP1"),
                 eq("FAILED"),
-                eq("STATIC_ANALYSIS"),
-                eq("DSL runtime compatibility validator is not implemented yet."),
+                eq("SIGNING"),
+                eq("Artifact hash, signature and Agent Definition update are not implemented yet."),
                 resultCaptor.capture(),
                 any(OffsetDateTime.class));
         assertThat(resultCaptor.getValue())
                 .containsEntry("preconditionsValid", true)
                 .containsEntry("artifactGenerated", true)
+                .containsEntry("runtimeCompatibilityValidated", true)
                 .containsEntry("interpreterType", "SCHEDULED_INTERPRETER")
                 .containsEntry("accessMode", "SERVICE_DATA_API_SNAPSHOT")
                 .containsEntry("schemaVersion", "iia.agent.dsl/v1");
@@ -357,6 +364,79 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
+    void compileRejectsRuntimeIncompatibleDslAndDoesNotAddSigningStep() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDslRuntimeCompatibilityValidator runtimeValidator = mock(AgentDslRuntimeCompatibilityValidator.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        service.agentDslRuntimeCompatibilityValidator = runtimeValidator;
+        AgentDefinition definition = definition("DRAFT", "AUTO");
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation rejected = compilation("REJECTED");
+        rejected.setDscCurrentstep("STATIC_ANALYSIS");
+        rejected.setDscErrormessage("Unsupported DSL operator MAGIC_OPERATOR.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "READY"),
+                step(4, "STATIC_ANALYSIS", "REJECTED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+        when(runtimeValidator.validate(any())).thenReturn(new AgentDslRuntimeCompatibilityValidationResult(
+                false,
+                List.of("Unsupported DSL operator MAGIC_OPERATOR."),
+                List.of(),
+                "iia.agent.dsl/v1",
+                "DSL",
+                "EVENT_INTERPRETER",
+                "EVENT",
+                "KAFKA_EVENT",
+                "ServiceDataV2",
+                "AgentOutput.CANDIDATE_SUGGESTION",
+                "STATELESS_EVENT_MATCH",
+                Map.of()));
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+
+        assertThat(response.getStatus().toString()).isEqualTo("REJECTED");
+        assertThat(response.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
+        assertThat(response.getErrors()).containsExactly("Unsupported DSL operator MAGIC_OPERATOR.");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT", "GENERATING_ARTIFACT", "STATIC_ANALYSIS");
+        ArgumentCaptor<String> stepNameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(compilationRepository, org.mockito.Mockito.times(4)).addStep(
+                eq("AGCP1"),
+                any(Integer.class),
+                stepNameCaptor.capture(),
+                anyString(),
+                anyString(),
+                any(),
+                any(),
+                any());
+        assertThat(stepNameCaptor.getAllValues()).doesNotContain("SIGNING");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(compilationRepository).markFailed(
+                eq("AGCP1"),
+                eq("REJECTED"),
+                eq("STATIC_ANALYSIS"),
+                eq("Unsupported DSL operator MAGIC_OPERATOR."),
+                resultCaptor.capture(),
+                any(OffsetDateTime.class));
+        assertThat(resultCaptor.getValue())
+                .containsEntry("runtimeCompatibilityValidated", false)
+                .containsEntry("agentDefinitionStatusUpdated", false);
+        assertThat(resultCaptor.getValue().get("runtimeCompatibilityErrors"))
+                .isEqualTo(List.of("Unsupported DSL operator MAGIC_OPERATOR."));
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+    }
+
+    @Test
     void getCompilationAfterCompileReadsSameLatestCompilation() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
@@ -364,13 +444,14 @@ class AgentDefinitionCompilationServiceTest {
         AgentDefinition definition = definition("DRAFT", "AUTO");
         AgentCompilation created = compilation("PENDING");
         AgentCompilation failed = compilation("FAILED");
-        failed.setDscCurrentstep("STATIC_ANALYSIS");
-        failed.setDscErrormessage("DSL runtime compatibility validator is not implemented yet.");
+        failed.setDscCurrentstep("SIGNING");
+        failed.setDscErrormessage("Artifact hash, signature and Agent Definition update are not implemented yet.");
         var steps = List.of(
                 step(1, "REQUEST_ACCEPTED", "READY"),
                 step(2, "VALIDATING_BLUEPRINT", "READY"),
                 step(3, "GENERATING_ARTIFACT", "READY"),
-                step(4, "STATIC_ANALYSIS", "FAILED"));
+                step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "FAILED"));
         when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
         when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
         when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), anyBoolean(), any(), eq(null))).thenReturn(created);
@@ -382,8 +463,8 @@ class AgentDefinitionCompilationServiceTest {
 
         assertThat(getResponse).isEqualTo(postResponse);
         assertThat(getResponse.getStatus().toString()).isEqualTo("FAILED");
-        assertThat(getResponse.getCurrentStep()).isEqualTo("STATIC_ANALYSIS");
-        assertThat(getResponse.getSteps()).hasSize(4);
+        assertThat(getResponse.getCurrentStep()).isEqualTo("SIGNING");
+        assertThat(getResponse.getSteps()).hasSize(5);
     }
 
     @Test
@@ -426,6 +507,7 @@ class AgentDefinitionCompilationServiceTest {
         service.agentCompilationMapper.stepStatusMapper = new AgentCompilationStepStatusMapper();
         service.agentCompilationPreconditionValidator = new AgentCompilationPreconditionValidator();
         service.agentDslArtifactBuilder = new AgentDslArtifactBuilder();
+        service.agentDslRuntimeCompatibilityValidator = new AgentDslRuntimeCompatibilityValidator();
         return service;
     }
 
