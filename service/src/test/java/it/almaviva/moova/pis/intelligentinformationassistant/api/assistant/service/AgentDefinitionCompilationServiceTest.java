@@ -6,11 +6,15 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentActivationType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStepId;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentProfile;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.Alert;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AlertInterpreterType;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -224,6 +228,68 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
+    void compileRejectsFunctionalPreconditionsAndDoesNotGenerateArtifactStep() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        AgentDefinition definition = definition("DRAFT", "AUTO");
+        definition.setJsnBlueprint(null);
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation rejected = compilation("REJECTED");
+        rejected.setDscCurrentstep("VALIDATING_BLUEPRINT");
+        rejected.setDscErrormessage("Agent Definition blueprint is missing; compilation cannot continue.");
+        var steps = List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"),
+                step(2, "VALIDATING_BLUEPRINT", "REJECTED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+
+        assertThat(response.getStatus().toString()).isEqualTo("REJECTED");
+        assertThat(response.getCurrentStep()).isEqualTo("VALIDATING_BLUEPRINT");
+        assertThat(response.getErrors()).containsExactly("Agent Definition blueprint is missing; compilation cannot continue.");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT");
+        assertThat(response.getSteps())
+                .extracting(AgentCompilationStep::getStatus)
+                .containsExactly(
+                        AgentCompilationStep.StatusEnum.SUCCESS,
+                        AgentCompilationStep.StatusEnum.FAILED);
+
+        ArgumentCaptor<String> stepNameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(compilationRepository, org.mockito.Mockito.times(2)).addStep(
+                eq("AGCP1"),
+                any(Integer.class),
+                stepNameCaptor.capture(),
+                anyString(),
+                anyString(),
+                any(),
+                any(),
+                any());
+        assertThat(stepNameCaptor.getAllValues()).doesNotContain("GENERATING_ARTIFACT");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(compilationRepository).markFailed(
+                eq("AGCP1"),
+                eq("REJECTED"),
+                eq("VALIDATING_BLUEPRINT"),
+                eq("Agent Definition blueprint is missing; compilation cannot continue."),
+                resultCaptor.capture(),
+                any(OffsetDateTime.class));
+        assertThat(resultCaptor.getValue())
+                .containsEntry("preconditionsValid", false)
+                .containsEntry("artifactGenerated", false)
+                .containsEntry("agentDefinitionStatusUpdated", false);
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+    }
+
+    @Test
     void getCompilationAfterCompileReadsSameLatestCompilation() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
@@ -248,6 +314,36 @@ class AgentDefinitionCompilationServiceTest {
         assertThat(getResponse.getSteps()).hasSize(2);
     }
 
+    @Test
+    void getCompilationAfterRejectedCompileReadsRejectedLatestCompilation() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        AgentDefinition definition = definition("DRAFT", "AUTO");
+        definition.setJsnRuntimecontract(null);
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation rejected = compilation("REJECTED");
+        rejected.setDscCurrentstep("VALIDATING_BLUEPRINT");
+        rejected.setDscErrormessage("Agent Definition runtimeContract is missing; compilation cannot continue.");
+        var steps = List.of(step(1, "REQUEST_ACCEPTED", "READY"), step(2, "VALIDATING_BLUEPRINT", "REJECTED"));
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), anyBoolean(), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(rejected), Optional.of(rejected));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(steps);
+
+        var postResponse = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+        var getResponse = service.getAgentDefinitionCompilation("AGDF1");
+
+        assertThat(getResponse).isEqualTo(postResponse);
+        assertThat(getResponse.getStatus().toString()).isEqualTo("REJECTED");
+        assertThat(getResponse.getCurrentStep()).isEqualTo("VALIDATING_BLUEPRINT");
+        assertThat(getResponse.getSteps())
+                .extracting(AgentCompilationStep::getName)
+                .containsExactly("REQUEST_ACCEPTED", "VALIDATING_BLUEPRINT");
+        assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("DRAFT");
+    }
+
     private AgentDefinitionService service(
             AgentDefinitionRepository definitionRepository,
             AgentCompilationRepository compilationRepository) {
@@ -256,6 +352,7 @@ class AgentDefinitionCompilationServiceTest {
         service.agentCompilationRepository = compilationRepository;
         service.agentCompilationMapper = new AgentCompilationMapper();
         service.agentCompilationMapper.stepStatusMapper = new AgentCompilationStepStatusMapper();
+        service.agentCompilationPreconditionValidator = new AgentCompilationPreconditionValidator();
         return service;
     }
 
@@ -266,6 +363,7 @@ class AgentDefinitionCompilationServiceTest {
     private AgentDefinition definition(String statusValue, String generationModeValue) {
         AgentDefinition definition = new AgentDefinition();
         definition.setCodAgentdefinition("AGDF1");
+        definition.setDscName("Compiled Agent");
         AgentDefinitionStatus status = new AgentDefinitionStatus();
         status.setSglStatus(statusValue);
         definition.setSglStatus(status);
@@ -276,6 +374,44 @@ class AgentDefinitionCompilationServiceTest {
         AgentArtifactType artifactType = new AgentArtifactType();
         artifactType.setSglArtifacttype("NONE");
         definition.setSglArtifacttype(artifactType);
+        Alert alert = new Alert();
+        alert.setCodAlert("ALRT1");
+        AlertInterpreterType interpreterType = new AlertInterpreterType();
+        interpreterType.setSglInterpretertype("EVENT_INTERPRETER");
+        alert.setSglInterpretertype(interpreterType);
+        definition.setCodAlert(alert);
+        definition.setNumAlertversion(1);
+        AgentProfile profile = new AgentProfile();
+        profile.setCodAgentprofile("MEDIUM");
+        profile.setFlgEnabled(true);
+        definition.setCodAgentprofile(profile);
+        AgentActivationType activationType = new AgentActivationType();
+        activationType.setSglActivationtype("CONTINUOUS");
+        definition.setSglActivationtype(activationType);
+        definition.setJsnActivationpolicy(Map.of("type", "CONTINUOUS", "timezone", "Europe/Rome"));
+        definition.setDscInputmodel("ServiceDataV2");
+        definition.setDscOutputmodel("AgentOutput.CANDIDATE_SUGGESTION");
+        definition.setJsnAllowedtools(List.of());
+        definition.setJsnRuntimecontract(Map.of(
+                "source", "SERVICE_DATA",
+                "interpreterType", "EVENT_INTERPRETER",
+                "triggerType", "EVENT",
+                "inputModel", "ServiceDataV2",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "executionModel", "KAFKA_EVENT",
+                "requiresScheduler", false,
+                "allowedTools", List.of()));
+        definition.setJsnBlueprint(Map.of(
+                "schemaVersion", "iia.agent.blueprint/v1",
+                "triggerType", "EVENT",
+                "evaluationMode", "STATELESS_EVENT_MATCH",
+                "parameters", Map.of(
+                        "condition", Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "field", "payload.status",
+                                "operator", "EQUALS",
+                                "value", "ARRIVING"))));
         return definition;
     }
 

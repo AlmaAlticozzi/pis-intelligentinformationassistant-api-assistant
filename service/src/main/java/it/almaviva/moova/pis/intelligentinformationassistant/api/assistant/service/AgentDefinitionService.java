@@ -61,6 +61,9 @@ public class AgentDefinitionService {
     @Inject
     AgentCompilationMapper agentCompilationMapper;
 
+    @Inject
+    AgentCompilationPreconditionValidator agentCompilationPreconditionValidator;
+
     @Transactional
     public AgentDefinitionDetail getAgentDefinition(String agentDefinitionId) {
         if (isBlank(agentDefinitionId)) {
@@ -216,15 +219,55 @@ public class AgentDefinitionService {
                 AgentCompilationStatuses.VALIDATING_BLUEPRINT,
                 AgentCompilationStatuses.VALIDATING_BLUEPRINT,
                 validationStartedAt);
+
+        AgentCompilationPreconditionValidationResult validation =
+                agentCompilationPreconditionValidator.validate(definition, effectiveGenerationMode);
+        if (!validation.valid()) {
+            agentCompilationRepository.addStep(
+                    compilationId,
+                    2,
+                    "VALIDATING_BLUEPRINT",
+                    AgentCompilationStatuses.REJECTED,
+                    "Compilation preconditions rejected.",
+                    validation.toDetailsJson(),
+                    validationStartedAt,
+                    OffsetDateTime.now());
+            System.out.println("[IIA][AGENT_COMPILATION][POST] preconditions rejected compilationId="
+                    + compilationId + " errors=" + validation.errors());
+
+            OffsetDateTime completedAt = OffsetDateTime.now();
+            String errorMessage = String.join("; ", validation.errors());
+            agentCompilationRepository.markFailed(
+                    compilationId,
+                    AgentCompilationStatuses.REJECTED,
+                    AgentCompilationStatuses.VALIDATING_BLUEPRINT,
+                    errorMessage,
+                    Map.of(
+                            "preconditionsValid", false,
+                            "artifactGenerated", false,
+                            "agentDefinitionStatusUpdated", false,
+                            "errors", validation.errors(),
+                            "warnings", validation.warnings()),
+                    completedAt);
+            System.out.println("[IIA][AGENT_COMPILATION][POST] completed skeleton compilationId="
+                    + compilationId + " finalStatus=REJECTED");
+
+            var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
+                    .orElse(compilation);
+            var steps = agentCompilationRepository.findStepsByCompilationId(latestCompilation.getCodAgentcompilation());
+            return agentCompilationMapper.toResponse(definition, latestCompilation, steps);
+        }
+
         agentCompilationRepository.addStep(
                 compilationId,
                 2,
                 "VALIDATING_BLUEPRINT",
                 AgentCompilationStatuses.READY,
-                "Basic skeleton validation completed. Full precondition validator will be implemented in the next step.",
-                Map.of("fullValidatorImplemented", false),
+                "Compilation preconditions validated successfully.",
+                validation.toDetailsJson(),
                 validationStartedAt,
                 OffsetDateTime.now());
+        System.out.println("[IIA][AGENT_COMPILATION][POST] preconditions valid compilationId=" + compilationId);
         System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=VALIDATING_BLUEPRINT status=READY");
 
         OffsetDateTime artifactStartedAt = OffsetDateTime.now();
