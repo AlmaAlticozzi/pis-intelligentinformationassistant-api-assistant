@@ -632,6 +632,43 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while creating the Agent definition.");
     }
 
+    public static Error agentDefinitionCompileInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-CMP-400-001",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionCompileNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-CMP-404-001")
+                .title("Agent Definition not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionCompileConflict(String detail) {
+        return new Error()
+                .code("IIA-AGD-CMP-409-001")
+                .title("Agent Definition compilation rejected")
+                .detail(detail)
+                .source("agentDefinitionId");
+    }
+
+    public static Error agentDefinitionCompileUnprocessable(String detail) {
+        return new Error()
+                .code("IIA-AGD-CMP-422-001")
+                .title("Agent Definition cannot be compiled")
+                .detail(detail);
+    }
+
+    public static Error agentDefinitionCompileUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-CMP-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while starting Agent compilation.");
+    }
+
     public static Error agentDefinitionGetInvalidRequest(String source, String detail) {
         return invalidParameter(
                 "IIA-AGD-GET-400-001",

@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationPolicy;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentCompilationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionListResponse;
@@ -13,6 +14,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DayOfWeek;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.ToolReference;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationRepository;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentCompilationStatuses;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentProfileRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
@@ -39,6 +41,7 @@ public class AgentDefinitionService {
     private static final String COMPILE_NOT_IMPLEMENTED_MESSAGE =
             "Agent compilation pipeline is not implemented yet. Create the Agent Definition with compileImmediately=false.";
     private static final String SCHEDULED_TOOL = "SERVICE_DATA_API.POST_/v2/stoppointjourneys";
+    private static final String DSL_ARTIFACT_NOT_IMPLEMENTED = "DSL artifact generation is not implemented yet.";
 
     @Inject
     AgentDefinitionRepository agentDefinitionRepository;
@@ -128,6 +131,138 @@ public class AgentDefinitionService {
         AgentCompilationStatusResponse response = agentCompilationMapper.toResponse(definition, compilation, steps);
         System.out.println("[IIA][AGENT_COMPILATION][GET] response mapped agentDefinitionId=" + id + " steps=" + steps.size());
         return response;
+    }
+
+    @Transactional
+    public AgentCompilationStatusResponse compileAgentDefinition(
+            String agentDefinitionId,
+            AgentCompilationRequest request) {
+        if (isBlank(agentDefinitionId)) {
+            throw invalid("agentDefinitionId", "The agentDefinitionId path parameter is empty or contains only whitespace characters.");
+        }
+        String id = agentDefinitionId.trim();
+        if (id.length() > 50) {
+            throw invalid("agentDefinitionId", "The agentDefinitionId path parameter exceeds 50 characters.");
+        }
+
+        System.out.println("[IIA][AGENT_COMPILATION][POST] start agentDefinitionId=" + id);
+        boolean force = request != null && Boolean.TRUE.equals(request.getForce());
+        boolean runSimulation = request != null && Boolean.TRUE.equals(request.getRunSimulation());
+        AgentGenerationMode requestedMode = request == null ? null : request.getGenerationMode();
+        String note = request == null ? null : trimToNull(request.getNote());
+        System.out.println("[IIA][AGENT_COMPILATION][POST] request force=" + force
+                + " generationMode=" + requestedMode
+                + " runSimulation=" + runSimulation);
+
+        AgentDefinition definition = agentDefinitionRepository.findByDefinitionId(id)
+                .orElseThrow(() -> new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found."));
+        String status = definition.getSglStatus() == null ? null : definition.getSglStatus().getSglStatus();
+        System.out.println("[IIA][AGENT_COMPILATION][POST] agent definition found agentDefinitionId=" + id + " status=" + status);
+        validateCompilableStatus(id, status);
+
+        if (agentCompilationRepository.existsRunningCompilation(id)) {
+            if (force) {
+                throw rejectedCompilation(
+                        AgentCompilationRejectedException.Reason.CONFLICT,
+                        "Force recompilation of a running compilation is not implemented yet.");
+            }
+            throw rejectedCompilation(
+                    AgentCompilationRejectedException.Reason.CONFLICT,
+                    "A compilation is already running for Agent Definition " + id + ".");
+        }
+
+        String effectiveGenerationMode = effectiveCompilationGenerationMode(definition, requestedMode);
+        System.out.println("[IIA][AGENT_COMPILATION][POST] effectiveGenerationMode=" + effectiveGenerationMode);
+
+        OffsetDateTime requestedAt = OffsetDateTime.now();
+        Map<String, Object> requestJson = new LinkedHashMap<>();
+        requestJson.put("force", force);
+        requestJson.put("generationMode", effectiveGenerationMode);
+        requestJson.put("requestedGenerationMode", requestedMode == null ? effectiveGenerationMode : requestedMode.toString());
+        requestJson.put("effectiveGenerationMode", effectiveGenerationMode);
+        requestJson.put("runSimulation", runSimulation);
+        if (note != null) {
+            requestJson.put("note", note);
+        }
+        requestJson.put("skeleton", true);
+        requestJson.put("agentDefinitionId", id);
+        requestJson.put("requestedAt", requestedAt.toString());
+        requestJson.put("apiVersion", "v1");
+        requestJson.put("phase", "AGENT_COMPILATION_DSL_SKELETON");
+
+        var compilation = agentCompilationRepository.createCompilation(
+                id,
+                effectiveGenerationMode,
+                force,
+                requestJson,
+                null);
+        String compilationId = compilation.getCodAgentcompilation();
+        System.out.println("[IIA][AGENT_COMPILATION][POST] compilation created compilationId=" + compilationId);
+
+        agentCompilationRepository.addStep(
+                compilationId,
+                1,
+                "REQUEST_ACCEPTED",
+                AgentCompilationStatuses.READY,
+                "Compilation request accepted by api-assistant control plane.",
+                Map.of("skeleton", true),
+                requestedAt,
+                requestedAt);
+        System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=REQUEST_ACCEPTED status=READY");
+
+        OffsetDateTime validationStartedAt = OffsetDateTime.now();
+        agentCompilationRepository.markStarted(
+                compilationId,
+                AgentCompilationStatuses.VALIDATING_BLUEPRINT,
+                AgentCompilationStatuses.VALIDATING_BLUEPRINT,
+                validationStartedAt);
+        agentCompilationRepository.addStep(
+                compilationId,
+                2,
+                "VALIDATING_BLUEPRINT",
+                AgentCompilationStatuses.READY,
+                "Basic skeleton validation completed. Full precondition validator will be implemented in the next step.",
+                Map.of("fullValidatorImplemented", false),
+                validationStartedAt,
+                OffsetDateTime.now());
+        System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=VALIDATING_BLUEPRINT status=READY");
+
+        OffsetDateTime artifactStartedAt = OffsetDateTime.now();
+        agentCompilationRepository.updateStatus(
+                compilationId,
+                AgentCompilationStatuses.GENERATING_ARTIFACT,
+                AgentCompilationStatuses.GENERATING_ARTIFACT);
+        agentCompilationRepository.addStep(
+                compilationId,
+                3,
+                "GENERATING_ARTIFACT",
+                AgentCompilationStatuses.FAILED,
+                DSL_ARTIFACT_NOT_IMPLEMENTED,
+                Map.of(
+                        "artifactGenerationImplemented", false,
+                        "nextImplementationStep", "AgentCompilationPreconditionValidator and AgentDslArtifactBuilder"),
+                artifactStartedAt,
+                OffsetDateTime.now());
+        System.out.println("[IIA][AGENT_COMPILATION][POST] step added compilationId=" + compilationId + " step=GENERATING_ARTIFACT status=FAILED");
+
+        OffsetDateTime completedAt = OffsetDateTime.now();
+        agentCompilationRepository.markFailed(
+                compilationId,
+                AgentCompilationStatuses.FAILED,
+                AgentCompilationStatuses.GENERATING_ARTIFACT,
+                DSL_ARTIFACT_NOT_IMPLEMENTED,
+                Map.of(
+                        "skeleton", true,
+                        "artifactGenerated", false,
+                        "agentDefinitionStatusUpdated", false,
+                        "reason", DSL_ARTIFACT_NOT_IMPLEMENTED),
+                completedAt);
+        System.out.println("[IIA][AGENT_COMPILATION][POST] completed skeleton compilationId=" + compilationId + " finalStatus=FAILED");
+
+        var latestCompilation = agentCompilationRepository.findLatestByAgentDefinitionId(id)
+                .orElse(compilation);
+        var steps = agentCompilationRepository.findStepsByCompilationId(latestCompilation.getCodAgentcompilation());
+        return agentCompilationMapper.toResponse(definition, latestCompilation, steps);
     }
 
     @Transactional
@@ -543,6 +678,52 @@ public class AgentDefinitionService {
         return null;
     }
 
+    private void validateCompilableStatus(String agentDefinitionId, String status) {
+        if ("ACTIVE".equals(status)
+                || "ARCHIVED".equals(status)
+                || "SUPERSEDED".equals(status)
+                || "DELETED".equals(status)) {
+            throw rejectedCompilation(
+                    AgentCompilationRejectedException.Reason.CONFLICT,
+                    "Agent Definition " + agentDefinitionId + " cannot be compiled while status is " + status + ".");
+        }
+    }
+
+    private String effectiveCompilationGenerationMode(AgentDefinition definition, AgentGenerationMode requestedMode) {
+        AgentGenerationMode mode = requestedMode;
+        if (mode == null && definition.getSglGenerationmode() != null && definition.getSglGenerationmode().getSglGenerationmode() != null) {
+            try {
+                mode = AgentGenerationMode.fromString(definition.getSglGenerationmode().getSglGenerationmode());
+            } catch (IllegalArgumentException ex) {
+                throw rejectedCompilation(
+                        AgentCompilationRejectedException.Reason.UNPROCESSABLE,
+                        "Unsupported generation mode " + definition.getSglGenerationmode().getSglGenerationmode() + ".");
+            }
+        }
+        if (mode == null || mode == AgentGenerationMode.AUTO) {
+            return AgentGenerationMode.DSL.toString();
+        }
+        if (mode == AgentGenerationMode.DSL) {
+            return AgentGenerationMode.DSL.toString();
+        }
+        if (mode == AgentGenerationMode.JAVA_TEMPLATE) {
+            throw rejectedCompilation(
+                    AgentCompilationRejectedException.Reason.UNPROCESSABLE,
+                    "Generation mode JAVA_TEMPLATE is not supported by the DSL compilation MVP.");
+        }
+        throw rejectedCompilation(
+                AgentCompilationRejectedException.Reason.UNPROCESSABLE,
+                "Unsupported generation mode " + mode + ".");
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private void validateTimezone(String timezone) {
         if (isBlank(timezone)) {
             throw invalid("activationPolicy.timezone", "A valid IANA timezone is required.");
@@ -571,6 +752,10 @@ public class AgentDefinitionService {
 
     private AgentDefinitionCreateRejectedException rejected(AgentDefinitionCreateRejectedException.Reason reason, String message) {
         return new AgentDefinitionCreateRejectedException(reason, message);
+    }
+
+    private AgentCompilationRejectedException rejectedCompilation(AgentCompilationRejectedException.Reason reason, String message) {
+        return new AgentCompilationRejectedException(reason, message);
     }
 
     private boolean isBlank(String value) {

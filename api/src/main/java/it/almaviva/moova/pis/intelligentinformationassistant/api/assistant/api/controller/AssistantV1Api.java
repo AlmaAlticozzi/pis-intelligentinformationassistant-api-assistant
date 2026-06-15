@@ -7,6 +7,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertAgentGenerationPreviewRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentCompilationRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionNotFoundException;
@@ -81,8 +82,27 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentCompilationStatusResponse compileAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId, @Valid AgentCompilationRequest agentCompilationRequest) {
-        System.out.println("compileAgentDefinition: " + "agentDefinitionId=" + agentDefinitionId + ", " + "agentCompilationRequest=" + agentCompilationRequest);
-        return new AgentCompilationStatusResponse();
+        try {
+            return agentDefinitionService.compileAgentDefinition(agentDefinitionId, agentCompilationRequest);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionCompileInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionCompileNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentCompilationRejectedException ex) {
+            throw agentCompilationRejected(ex);
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_COMPILATION][POST] Unexpected error agentDefinitionId=" + agentDefinitionId
+                    + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionCompileUnexpectedError())
+                    .build());
+        }
     }
 
     @POST
@@ -594,6 +614,17 @@ public class AssistantV1Api implements IAssistantV1Api {
                     new WebApplicationException(Response.status(422)
                             .entity(AssistantApiErrors.agentDefinitionCreateUnprocessable(ex.getMessage()))
                             .build());
+        };
+    }
+
+    private WebApplicationException agentCompilationRejected(AgentCompilationRejectedException ex) {
+        return switch (ex.reason()) {
+            case CONFLICT -> new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.agentDefinitionCompileConflict(ex.getMessage()))
+                    .build());
+            case UNPROCESSABLE -> new WebApplicationException(Response.status(422)
+                    .entity(AssistantApiErrors.agentDefinitionCompileUnprocessable(ex.getMessage()))
+                    .build());
         };
     }
 
