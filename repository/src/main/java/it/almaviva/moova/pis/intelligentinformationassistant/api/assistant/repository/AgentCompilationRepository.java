@@ -96,6 +96,19 @@ public class AgentCompilationRepository implements PanacheRepositoryBase<AgentCo
                 .findFirst();
     }
 
+    public Optional<AgentCompilation> findByCompilationId(String compilationId) {
+        return entityManager.createQuery("""
+                        select compilation
+                        from AgentCompilation compilation
+                        join fetch compilation.sglStatus
+                        join fetch compilation.codAgentdefinition definition
+                        where compilation.codAgentcompilation = :compilationId
+                        """, AgentCompilation.class)
+                .setParameter("compilationId", compilationId)
+                .getResultStream()
+                .findFirst();
+    }
+
     public List<AgentCompilationStep> findStepsByCompilationId(String compilationId) {
         return entityManager.createQuery("""
                         select step

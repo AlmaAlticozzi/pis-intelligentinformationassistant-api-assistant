@@ -5,8 +5,12 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentArtifactType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilationStatus;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionAllowedTool;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionDayOfWeek;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionRequiredSource;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -77,6 +81,82 @@ class AgentDefinitionRepositoryTest {
         verify(entityManager).createQuery(jpqlCaptor.capture(), eq(AgentDefinition.class));
         assertThat(jpqlCaptor.getValue()).doesNotContain(" :status").doesNotContain(" :alertId").doesNotContain(" :textPattern");
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findActivationSnapshotDefinitionFetchesOnlySingleValuedReferences() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<AgentDefinition> query = mock(TypedQuery.class);
+        repository.entityManager = entityManager;
+
+        when(entityManager.createQuery(anyString(), eq(AgentDefinition.class))).thenReturn(query);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.getResultStream()).thenReturn(List.<AgentDefinition>of().stream());
+
+        repository.findActivationSnapshotDefinition("AGDF1");
+
+        ArgumentCaptor<String> jpqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(entityManager).createQuery(jpqlCaptor.capture(), eq(AgentDefinition.class));
+        String jpql = jpqlCaptor.getValue();
+        assertThat(jpql).contains("join fetch d.codAlert");
+        assertThat(jpql).contains("join fetch d.codAgentprofile");
+        assertThat(jpql).contains("left join fetch d.sglLatestcompilationstatus");
+        assertThat(jpql).doesNotContain("AgentDefinitionDayOfWeek");
+        assertThat(jpql).doesNotContain("AgentDefinitionRequiredSource");
+        assertThat(jpql).doesNotContain("AgentDefinitionAllowedTool");
+        verify(query).setParameter("agentDefinitionId", "AGDF1");
+    }
+
+    @Test
+    void findLatestCompilationReferenceIdReadsRawColumnOnly() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        Query query = mock(Query.class);
+        repository.entityManager = entityManager;
+
+        when(entityManager.createNativeQuery(anyString(), eq(String.class))).thenReturn(query);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.getResultList()).thenReturn(List.of("AGCP1"));
+
+        assertThat(repository.findLatestCompilationReferenceId("AGDF1")).contains("AGCP1");
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(entityManager).createNativeQuery(sqlCaptor.capture(), eq(String.class));
+        assertThat(sqlCaptor.getValue()).contains("cod_latestcompilation").contains("agent_definition");
+        verify(query).setParameter("agentDefinitionId", "AGDF1");
+    }
+
+    @Test
+    void activationRelationsUseSeparateOrderedQueries() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<AgentDefinitionDayOfWeek> dayQuery = mock(TypedQuery.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<AgentDefinitionRequiredSource> sourceQuery = mock(TypedQuery.class);
+        @SuppressWarnings("unchecked")
+        TypedQuery<AgentDefinitionAllowedTool> toolQuery = mock(TypedQuery.class);
+        repository.entityManager = entityManager;
+
+        when(entityManager.createQuery(anyString(), eq(AgentDefinitionDayOfWeek.class))).thenReturn(dayQuery);
+        when(entityManager.createQuery(anyString(), eq(AgentDefinitionRequiredSource.class))).thenReturn(sourceQuery);
+        when(entityManager.createQuery(anyString(), eq(AgentDefinitionAllowedTool.class))).thenReturn(toolQuery);
+        when(dayQuery.setParameter(anyString(), any())).thenReturn(dayQuery);
+        when(sourceQuery.setParameter(anyString(), any())).thenReturn(sourceQuery);
+        when(toolQuery.setParameter(anyString(), any())).thenReturn(toolQuery);
+        when(dayQuery.getResultList()).thenReturn(List.of());
+        when(sourceQuery.getResultList()).thenReturn(List.of());
+        when(toolQuery.getResultList()).thenReturn(List.of());
+
+        repository.findActivationDaysOfWeek("AGDF1");
+        repository.findActivationRequiredSources("AGDF1");
+        repository.findActivationAllowedTools("AGDF1");
+
+        verify(dayQuery).setParameter("agentDefinitionId", "AGDF1");
+        verify(sourceQuery).setParameter("agentDefinitionId", "AGDF1");
+        verify(toolQuery).setParameter("agentDefinitionId", "AGDF1");
     }
 
     @Test

@@ -100,6 +100,25 @@ class AgentCompilationRepositoryTest {
     }
 
     @Test
+    void findByCompilationIdLooksUpExactCompilationWithoutOrderingFallback() {
+        AgentCompilationRepository repository = repositoryWithEntityManager();
+        @SuppressWarnings("unchecked")
+        TypedQuery<AgentCompilation> query = mock(TypedQuery.class);
+        AgentCompilation compilation = new AgentCompilation();
+        when(repository.entityManager.createQuery(anyString(), eq(AgentCompilation.class))).thenReturn(query);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.getResultStream()).thenReturn(List.of(compilation).stream());
+
+        assertThat(repository.findByCompilationId("AGCP1")).containsSame(compilation);
+
+        ArgumentCaptor<String> jpqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(repository.entityManager).createQuery(jpqlCaptor.capture(), eq(AgentCompilation.class));
+        assertThat(jpqlCaptor.getValue()).contains("compilation.codAgentcompilation = :compilationId")
+                .doesNotContain("order by");
+        verify(query).setParameter("compilationId", "AGCP1");
+    }
+
+    @Test
     void findStepsByCompilationIdOrdersByStepOrder() {
         AgentCompilationRepository repository = repositoryWithEntityManager();
         @SuppressWarnings("unchecked")

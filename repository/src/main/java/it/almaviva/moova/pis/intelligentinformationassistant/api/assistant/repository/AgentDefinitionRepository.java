@@ -67,6 +67,75 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                 .findFirst();
     }
 
+    public Optional<AgentDefinition> findActivationSnapshotDefinition(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select d
+                        from AgentDefinition d
+                        join fetch d.codAlert
+                        join fetch d.codAgentprofile
+                        join fetch d.sglStatus
+                        join fetch d.sglGenerationmode
+                        join fetch d.sglActivationtype
+                        join fetch d.sglArtifacttype
+                        left join fetch d.sglSignaturestatus
+                        left join fetch d.sglComplexity
+                        left join fetch d.sglLatestcompilationstatus
+                        where d.codAgentdefinition = :agentDefinitionId
+                        """, AgentDefinition.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultStream()
+                .findFirst();
+    }
+
+    public Optional<String> findLatestCompilationReferenceId(String agentDefinitionId) {
+        List<String> rows = entityManager.createNativeQuery("""
+                        select cod_latestcompilation
+                        from pis_intelligentinformationassistant.agent_definition
+                        where cod_agentdefinition = :agentDefinitionId
+                        """, String.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultList();
+        if (rows.isEmpty() || rows.getFirst() == null || rows.getFirst().isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(rows.getFirst());
+    }
+
+    public List<AgentDefinitionDayOfWeek> findActivationDaysOfWeek(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select rel
+                        from AgentDefinitionDayOfWeek rel
+                        join fetch rel.sglDayofweek
+                        where rel.id.codAgentdefinition = :agentDefinitionId
+                        order by rel.id.sglDayofweek
+                        """, AgentDefinitionDayOfWeek.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultList();
+    }
+
+    public List<AgentDefinitionRequiredSource> findActivationRequiredSources(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select rel
+                        from AgentDefinitionRequiredSource rel
+                        join fetch rel.sglCategory
+                        where rel.id.codAgentdefinition = :agentDefinitionId
+                        order by rel.id.sglCategory
+                        """, AgentDefinitionRequiredSource.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultList();
+    }
+
+    public List<AgentDefinitionAllowedTool> findActivationAllowedTools(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select rel
+                        from AgentDefinitionAllowedTool rel
+                        where rel.id.codAgentdefinition = :agentDefinitionId
+                        order by rel.id.dscToolname
+                        """, AgentDefinitionAllowedTool.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultList();
+    }
+
     public List<AgentDefinition> search(
             String status,
             String alertId,
