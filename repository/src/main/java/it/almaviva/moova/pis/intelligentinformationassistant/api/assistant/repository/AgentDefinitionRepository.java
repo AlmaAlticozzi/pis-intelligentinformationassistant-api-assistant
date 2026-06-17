@@ -101,6 +101,42 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
         return Optional.of(rows.getFirst());
     }
 
+    public Optional<AgentDefinitionLifecycleRow> findLifecycleState(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository$AgentDefinitionLifecycleRow(
+                            d.codAgentdefinition,
+                            d.sglStatus.sglStatus,
+                            d.dtUpdatedat
+                        )
+                        from AgentDefinition d
+                        join d.sglStatus
+                        where d.codAgentdefinition = :agentDefinitionId
+                        """, AgentDefinitionLifecycleRow.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .getResultStream()
+                .findFirst();
+    }
+
+    @Transactional
+    public int transitionStatus(
+            String agentDefinitionId,
+            String expectedStatus,
+            String targetStatus,
+            OffsetDateTime updatedAt) {
+        return entityManager.createQuery("""
+                        update AgentDefinition d
+                        set d.sglStatus = :targetStatus,
+                            d.dtUpdatedat = :updatedAt
+                        where d.codAgentdefinition = :agentDefinitionId
+                            and d.sglStatus.sglStatus = :expectedStatus
+                        """)
+                .setParameter("targetStatus", statusReference(targetStatus))
+                .setParameter("updatedAt", updatedAt)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .setParameter("expectedStatus", expectedStatus)
+                .executeUpdate();
+    }
+
     public List<AgentDefinitionDayOfWeek> findActivationDaysOfWeek(String agentDefinitionId) {
         return entityManager.createQuery("""
                         select rel
@@ -256,6 +292,12 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
 
     public AgentDefinitionStatus statusReference(String status) {
         return entityManager.getReference(AgentDefinitionStatus.class, status);
+    }
+
+    public record AgentDefinitionLifecycleRow(
+            String agentDefinitionId,
+            String status,
+            OffsetDateTime updatedAt) {
     }
 
     public AgentGenerationMode generationModeReference(String generationMode) {

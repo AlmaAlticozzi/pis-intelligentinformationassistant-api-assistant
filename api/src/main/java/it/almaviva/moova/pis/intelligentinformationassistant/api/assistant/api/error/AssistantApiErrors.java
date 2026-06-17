@@ -669,6 +669,94 @@ public final class AssistantApiErrors {
                 .detail("An unexpected error occurred while starting Agent compilation.");
     }
 
+    public static Error agentDefinitionActivateInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-ACT-400-001",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionActivateNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-ACT-404-001")
+                .title("Agent Definition not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionActivateConflict(String detail) {
+        return new Error()
+                .code("IIA-AGD-ACT-409-001")
+                .title("Agent Definition activation rejected")
+                .detail(detail)
+                .source("agentDefinitionId");
+    }
+
+    public static Error agentDefinitionActivateUnprocessable(String detail) {
+        return new Error()
+                .code("IIA-AGD-ACT-422-001")
+                .title("Agent Definition cannot be activated")
+                .detail(detail);
+    }
+
+    public static Error agentDefinitionActivateServiceUnavailable() {
+        return new Error()
+                .code("IIA-AGD-ACT-503-001")
+                .title("Agent Orchestrator unavailable")
+                .detail("The Agent Definition is valid and compiled, but it could not be delivered to the Agent Orchestrator. Activation did not occur and the Agent Definition state is unchanged.");
+    }
+
+    public static Error agentDefinitionActivateUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-ACT-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while activating the Agent Definition.");
+    }
+
+    public static Error agentDefinitionDisableInvalidRequest(String source, String detail) {
+        return invalidParameter(
+                "IIA-AGD-DIS-400-001",
+                source,
+                detail);
+    }
+
+    public static Error agentDefinitionDisableNotFound(String source, String detail) {
+        return new Error()
+                .code("IIA-AGD-DIS-404-001")
+                .title("Agent Definition not found")
+                .detail(detail)
+                .source(source);
+    }
+
+    public static Error agentDefinitionDisableConflict(String detail) {
+        return new Error()
+                .code("IIA-AGD-DIS-409-001")
+                .title("Agent Definition disable rejected")
+                .detail(detail)
+                .source("agentDefinitionId");
+    }
+
+    public static Error agentDefinitionDisableUnprocessable(String detail) {
+        return new Error()
+                .code("IIA-AGD-DIS-422-001")
+                .title("Agent Definition disable rejected by runtime")
+                .detail(detail);
+    }
+
+    public static Error agentDefinitionDisableServiceUnavailable() {
+        return new Error()
+                .code("IIA-AGD-DIS-503-001")
+                .title("Agent Orchestrator unavailable")
+                .detail("The Agent Definition is ACTIVE, but the disable command could not be delivered to the Agent Orchestrator. Disable did not occur and the Agent Definition state is unchanged.");
+    }
+
+    public static Error agentDefinitionDisableUnexpectedError() {
+        return new Error()
+                .code("IIA-AGD-DIS-500-001")
+                .title("Unexpected error")
+                .detail("An unexpected error occurred while disabling the Agent Definition.");
+    }
+
     public static Error agentDefinitionGetInvalidRequest(String source, String detail) {
         return invalidParameter(
                 "IIA-AGD-GET-400-001",

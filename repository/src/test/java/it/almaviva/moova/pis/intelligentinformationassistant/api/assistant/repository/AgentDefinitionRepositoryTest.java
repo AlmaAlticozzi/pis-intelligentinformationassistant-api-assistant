@@ -129,6 +129,37 @@ class AgentDefinitionRepositoryTest {
     }
 
     @Test
+    void transitionStatusUsesConditionalAtomicUpdate() {
+        AgentDefinitionRepository repository = new AgentDefinitionRepository();
+        EntityManager entityManager = mock(EntityManager.class);
+        Query query = mock(Query.class);
+        AgentDefinitionStatus disabled = definitionStatus("DISABLED");
+        repository.entityManager = entityManager;
+
+        when(entityManager.createQuery(anyString())).thenReturn(query);
+        when(entityManager.getReference(AgentDefinitionStatus.class, "DISABLED")).thenReturn(disabled);
+        when(query.setParameter(anyString(), any())).thenReturn(query);
+        when(query.executeUpdate()).thenReturn(1);
+
+        OffsetDateTime updatedAt = OffsetDateTime.parse("2026-06-17T10:00:00Z");
+        int rows = repository.transitionStatus("AGDF1", "READY", "DISABLED", updatedAt);
+
+        assertThat(rows).isEqualTo(1);
+        ArgumentCaptor<String> jpqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(entityManager).createQuery(jpqlCaptor.capture());
+        assertThat(jpqlCaptor.getValue())
+                .contains("update AgentDefinition d")
+                .contains("d.sglStatus = :targetStatus")
+                .contains("d.dtUpdatedat = :updatedAt")
+                .contains("d.codAgentdefinition = :agentDefinitionId")
+                .contains("d.sglStatus.sglStatus = :expectedStatus");
+        verify(query).setParameter("targetStatus", disabled);
+        verify(query).setParameter("updatedAt", updatedAt);
+        verify(query).setParameter("agentDefinitionId", "AGDF1");
+        verify(query).setParameter("expectedStatus", "READY");
+    }
+
+    @Test
     void activationRelationsUseSeparateOrderedQueries() {
         AgentDefinitionRepository repository = new AgentDefinitionRepository();
         EntityManager entityManager = mock(EntityManager.class);

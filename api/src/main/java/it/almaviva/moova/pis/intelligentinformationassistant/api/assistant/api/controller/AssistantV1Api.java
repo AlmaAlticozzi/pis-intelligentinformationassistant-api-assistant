@@ -7,12 +7,23 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.query.AlertSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertAgentGenerationPreviewRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertDeleteRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationPreconditionFailedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationRuntimeAcceptanceNotSupportedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationTechnicalException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentCompilationRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionNotFoundException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionSearchCriteria;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableRuntimeAcceptanceNotSupportedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableTechnicalException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorCommandRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorUnavailableException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
@@ -44,6 +55,12 @@ public class AssistantV1Api implements IAssistantV1Api {
     AgentDefinitionService agentDefinitionService;
 
     @Inject
+    AgentActivationService agentActivationService;
+
+    @Inject
+    AgentDisableService agentDisableService;
+
+    @Inject
     TextImproveUseCase textImproveUseCase;
 
     @POST
@@ -52,8 +69,49 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentDefinitionDetail activateAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId, @Valid AgentActivationRequest agentActivationRequest) {
-        System.out.println("activateAgentDefinition: " + "agentDefinitionId=" + agentDefinitionId + ", " + "agentActivationRequest=" + agentActivationRequest);
-        return new AgentDefinitionDetail();
+        try {
+            return agentActivationService.activate(agentDefinitionId, agentActivationRequest);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionActivateInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionActivateNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentActivationRejectedException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.agentDefinitionActivateConflict(ex.getMessage()))
+                    .build());
+        } catch (AgentActivationPreconditionFailedException ex) {
+            throw new WebApplicationException(Response.status(422)
+                    .entity(AssistantApiErrors.agentDefinitionActivateUnprocessable(ex.getMessage()))
+                    .build());
+        } catch (AgentOrchestratorUnavailableException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(AssistantApiErrors.agentDefinitionActivateServiceUnavailable())
+                    .build());
+        } catch (AgentActivationRuntimeAcceptanceNotSupportedException ex) {
+            System.out.println("[IIA][AGENT_ACTIVATION] Runtime acceptance not supported agentDefinitionId="
+                    + agentDefinitionId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionActivateUnexpectedError())
+                    .build());
+        } catch (AgentActivationTechnicalException ex) {
+            System.out.println("[IIA][AGENT_ACTIVATION] Unexpected controlled technical error agentDefinitionId="
+                    + agentDefinitionId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionActivateUnexpectedError())
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_ACTIVATION] Unexpected error agentDefinitionId=" + agentDefinitionId
+                    + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionActivateUnexpectedError())
+                    .build());
+        }
     }
 
     @POST
@@ -206,8 +264,49 @@ public class AssistantV1Api implements IAssistantV1Api {
     @Produces({ "application/json" })
     @Override
     public AgentDefinitionDetail disableAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId, @Valid AgentDisableRequest agentDisableRequest) {
-        System.out.println("disableAgentDefinition: " + "agentDefinitionId=" + agentDefinitionId + ", " + "agentDisableRequest=" + agentDisableRequest);
-        return new AgentDefinitionDetail();
+        try {
+            return agentDisableService.disable(agentDefinitionId, agentDisableRequest);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentDefinitionDisableInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentDefinitionDisableNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDisableRejectedException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.agentDefinitionDisableConflict(ex.getMessage()))
+                    .build());
+        } catch (AgentOrchestratorCommandRejectedException ex) {
+            throw new WebApplicationException(Response.status(422)
+                    .entity(AssistantApiErrors.agentDefinitionDisableUnprocessable(ex.getMessage()))
+                    .build());
+        } catch (AgentOrchestratorUnavailableException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(AssistantApiErrors.agentDefinitionDisableServiceUnavailable())
+                    .build());
+        } catch (AgentDisableRuntimeAcceptanceNotSupportedException ex) {
+            System.out.println("[IIA][AGENT_DISABLE] Runtime acceptance not supported agentDefinitionId="
+                    + agentDefinitionId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionDisableUnexpectedError())
+                    .build());
+        } catch (AgentDisableTechnicalException ex) {
+            System.out.println("[IIA][AGENT_DISABLE] Unexpected controlled technical error agentDefinitionId="
+                    + agentDefinitionId + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionDisableUnexpectedError())
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("[IIA][AGENT_DISABLE] Unexpected error agentDefinitionId=" + agentDefinitionId
+                    + " error=" + ex.getMessage());
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentDefinitionDisableUnexpectedError())
+                    .build());
+        }
     }
 
     @PATCH
