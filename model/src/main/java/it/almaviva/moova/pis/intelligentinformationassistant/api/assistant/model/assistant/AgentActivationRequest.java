@@ -13,10 +13,12 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
-
-
+/**
+ * Optional command body used when activating a &#x60;READY&#x60; or &#x60;DISABLED&#x60; Agent Definition. When the body is omitted, &#x60;startImmediatelyIfAllowed&#x60; defaults to &#x60;true&#x60;. The command does not execute code inside the Assistant API and the local status becomes &#x60;ACTIVE&#x60; only after successful Agent Orchestrator acceptance. 
+ **/
+@ApiModel(description = "Optional command body used when activating a `READY` or `DISABLED` Agent Definition. When the body is omitted, `startImmediatelyIfAllowed` defaults to `true`. The command does not execute code inside the Assistant API and the local status becomes `ACTIVE` only after successful Agent Orchestrator acceptance. ")
 @JsonTypeName("AgentActivationRequest")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-06-17T11:36:57.274521600+02:00[Europe/Rome]", comments = "Generator version: 7.23.0")
 public class AgentActivationRequest   {
   private String note;
   private Boolean startImmediatelyIfAllowed = true;
@@ -25,6 +27,7 @@ public class AgentActivationRequest   {
   }
 
   /**
+   * Optional operator or control-plane note propagated as non-authoritative submission metadata.
    **/
   public AgentActivationRequest note(String note) {
     this.note = note;
@@ -32,7 +35,7 @@ public class AgentActivationRequest   {
   }
 
   
-  @ApiModelProperty(value = "")
+  @ApiModelProperty(value = "Optional operator or control-plane note propagated as non-authoritative submission metadata.")
   @JsonProperty("note")
    @Size(max=1000)public String getNote() {
     return note;
@@ -44,6 +47,7 @@ public class AgentActivationRequest   {
   }
 
   /**
+   * Requests immediate runtime eligibility when allowed by the activation policy. It never bypasses validFrom, validTo, daily windows or other runtime governance checks.
    **/
   public AgentActivationRequest startImmediatelyIfAllowed(Boolean startImmediatelyIfAllowed) {
     this.startImmediatelyIfAllowed = startImmediatelyIfAllowed;
@@ -51,7 +55,7 @@ public class AgentActivationRequest   {
   }
 
   
-  @ApiModelProperty(value = "")
+  @ApiModelProperty(value = "Requests immediate runtime eligibility when allowed by the activation policy. It never bypasses validFrom, validTo, daily windows or other runtime governance checks.")
   @JsonProperty("startImmediatelyIfAllowed")
   public Boolean getStartImmediatelyIfAllowed() {
     return startImmediatelyIfAllowed;

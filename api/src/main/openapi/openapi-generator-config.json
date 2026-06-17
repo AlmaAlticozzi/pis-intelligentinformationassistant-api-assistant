@@ -1,0 +1,9 @@
+{
+  "sourceFolder": "src/main/java",
+  "interfaceOnly": true,
+  "returnResponse": false,
+  "useSwaggerAnnotations": true,
+  "useJakartaEe": true,
+  "dateLibrary": "java8",
+  "openApiNullable": true
+}

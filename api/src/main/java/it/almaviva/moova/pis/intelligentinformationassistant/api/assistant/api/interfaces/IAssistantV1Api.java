@@ -50,6 +50,7 @@ public interface IAssistantV1Api {
         @ApiResponse(code = 404, message = "Requested resource was not found.", response = Error.class),
         @ApiResponse(code = 409, message = "Conflict or invalid workflow transition.", response = Error.class),
         @ApiResponse(code = 422, message = "The request is syntactically valid but cannot be processed in the assistant domain.", response = Error.class),
+        @ApiResponse(code = 503, message = "A downstream system, tool or LLM provider is not available.", response = Error.class),
         @ApiResponse(code = 500, message = "Unexpected error.", response = Error.class) })
     AgentDefinitionDetail activateAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) @ApiParam("Agent definition identifier.") String agentDefinitionId,@Valid AgentActivationRequest agentActivationRequest);
 
@@ -273,7 +274,7 @@ public interface IAssistantV1Api {
 
 
     /**
-     * Disables an Agent definition and prevents new Agent Runs from being created.  If `stopRunningAgents` is true, active Agent Runs are gracefully stopped through the Agent Orchestrator. If they do not stop within the configured grace period, they can be killed according to backend policy.  ## Errors  - `HTTP Status Code 404`, when no Agent definition with the given identifier is found. Error code: `IIA-AGD-DIS-404-001`  - `HTTP Status Code 409`, when the Agent definition cannot be disabled because a conflicting lifecycle transition is already in progress. Error code: `IIA-AGD-DIS-409-001`  - `HTTP Status Code 500`, when an unexpected error occurs while disabling the Agent definition. Error code: `IIA-AGD-DIS-500-001` 
+     * Disables an Agent definition and prevents new Agent Runs from being created.  If `stopRunningAgents` is true, active Agent Runs are gracefully stopped through the Agent Orchestrator. If they do not stop within the configured grace period, they can be killed according to backend policy.  ## Errors  - `HTTP Status Code 404`, when no Agent definition with the given identifier is found. Error code: `IIA-AGD-DIS-404-001`  - `HTTP Status Code 409`, when the Agent definition cannot be disabled because a conflicting lifecycle transition is already in progress. Error code: `IIA-AGD-DIS-409-001`  - `HTTP Status Code 503`, when an `ACTIVE` Agent Definition cannot be disabled because the Agent Orchestrator or a mandatory runtime subsystem is unavailable. Error code: `IIA-AGD-DIS-503-001`  - `HTTP Status Code 500`, when an unexpected error occurs while disabling the Agent definition. Error code: `IIA-AGD-DIS-500-001` 
      *
      * @param agentDefinitionId Agent definition identifier.
      * @param agentDisableRequest 
@@ -290,7 +291,7 @@ public interface IAssistantV1Api {
     @Path("/agent-definitions/{agentDefinitionId}/disable")
     @Consumes({ "application/json" })
     @Produces({ "application/json" })
-    @ApiOperation(value = "Disable an Agent definition", notes = "Disables an Agent definition and prevents new Agent Runs from being created.  If `stopRunningAgents` is true, active Agent Runs are gracefully stopped through the Agent Orchestrator. If they do not stop within the configured grace period, they can be killed according to backend policy.  ## Errors  - `HTTP Status Code 404`, when no Agent definition with the given identifier is found. Error code: `IIA-AGD-DIS-404-001`  - `HTTP Status Code 409`, when the Agent definition cannot be disabled because a conflicting lifecycle transition is already in progress. Error code: `IIA-AGD-DIS-409-001`  - `HTTP Status Code 500`, when an unexpected error occurs while disabling the Agent definition. Error code: `IIA-AGD-DIS-500-001` ", authorizations = {
+    @ApiOperation(value = "Disable an Agent definition", notes = "Disables an Agent definition and prevents new Agent Runs from being created.  If `stopRunningAgents` is true, active Agent Runs are gracefully stopped through the Agent Orchestrator. If they do not stop within the configured grace period, they can be killed according to backend policy.  ## Errors  - `HTTP Status Code 404`, when no Agent definition with the given identifier is found. Error code: `IIA-AGD-DIS-404-001`  - `HTTP Status Code 409`, when the Agent definition cannot be disabled because a conflicting lifecycle transition is already in progress. Error code: `IIA-AGD-DIS-409-001`  - `HTTP Status Code 503`, when an `ACTIVE` Agent Definition cannot be disabled because the Agent Orchestrator or a mandatory runtime subsystem is unavailable. Error code: `IIA-AGD-DIS-503-001`  - `HTTP Status Code 500`, when an unexpected error occurs while disabling the Agent definition. Error code: `IIA-AGD-DIS-500-001` ", authorizations = {
         
         @Authorization(value = "bearerAuth")
          }, tags={ "Agent Definitions" })
@@ -302,6 +303,7 @@ public interface IAssistantV1Api {
         @ApiResponse(code = 404, message = "Requested resource was not found.", response = Error.class),
         @ApiResponse(code = 409, message = "Conflict or invalid workflow transition.", response = Error.class),
         @ApiResponse(code = 422, message = "The request is syntactically valid but cannot be processed in the assistant domain.", response = Error.class),
+        @ApiResponse(code = 503, message = "A downstream system, tool or LLM provider is not available.", response = Error.class),
         @ApiResponse(code = 500, message = "Unexpected error.", response = Error.class) })
     AgentDefinitionDetail disableAgentDefinition(@PathParam("agentDefinitionId") @Size(max=50) @ApiParam("Agent definition identifier.") String agentDefinitionId,@Valid AgentDisableRequest agentDisableRequest);
 

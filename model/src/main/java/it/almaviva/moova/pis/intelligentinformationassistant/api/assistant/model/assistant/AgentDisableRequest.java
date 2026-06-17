@@ -13,10 +13,12 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import org.openapitools.jackson.nullable.JsonNullable;
 
-
-
+/**
+ * Optional command body used to disable an Agent Definition. When omitted, &#x60;stopRunningAgents&#x60; defaults to &#x60;true&#x60; and &#x60;gracePeriodSeconds&#x60; defaults to &#x60;60&#x60;. The command is idempotent for definitions already in &#x60;DISABLED&#x60;. 
+ **/
+@ApiModel(description = "Optional command body used to disable an Agent Definition. When omitted, `stopRunningAgents` defaults to `true` and `gracePeriodSeconds` defaults to `60`. The command is idempotent for definitions already in `DISABLED`. ")
 @JsonTypeName("AgentDisableRequest")
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-05-18T06:40:20.070283797Z[Etc/UTC]", comments = "Generator version: 7.23.0-SNAPSHOT")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaJAXRSSpecServerCodegen", date = "2026-06-17T11:36:57.274521600+02:00[Europe/Rome]", comments = "Generator version: 7.23.0")
 public class AgentDisableRequest   {
   private String reason;
   private Boolean stopRunningAgents = true;
@@ -26,6 +28,7 @@ public class AgentDisableRequest   {
   }
 
   /**
+   * Optional operator or control-plane reason recorded for lifecycle audit and propagated to the Agent Orchestrator when runtime disable is required.
    **/
   public AgentDisableRequest reason(String reason) {
     this.reason = reason;
@@ -33,7 +36,7 @@ public class AgentDisableRequest   {
   }
 
   
-  @ApiModelProperty(value = "")
+  @ApiModelProperty(value = "Optional operator or control-plane reason recorded for lifecycle audit and propagated to the Agent Orchestrator when runtime disable is required.")
   @JsonProperty("reason")
    @Size(max=1000)public String getReason() {
     return reason;
@@ -45,6 +48,7 @@ public class AgentDisableRequest   {
   }
 
   /**
+   * Requests graceful termination of active Agent Runs associated with the runtime definition. It has no effect on a local &#x60;READY -&gt; DISABLED&#x60; transition because no runtime definition has been accepted yet.
    **/
   public AgentDisableRequest stopRunningAgents(Boolean stopRunningAgents) {
     this.stopRunningAgents = stopRunningAgents;
@@ -52,7 +56,7 @@ public class AgentDisableRequest   {
   }
 
   
-  @ApiModelProperty(value = "")
+  @ApiModelProperty(value = "Requests graceful termination of active Agent Runs associated with the runtime definition. It has no effect on a local `READY -> DISABLED` transition because no runtime definition has been accepted yet.")
   @JsonProperty("stopRunningAgents")
   public Boolean getStopRunningAgents() {
     return stopRunningAgents;
@@ -64,6 +68,7 @@ public class AgentDisableRequest   {
   }
 
   /**
+   * Maximum graceful-stop interval requested from the Agent Orchestrator. A value of zero requests no graceful wait; runtime policy still governs the final interruption behavior.
    * minimum: 0
    * maximum: 600
    **/
@@ -73,7 +78,7 @@ public class AgentDisableRequest   {
   }
 
   
-  @ApiModelProperty(value = "")
+  @ApiModelProperty(value = "Maximum graceful-stop interval requested from the Agent Orchestrator. A value of zero requests no graceful wait; runtime policy still governs the final interruption behavior.")
   @JsonProperty("gracePeriodSeconds")
    @Min(0) @Max(600)public Integer getGracePeriodSeconds() {
     return gracePeriodSeconds;
