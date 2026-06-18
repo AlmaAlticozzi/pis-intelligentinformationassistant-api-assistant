@@ -3494,6 +3494,11 @@ components:
           description: Indicates whether the current validated technical specification was manually replaced after the last
             successful AI-assisted verification.
           example: false
+        prompt:
+          type: string
+          maxLength: 8000
+          description: Free-text prompt inserted by the operator.
+          example: Create a suggestion when a journey is cancelled and no audio message has been broadcast within five minutes.
         createdAt:
           type: string
           format: date-time

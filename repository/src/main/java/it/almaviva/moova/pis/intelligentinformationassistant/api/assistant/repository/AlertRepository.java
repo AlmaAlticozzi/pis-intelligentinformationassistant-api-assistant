@@ -603,6 +603,7 @@ public class AlertRepository implements PanacheRepositoryBase<Alert, String> {
         AlertSummary summary = new AlertSummary()
                 .id(view.getId())
                 .name(view.getName())
+                .prompt(view.getPrompt())
                 .enabled(view.getEnabled())
                 .createdAt(view.getCreatedAt())
                 .updatedAt(view.getUpdatedAt())

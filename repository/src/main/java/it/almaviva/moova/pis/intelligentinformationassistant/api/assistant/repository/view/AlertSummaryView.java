@@ -17,6 +17,9 @@ public interface AlertSummaryView {
     @Mapping("dscName")
     String getName();
 
+    @Mapping("dscPrompt")
+    String getPrompt();
+
     @Mapping("sglStatus.sglStatus")
     String getStatus();
 

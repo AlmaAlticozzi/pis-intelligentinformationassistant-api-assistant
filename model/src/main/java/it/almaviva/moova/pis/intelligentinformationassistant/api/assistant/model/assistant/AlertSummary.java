@@ -28,6 +28,7 @@ import org.openapitools.jackson.nullable.JsonNullable;
 public class AlertSummary   {
   private String id;
   private String name;
+  private String prompt;
   private AlertStatus status;
   private Boolean enabled;
   private AlertInterpreterType interpreterType;
@@ -93,6 +94,26 @@ public class AlertSummary   {
   @JsonProperty(required = true, value = "name")
   public void setName(String name) {
     this.name = name;
+  }
+
+  /**
+   * Free-text prompt inserted by the operator.
+   **/
+  public AlertSummary prompt(String prompt) {
+    this.prompt = prompt;
+    return this;
+  }
+
+
+  @ApiModelProperty(example = "Create a suggestion when a journey is cancelled and no audio message has been broadcast within five minutes.", value = "Free-text prompt inserted by the operator.")
+  @JsonProperty("prompt")
+  @Size(max=8000)public String getPrompt() {
+    return prompt;
+  }
+
+  @JsonProperty("prompt")
+  public void setPrompt(String prompt) {
+    this.prompt = prompt;
   }
 
   /**
@@ -317,6 +338,7 @@ public class AlertSummary   {
     AlertSummary alertSummary = (AlertSummary) o;
     return Objects.equals(this.id, alertSummary.id) &&
             Objects.equals(this.name, alertSummary.name) &&
+            Objects.equals(this.prompt, alertSummary.prompt) &&
             Objects.equals(this.status, alertSummary.status) &&
             Objects.equals(this.enabled, alertSummary.enabled) &&
             Objects.equals(this.interpreterType, alertSummary.interpreterType) &&
@@ -331,7 +353,7 @@ public class AlertSummary   {
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, status, enabled, interpreterType, targetTypes, confidence, lastVerification, technicalSpecificationEdited, createdAt, updatedAt, version);
+    return Objects.hash(id, name, prompt, status, enabled, interpreterType, targetTypes, confidence, lastVerification, technicalSpecificationEdited, createdAt, updatedAt, version);
   }
 
   @Override
@@ -341,6 +363,7 @@ public class AlertSummary   {
 
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
+    sb.append("    prompt: ").append(toIndentedString(prompt)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("    enabled: ").append(toIndentedString(enabled)).append("\n");
     sb.append("    interpreterType: ").append(toIndentedString(interpreterType)).append("\n");

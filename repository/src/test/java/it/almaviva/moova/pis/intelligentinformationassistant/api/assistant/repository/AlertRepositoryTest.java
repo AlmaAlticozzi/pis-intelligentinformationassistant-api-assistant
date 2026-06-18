@@ -158,6 +158,17 @@ class AlertRepositoryTest {
     }
 
     @Test
+    void alertSummaryIncludesPromptFromProjection() throws Exception {
+        AlertRepository repository = new AlertRepository();
+        AlertSummaryView view = mock(AlertSummaryView.class);
+        when(view.getPrompt()).thenReturn("Avvertimi quando una corsa arriva a Garibaldi");
+
+        AlertSummary summary = toAlertSummary(repository, view);
+
+        assertThat(summary.getPrompt()).isEqualTo("Avvertimi quando una corsa arriva a Garibaldi");
+    }
+
+    @Test
     void alertSummaryDefaultsTechnicalSpecificationEditedToFalse() throws Exception {
         AlertRepository repository = new AlertRepository();
         AlertSummaryView view = mock(AlertSummaryView.class);
