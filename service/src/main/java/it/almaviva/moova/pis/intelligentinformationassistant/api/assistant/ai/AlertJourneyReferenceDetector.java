@@ -55,12 +55,18 @@ public class AlertJourneyReferenceDetector {
                 .filter(ResolvedCandidate::accepted)
                 .min(Comparator.comparingInt(candidate -> precedence(candidate.candidate().kind())))
                 .map(ResolvedCandidate::candidate)
-                .map(candidate -> new AlertJourneyReferenceIntent(
-                        candidate.kind(),
-                        candidate.rawText(),
-                        candidate.normalizedValue(),
-                        true,
-                        candidate.confidence()));
+                .map(this::toIntent);
+    }
+
+    private AlertJourneyReferenceIntent toIntent(Candidate candidate) {
+        return new AlertJourneyReferenceIntent(
+                candidate.kind(),
+                candidate.rawText(),
+                candidate.normalizedValue(),
+                List.of(candidate.normalizedValue()),
+                AlertJourneyReferenceValueCombination.SINGLE,
+                true,
+                candidate.confidence());
     }
 
     private List<Candidate> collectCandidates(NormalizedText normalized) {
@@ -101,8 +107,6 @@ public class AlertJourneyReferenceDetector {
                     value.toUpperCase(Locale.ROOT),
                     matcher.start(),
                     matcher.end(),
-                    matcher.start(valueGroup),
-                    matcher.end(valueGroup),
                     explicit,
                     confidence));
         }
@@ -207,7 +211,7 @@ public class AlertJourneyReferenceDetector {
                 .replaceAll("\\p{M}", "")
                 .replace('’', '\'')
                 .replace('`', '\'')
-                .replaceAll("[,;:!?()\\[\\]{}]", " ")
+                .replaceAll("[;:!?()\\[\\]{}]", " ")
                 .replaceAll("['’]", " ")
                 .replaceAll("\\s+", " ")
                 .trim()
@@ -368,8 +372,6 @@ public class AlertJourneyReferenceDetector {
             String normalizedValue,
             int start,
             int end,
-            int valueStart,
-            int valueEnd,
             boolean explicit,
             double confidence) {
     }

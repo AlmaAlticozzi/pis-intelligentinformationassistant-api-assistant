@@ -1,6 +1,18 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceKind;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceValueCombination;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationMainEventIntent;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationNonLocationConstraintType;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationPolarity;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRelation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRole;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingMainEvent;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingNonLocationConstraint;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationOutcomeValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertVerificationPromptBuilder;
@@ -20,6 +32,9 @@ import jakarta.enterprise.inject.Instance;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
@@ -192,6 +207,43 @@ class AlertVerifyLocationResolutionIntegrationTest {
     }
 
     @Test
+    void alternativeUnqualifiedJourneyDescriptorsAreNormalizedBeforePersistence() {
+        VerificationRun run = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando una corsa M2 o M3 \u00e8 in arrivo a Garibaldi FS",
+                verifiedOutcomeJson(
+                        m2M3VehicleJourneyNameAtGaribaldiCondition(),
+                        coverageRequirements(
+                                requirement(
+                                        "M2 or M3",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"),
+                                requirement(
+                                        "arrival at Garibaldi",
+                                        "payload.ongroundServiceEvent.eventsType",
+                                        "payload.ongroundServiceEvent.stopPoint.id"))),
+                understandingWithAlternativeJourneyReference());
+        AlertVerificationOutcome outcome = run.outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("ARRIVING", GARIBALDI_FS_ID)
+                .contains("value=M2", "value=M3")
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("vehicleJourneyName");
+        assertThat(outcome.requirementCoverage().toString())
+                .contains("semanticOwner=JOURNEY_REFERENCE")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName");
+        assertThat(run.logs())
+                .contains("[IIA][ALERT_JOURNEY_REFERENCE][SOURCE]")
+                .contains("source=LLM_UNDERSTANDING")
+                .contains("values=[M2, M3]")
+                .contains("combination=ANY")
+                .doesNotContain("source=DETERMINISTIC_FALLBACK");
+    }
+
+    @Test
     void staleMappedByIsReconciledAfterUnqualifiedDescriptorNormalization() {
         AlertVerificationOutcome outcome = verifyWithLlmOutcome(
                 "Avvertimi quando un treno MXP ha un ritardo arrotondato in partenza maggiore di 5 minuti",
@@ -275,6 +327,36 @@ class AlertVerifyLocationResolutionIntegrationTest {
 
     @SuppressWarnings("unchecked")
     private AlertVerificationOutcome verifyWithLlmOutcome(String prompt, String llmJson) {
+        return verifyWithLlmOutcomeAndLogs(prompt, llmJson, null).outcome();
+    }
+
+    private VerificationRun verifyWithLlmOutcomeAndUnderstanding(
+            String prompt,
+            String llmJson,
+            AlertLocationUnderstandingResult understanding) {
+        return verifyWithLlmOutcomeAndLogs(prompt, llmJson, understanding);
+    }
+
+    private VerificationRun verifyWithLlmOutcomeAndLogs(
+            String prompt,
+            String llmJson,
+            AlertLocationUnderstandingResult understanding) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        PrintStream previousOut = System.out;
+        System.setOut(new PrintStream(output, true, StandardCharsets.UTF_8));
+        try {
+            AlertVerificationOutcome outcome = executeVerifyWithLlmOutcome(prompt, llmJson, understanding);
+            return new VerificationRun(outcome, output.toString(StandardCharsets.UTF_8));
+        } finally {
+            System.setOut(previousOut);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private AlertVerificationOutcome executeVerifyWithLlmOutcome(
+            String prompt,
+            String llmJson,
+            AlertLocationUnderstandingResult understanding) {
         AlertService service = new AlertService();
         service.alertRepository = mock(AlertRepository.class);
         when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
@@ -289,6 +371,12 @@ class AlertVerifyLocationResolutionIntegrationTest {
         service.alertVerificationMockEngine = mock(AlertVerificationMockEngine.class);
         service.alertLocationMentionExtractor = new SimpleAlertLocationMentionExtractor();
         service.alertLocationResolverService = new AlertLocationResolverService();
+        if (understanding != null) {
+            service.locationUnderstandingEnabled = true;
+            service.alertLocationUnderstandingService = mock(AlertLocationUnderstandingService.class);
+            when(service.alertLocationUnderstandingService.understandLocations(prompt, "ALRT1"))
+                    .thenReturn(understanding);
+        }
         service.llmGateway = mock(Instance.class);
         LlmGateway gateway = mock(LlmGateway.class);
         when(service.llmGateway.isUnsatisfied()).thenReturn(false);
@@ -305,6 +393,35 @@ class AlertVerifyLocationResolutionIntegrationTest {
         ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
         verify(service.alertRepository).verifyAlert(any(), any(), outcome.capture());
         return outcome.getValue();
+    }
+
+    private AlertLocationUnderstandingResult understandingWithAlternativeJourneyReference() {
+        return new AlertLocationUnderstandingResult(
+                true,
+                "it",
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.95),
+                List.of(new AlertLocationUnderstandingLocation(
+                        "Garibaldi FS",
+                        "Garibaldi FS",
+                        AlertLocationRole.MAIN_EVENT_LOCATION,
+                        AlertLocationRelation.EVENT_LOCATION,
+                        true,
+                        AlertLocationPolarity.INCLUDE,
+                        "G1",
+                        0.96)),
+                List.of(new AlertLocationUnderstandingNonLocationConstraint(
+                        AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE,
+                        "M2 o M3",
+                        AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                        "M2",
+                        List.of("M2", "M3"),
+                        AlertJourneyReferenceValueCombination.ANY,
+                        true,
+                        0.94)),
+                List.of());
+    }
+
+    private record VerificationRun(AlertVerificationOutcome outcome, String logs) {
     }
 
     private String verifiedOutcomeJson(String condition, String requirementCoverage) {
@@ -482,6 +599,27 @@ class AlertVerifyLocationResolutionIntegrationTest {
                     {"anyElement": {
                       "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
                       "conditions": {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "M2"}
+                    }}
+                  ]
+                }
+                """.formatted(GARIBALDI_FS_ID);
+    }
+
+    private String m2M3VehicleJourneyNameAtGaribaldiCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "EQUALS", "value": "%s"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "any": [
+                          {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "M2"},
+                          {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "M3"}
+                        ]
+                      }
                     }}
                   ]
                 }

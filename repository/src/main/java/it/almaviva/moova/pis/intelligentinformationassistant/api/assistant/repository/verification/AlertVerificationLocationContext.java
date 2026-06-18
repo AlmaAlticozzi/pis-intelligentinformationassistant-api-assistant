@@ -92,6 +92,8 @@ public record AlertVerificationLocationContext(
                 if (!constraint.kind().isBlank()) {
                     section.append(", kind: ").append(constraint.kind())
                             .append(", normalizedValue: \"").append(nullToEmpty(constraint.normalizedValue())).append("\"")
+                            .append(", normalizedValues: ").append(constraint.normalizedValues())
+                            .append(", valueCombination: ").append(nullToEmpty(constraint.valueCombination()))
                             .append(", requiredCoverage: ").append(constraint.requiredCoverage())
                             .append(", confidence: ").append(constraint.confidence());
                 }
@@ -133,6 +135,8 @@ public record AlertVerificationLocationContext(
                 if (!constraint.kind().isBlank()) {
                     section.append("    kind: ").append(constraint.kind()).append('\n');
                     section.append("    normalizedValue: \"").append(escape(nullToEmpty(constraint.normalizedValue()))).append("\"\n");
+                    section.append("    normalizedValues: ").append(constraint.normalizedValues()).append('\n');
+                    section.append("    valueCombination: ").append(nullToEmpty(constraint.valueCombination())).append('\n');
                     section.append("    requiredCoverage: ").append(constraint.requiredCoverage()).append('\n');
                     section.append("    confidence: ").append(constraint.confidence()).append('\n');
                 }
@@ -354,6 +358,8 @@ public record AlertVerificationLocationContext(
             String rawText,
             String kind,
             String normalizedValue,
+            List<String> normalizedValues,
+            String valueCombination,
             boolean requiredCoverage,
             double confidence) {
 
@@ -361,11 +367,37 @@ public record AlertVerificationLocationContext(
             this(type, rawText, "", "", true, 0.0);
         }
 
+        public NonLocationConstraint(
+                String type,
+                String rawText,
+                String kind,
+                String normalizedValue,
+                boolean requiredCoverage,
+                double confidence) {
+            this(type, rawText, kind, normalizedValue, List.of(normalizedValue), "SINGLE", requiredCoverage, confidence);
+        }
+
         public NonLocationConstraint {
             type = nullToEmpty(type);
             rawText = nullToEmpty(rawText);
             kind = nullToEmpty(kind);
             normalizedValue = nullToEmpty(normalizedValue);
+            normalizedValues = normalizedValues == null
+                    ? List.of()
+                    : normalizedValues.stream()
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(String::trim)
+                    .distinct()
+                    .toList();
+            if (normalizedValues.isEmpty() && !normalizedValue.isBlank()) {
+                normalizedValues = List.of(normalizedValue);
+            }
+            if (!normalizedValues.isEmpty()) {
+                normalizedValue = normalizedValues.getFirst();
+            }
+            valueCombination = nullToEmpty(valueCombination).isBlank()
+                    ? (normalizedValues.size() > 1 ? "ANY" : "SINGLE")
+                    : valueCombination.trim().toUpperCase();
             requiredCoverage = true;
             if (confidence < 0.0) {
                 confidence = 0.0;

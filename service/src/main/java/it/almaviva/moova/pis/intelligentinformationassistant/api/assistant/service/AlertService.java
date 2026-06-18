@@ -2357,7 +2357,7 @@ public class AlertService {
                         .map(this::toPromptNonLocationConstraint)
                         .filter(Objects::nonNull)
                         .toList());
-        addJourneyReferenceConstraint(constraints, prompt);
+        logLlmJourneyReferenceSources(constraints);
         DelayThreshold delayThreshold = delayThreshold(prompt);
         MainEventDerivation derivation = deriveMainEventSemantics(understanding, constraints, prompt);
         if (derivation.accessoryDelay()) {
@@ -2478,6 +2478,9 @@ public class AlertService {
     private void addJourneyReferenceConstraint(
             List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
             String prompt) {
+        if (constraints.stream().anyMatch(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type()))) {
+            return;
+        }
         AlertJourneyReferenceDetector detector = alertJourneyReferenceDetector == null
                 ? new AlertJourneyReferenceDetector()
                 : alertJourneyReferenceDetector;
@@ -2490,20 +2493,39 @@ public class AlertService {
         boolean alreadyPresent = constraints.stream()
                 .anyMatch(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())
                         && intent.kind().name().equalsIgnoreCase(constraint.kind())
-                        && intent.normalizedValue().equalsIgnoreCase(
-                        firstNonBlank(constraint.normalizedValue(), constraint.rawText())));
+                        && intent.normalizedValues().equals(constraint.normalizedValues()));
         if (!alreadyPresent) {
             constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
                     "JOURNEY_REFERENCE",
                     intent.rawText(),
                     intent.kind().name(),
                     intent.normalizedValue(),
+                    intent.normalizedValues(),
+                    intent.valueCombination().name(),
                     intent.requiredCoverage(),
                     intent.confidence()));
         }
+        System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][SOURCE]\n"
+                + "source=DETERMINISTIC_FALLBACK\n"
+                + "reason=legacy-location-context\n"
+                + "kind=" + intent.kind() + "\n"
+                + "values=" + intent.normalizedValues() + "\n"
+                + "combination=" + intent.valueCombination());
         System.out.println("[IIA][ALERT_JOURNEY_REFERENCE] detected=true kind="
                 + intent.kind()
-                + " value=" + intent.normalizedValue());
+                + " value=" + intent.normalizedValue()
+                + " values=" + intent.normalizedValues()
+                + " combination=" + intent.valueCombination());
+    }
+
+    private void logLlmJourneyReferenceSources(List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+        constraints.stream()
+                .filter(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type()))
+                .forEach(constraint -> System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][SOURCE]\n"
+                        + "source=LLM_UNDERSTANDING\n"
+                        + "kind=" + constraint.kind() + "\n"
+                        + "values=" + constraint.normalizedValues() + "\n"
+                        + "combination=" + constraint.valueCombination()));
     }
 
     private MainEventDerivation deriveMainEventSemantics(
@@ -2698,6 +2720,8 @@ public class AlertService {
                     rawText,
                     constraint.journeyReferenceKind() == null ? "" : constraint.journeyReferenceKind().name(),
                     firstNonBlank(constraint.normalizedValue(), rawText),
+                    constraint.normalizedValues(),
+                    constraint.valueCombination().name(),
                     constraint.requiredCoverage(),
                     constraint.confidence());
         }

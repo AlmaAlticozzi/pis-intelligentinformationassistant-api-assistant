@@ -12,6 +12,7 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @ApplicationScoped
@@ -190,6 +191,8 @@ public class AlertVerificationPromptBuilder {
                 if ("JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())) {
                     section.append(" kind=").append(nullToEmpty(constraint.kind()))
                             .append(" normalizedValue=").append(nullToEmpty(constraint.normalizedValue()))
+                            .append(" normalizedValues=").append(constraint.normalizedValues())
+                            .append(" valueCombination=").append(nullToEmpty(constraint.valueCombination()))
                             .append(" requiredCoverage=").append(constraint.requiredCoverage())
                             .append(" confidence=").append(constraint.confidence());
                 }
@@ -198,9 +201,11 @@ public class AlertVerificationPromptBuilder {
                     section.append("JOURNEY_REFERENCE_CONSTRAINT_JSON:\n")
                             .append("{\"kind\":\"").append(jsonEscape(nullToEmpty(constraint.kind()))).append("\"")
                             .append(",\"normalizedValue\":\"").append(jsonEscape(nullToEmpty(constraint.normalizedValue()))).append("\"")
+                            .append(",\"normalizedValues\":").append(jsonStringArray(constraint.normalizedValues()))
+                            .append(",\"valueCombination\":\"").append(jsonEscape(nullToEmpty(constraint.valueCombination()))).append("\"")
                             .append(",\"requiredCoverage\":").append(constraint.requiredCoverage())
                             .append("}\n")
-                            .append("This backend-derived journey-reference classification is authoritative.\n");
+                            .append("This backend-derived journey-reference classification and value relationship are authoritative. Preserve ANY as OR inside the same journey-detail scope.\n");
                 }
                 if ("DELAY_THRESHOLD".equalsIgnoreCase(constraint.type())) {
                     appendDelayThresholdBreakdown(section, constraint.rawText());
@@ -212,6 +217,17 @@ public class AlertVerificationPromptBuilder {
 
     private String jsonEscape(String value) {
         return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private String jsonStringArray(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "[]";
+        }
+        return values.stream()
+                .map(value -> "\"" + jsonEscape(value) + "\"")
+                .reduce((left, right) -> left + "," + right)
+                .map(value -> "[" + value + "]")
+                .orElse("[]");
     }
 
     private void appendDelayThresholdBreakdown(StringBuilder section, String rawText) {

@@ -53,19 +53,19 @@ public class AlertRequirementMappingReconciler {
         if (kind != AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR) {
             return outcome;
         }
-        String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
-        if (expectedValue == null || expectedValue.isBlank()) {
+        List<String> expectedValues = expectedValues(reference);
+        if (expectedValues.isEmpty()) {
             return outcome;
         }
         if (!containsCanonicalUnqualifiedDescriptorOr(
                 outcome.technicalSpecification().get("condition"),
-                expectedValue,
+                expectedValues,
                 null)) {
             return outcome;
         }
 
         Map<String, Object> requirementCoverage = mutableMap(outcome.requirementCoverage());
-        ReconciliationResult result = reconcileRequirementCoverage(requirementCoverage, reference, expectedValue);
+        ReconciliationResult result = reconcileRequirementCoverage(requirementCoverage, reference, expectedValues);
         Map<String, Object> agentBlueprintPreview = mutableMap(outcome.agentBlueprintPreview());
         if (result.changed() && agentBlueprintPreview != null) {
             reconcileBlueprintMetadata(agentBlueprintPreview, result.originalMappedBy(), result.effectiveMappedBy());
@@ -100,7 +100,7 @@ public class AlertRequirementMappingReconciler {
     private ReconciliationResult reconcileRequirementCoverage(
             Map<String, Object> requirementCoverage,
             AlertVerificationLocationContext.NonLocationConstraint reference,
-            String expectedValue) {
+            List<String> expectedValues) {
         Object requirements = requirementCoverage.get("requirements");
         if (!(requirements instanceof List<?> list)) {
             return ReconciliationResult.noop();
@@ -114,7 +114,7 @@ public class AlertRequirementMappingReconciler {
             Map<String, Object> requirement = (Map<String, Object>) rawRequirement;
             String text = stringValue(requirement.get("text"));
             List<String> mappedBy = stringList(requirement.get("mappedBy"));
-            if (!isOwnedByJourneyReference(text, mappedBy, expectedValue)) {
+            if (!isOwnedByJourneyReference(text, mappedBy, expectedValues)) {
                 continue;
             }
             if (mappedBy.contains(VEHICLE_JOURNEY_NAME)) {
@@ -127,12 +127,14 @@ public class AlertRequirementMappingReconciler {
             requirement.put("mappedBy", effectiveMappedBy);
             requirement.put("semanticOwner", "JOURNEY_REFERENCE");
             requirement.put("semanticKind", reference.kind());
-            requirement.put("normalizedValue", expectedValue);
+            requirement.put("normalizedValue", expectedValues.getFirst());
+            requirement.put("normalizedValues", expectedValues);
             System.out.println("[IIA][ALERT_VERIFY][REQUIREMENT_MAPPING_RECONCILIATION]\n"
                     + "requirement=" + text + "\n"
                     + "semanticOwner=JOURNEY_REFERENCE\n"
                     + "kind=" + reference.kind() + "\n"
-                    + "normalizedValue=" + expectedValue + "\n"
+                    + "normalizedValue=" + expectedValues.getFirst() + "\n"
+                    + "normalizedValues=" + expectedValues + "\n"
                     + "originalMappedBy=" + mappedBy + "\n"
                     + "effectiveMappedBy=" + effectiveMappedBy + "\n"
                     + "covered=true\n"
@@ -147,11 +149,13 @@ public class AlertRequirementMappingReconciler {
                 : ReconciliationResult.noop();
     }
 
-    private boolean isOwnedByJourneyReference(String text, List<String> mappedBy, String expectedValue) {
-        if (expectedValue == null || expectedValue.isBlank()) {
+    private boolean isOwnedByJourneyReference(String text, List<String> mappedBy, List<String> expectedValues) {
+        if (expectedValues.isEmpty()) {
             return false;
         }
-        boolean sameValue = normalizeText(text).contains(normalizeText(expectedValue));
+        String normalizedText = normalizeText(text);
+        boolean sameValue = expectedValues.stream()
+                .allMatch(value -> normalizedText.contains(normalizeText(value)));
         boolean journeyMapped = mappedBy.stream()
                 .map(this::normalizeMappedByField)
                 .anyMatch(COMPATIBLE_JOURNEY_FIELDS::contains);
@@ -184,7 +188,7 @@ public class AlertRequirementMappingReconciler {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean containsCanonicalUnqualifiedDescriptorOr(Object node, String expectedValue, String arrayPath) {
+    private boolean containsCanonicalUnqualifiedDescriptorOr(Object node, List<String> expectedValues, String arrayPath) {
         if (node instanceof Map<?, ?> rawMap) {
             Map<String, Object> map = (Map<String, Object>) rawMap;
             String nextArrayPath = arrayPath;
@@ -192,17 +196,18 @@ public class AlertRequirementMappingReconciler {
             if (anyElement instanceof Map<?, ?> anyElementMap) {
                 nextArrayPath = resolveArrayPath(arrayPath, stringValue(anyElementMap.get("path")));
             }
-            if (JOURNEY_DETAILS_PATH.equals(arrayPath) && isCanonicalAnyGroup(map, expectedValue)) {
+            if (JOURNEY_DETAILS_PATH.equals(arrayPath) && expectedValues.stream()
+                    .allMatch(value -> isCanonicalAnyGroup(map, value) || containsCanonicalUnqualifiedDescriptorOr(map.get("any"), List.of(value), arrayPath))) {
                 return true;
             }
             for (Object value : map.values()) {
-                if (containsCanonicalUnqualifiedDescriptorOr(value, expectedValue, nextArrayPath)) {
+                if (containsCanonicalUnqualifiedDescriptorOr(value, expectedValues, nextArrayPath)) {
                     return true;
                 }
             }
         } else if (node instanceof Iterable<?> iterable) {
             for (Object item : iterable) {
-                if (containsCanonicalUnqualifiedDescriptorOr(item, expectedValue, arrayPath)) {
+                if (containsCanonicalUnqualifiedDescriptorOr(item, expectedValues, arrayPath)) {
                     return true;
                 }
             }
@@ -292,6 +297,14 @@ public class AlertRequirementMappingReconciler {
 
     private String firstNonBlank(String first, String second) {
         return first != null && !first.isBlank() ? first : second;
+    }
+
+    private List<String> expectedValues(AlertVerificationLocationContext.NonLocationConstraint reference) {
+        if (reference.normalizedValues() != null && !reference.normalizedValues().isEmpty()) {
+            return reference.normalizedValues();
+        }
+        String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
+        return expectedValue == null || expectedValue.isBlank() ? List.of() : List.of(expectedValue);
     }
 
     private String stringValue(Object value) {

@@ -1663,20 +1663,23 @@ public class AlertVerificationOutcomeValidator {
             if (kind == null) {
                 continue;
             }
-            String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
+            List<String> expectedValues = journeyReferenceValues(reference);
+            String expectedValue = expectedValues.isEmpty() ? firstNonBlank(reference.normalizedValue(), reference.rawText()) : expectedValues.getFirst();
             boolean valid = switch (kind) {
                 case JOURNEY_NAME -> hasSingleFieldJourneyReferenceCoverage(
-                        context, reference, JOURNEY_NAME_FIELD, expectedValue);
+                        context, reference, JOURNEY_NAME_FIELD, expectedValues);
                 case LINE -> hasSingleFieldJourneyReferenceCoverage(
-                        context, reference, LINE_FIELD, expectedValue);
+                        context, reference, LINE_FIELD, expectedValues);
                 case SERVICE_CATEGORY -> hasSingleFieldJourneyReferenceCoverage(
-                        context, reference, SERVICE_CATEGORY_FIELD, expectedValue);
+                        context, reference, SERVICE_CATEGORY_FIELD, expectedValues);
                 case TRANSPORT_OPERATOR -> hasSingleFieldJourneyReferenceCoverage(
-                        context, reference, TRANSPORT_OPERATOR_FIELD, expectedValue);
-                case UNQUALIFIED_DESCRIPTOR -> hasUnqualifiedDescriptorCoverage(context, expectedValue);
+                        context, reference, TRANSPORT_OPERATOR_FIELD, expectedValues);
+                case UNQUALIFIED_DESCRIPTOR -> hasUnqualifiedDescriptorCoverage(context, reference, expectedValues);
             };
             List<String> fields = matchedJourneyReferenceFields(context, kind, expectedValue);
             System.out.println("[IIA][ALERT_VERIFY][JOURNEY_REFERENCE_COVERAGE] kind=" + kind
+                    + " values=" + expectedValues
+                    + " combination=" + reference.valueCombination()
                     + " valid=" + valid
                     + " fields=" + fields);
             if (!valid) {
@@ -1703,27 +1706,55 @@ public class AlertVerificationOutcomeValidator {
             ValidationContext context,
             AlertVerificationLocationContext.NonLocationConstraint reference,
             String field,
-            String expectedValue) {
-        boolean matched = false;
-        for (ConditionLeaf leaf : context.conditionLeaves) {
-            boolean fieldValid = field.equals(leaf.field());
-            boolean valueValid = sameNormalizedValue(expectedValue, stringValue(leaf.value()));
-            boolean operatorValid = isPositiveTextOperator(field, leaf.operator());
-            boolean correlationValid = JOURNEY_DETAILS_PATH.equals(leaf.arrayPath());
-            if (fieldValid || valueValid) {
-                logJourneyReferenceCoverageCheck(
-                        reference,
-                        expectedValue,
-                        leaf,
-                        relativeJourneyField(leaf.field()),
-                        fieldValid,
-                        valueValid,
-                        operatorValid,
-                        correlationValid);
+            List<String> expectedValues) {
+        boolean allMatched = true;
+        for (String expectedValue : expectedValues) {
+            boolean matched = false;
+            for (ConditionLeaf leaf : context.conditionLeaves) {
+                boolean fieldValid = field.equals(leaf.field());
+                boolean valueValid = sameNormalizedValue(expectedValue, stringValue(leaf.value()));
+                boolean operatorValid = isPositiveTextOperator(field, leaf.operator());
+                boolean correlationValid = JOURNEY_DETAILS_PATH.equals(leaf.arrayPath());
+                if (fieldValid || valueValid) {
+                    logJourneyReferenceCoverageCheck(
+                            reference,
+                            expectedValue,
+                            leaf,
+                            relativeJourneyField(leaf.field()),
+                            fieldValid,
+                            valueValid,
+                            operatorValid,
+                            correlationValid);
+                }
+                matched = matched || (fieldValid && valueValid && operatorValid && correlationValid);
             }
-            matched = matched || (fieldValid && valueValid && operatorValid && correlationValid);
+            allMatched = allMatched && matched;
         }
-        return matched;
+        return allMatched;
+    }
+
+    private boolean hasUnqualifiedDescriptorCoverage(
+            ValidationContext context,
+            AlertVerificationLocationContext.NonLocationConstraint reference,
+            List<String> expectedValues) {
+        boolean allValuesCovered = expectedValues.stream().allMatch(expectedValue -> {
+            boolean valid = hasUnqualifiedDescriptorCoverage(context, expectedValue);
+            List<String> fields = matchedJourneyReferenceFields(
+                    context,
+                    AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                    expectedValue).stream()
+                    .map(this::relativeJourneyField)
+                    .toList();
+            System.out.println("[IIA][ALERT_VERIFY][JOURNEY_REFERENCE_COVERAGE_CHECK]\n"
+                    + "kind=" + reference.kind() + "\n"
+                    + "values=" + expectedValues + "\n"
+                    + "combination=" + reference.valueCombination() + "\n"
+                    + "value=" + expectedValue + "\n"
+                    + "fields=" + fields + "\n"
+                    + "valid=" + valid);
+            return valid;
+        });
+        return allValuesCovered && hasNoUnexpectedUnqualifiedDescriptorValues(context, expectedValues);
     }
 
     private boolean hasUnqualifiedDescriptorCoverage(ValidationContext context, String expectedValue) {
@@ -1759,6 +1790,31 @@ public class AlertVerificationOutcomeValidator {
     private boolean isPositiveTextOperator(String field, String operator) {
         return POSITIVE_TEXT_OPERATORS.contains(operator)
                 && ServiceDataCapabilityCatalog.isAllowedOperator(field, operator);
+    }
+
+    private boolean hasNoUnexpectedUnqualifiedDescriptorValues(
+            ValidationContext context,
+            List<String> expectedValues) {
+        Set<String> expected = expectedValues.stream()
+                .map(this::normalizeText)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        Set<String> actual = context.conditionLeaves.stream()
+                .filter(leaf -> UNQUALIFIED_DESCRIPTOR_FIELDS.contains(leaf.field()))
+                .filter(leaf -> JOURNEY_DETAILS_PATH.equals(leaf.arrayPath()))
+                .filter(leaf -> isPositiveTextOperator(leaf.field(), leaf.operator()))
+                .filter(leaf -> anyGroupPath(leaf) != null)
+                .map(leaf -> normalizeText(stringValue(leaf.value())))
+                .filter(value -> value != null && !value.isBlank())
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        return actual.isEmpty() || expected.containsAll(actual);
+    }
+
+    private List<String> journeyReferenceValues(AlertVerificationLocationContext.NonLocationConstraint reference) {
+        if (reference.normalizedValues() != null && !reference.normalizedValues().isEmpty()) {
+            return reference.normalizedValues();
+        }
+        String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
+        return expectedValue == null || expectedValue.isBlank() ? List.of() : List.of(expectedValue);
     }
 
     private void logJourneyReferenceCoverageCheck(

@@ -19,6 +19,17 @@ class AlertJourneyReferenceDetectorTest {
     }
 
     @Test
+    void deterministicFallbackDoesNotInferAlternativeJourneyReferenceValues() {
+        AlertJourneyReferenceIntent unqualified = detector
+                .detect("Avvertimi quando una corsa M2 o M3 e in arrivo a Garibaldi FS")
+                .orElseThrow();
+
+        assertThat(unqualified.kind()).isEqualTo(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR);
+        assertThat(unqualified.normalizedValues()).containsExactly("M2");
+        assertThat(unqualified.valueCombination()).isEqualTo(AlertJourneyReferenceValueCombination.SINGLE);
+    }
+
+    @Test
     void classifiesExplicitSemanticQualifiers() {
         assertThat(detector.detect("la corsa 125 e in arrivo").orElseThrow().kind())
                 .isEqualTo(AlertJourneyReferenceKind.JOURNEY_NAME);

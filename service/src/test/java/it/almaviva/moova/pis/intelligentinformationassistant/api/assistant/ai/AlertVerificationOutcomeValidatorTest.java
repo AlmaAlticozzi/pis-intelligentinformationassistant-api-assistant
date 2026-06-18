@@ -60,6 +60,65 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsAlternativeUnqualifiedJourneyDescriptorOnlyForExpectedValues() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(journeyReference(
+                AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                List.of("M2", "M3")));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("any", List.of(
+                                                Map.of("any", List.of(
+                                                        eq("line.dsc", "M2"),
+                                                        eq("serviceCategory.dsc", "M2"),
+                                                        eq("transportOperator.dsc", "M2"))),
+                                                Map.of("any", List.of(
+                                                        eq("line.dsc", "M3"),
+                                                        eq("serviceCategory.dsc", "M3"),
+                                                        eq("transportOperator.dsc", "M3"))))))),
+                        coverageFor(
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")),
+                "Avvertimi quando una corsa M2 o M3 e in arrivo",
+                context);
+
+        AlertVerificationOutcome withUnexpectedValue = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("any", List.of(
+                                                Map.of("any", List.of(
+                                                        eq("line.dsc", "M2"),
+                                                        eq("serviceCategory.dsc", "M2"),
+                                                        eq("transportOperator.dsc", "M2"))),
+                                                Map.of("any", List.of(
+                                                        eq("line.dsc", "M3"),
+                                                        eq("serviceCategory.dsc", "M3"),
+                                                        eq("transportOperator.dsc", "M3"))),
+                                                Map.of("any", List.of(
+                                                        eq("line.dsc", "M4"),
+                                                        eq("serviceCategory.dsc", "M4"),
+                                                        eq("transportOperator.dsc", "M4"))))))),
+                        coverageFor(
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")),
+                "Avvertimi quando una corsa M2 o M3 e in arrivo",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(withUnexpectedValue.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(withUnexpectedValue.rejectedReason()).contains("Journey reference coverage validation failed");
+    }
+
+    @Test
     void rejectsUnqualifiedJourneyDescriptorCoveredOnlyByLine() {
         AlertVerificationLocationContext context = noLocationContextWithConstraints(journeyReference(
                 AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
@@ -3381,6 +3440,20 @@ class AlertVerificationOutcomeValidatorTest {
                 value,
                 kind.name(),
                 value,
+                true,
+                0.92);
+    }
+
+    private AlertVerificationLocationContext.NonLocationConstraint journeyReference(
+            AlertJourneyReferenceKind kind,
+            List<String> values) {
+        return new AlertVerificationLocationContext.NonLocationConstraint(
+                "JOURNEY_REFERENCE",
+                String.join(" or ", values),
+                kind.name(),
+                values.getFirst(),
+                values,
+                AlertJourneyReferenceValueCombination.ANY.name(),
                 true,
                 0.92);
     }

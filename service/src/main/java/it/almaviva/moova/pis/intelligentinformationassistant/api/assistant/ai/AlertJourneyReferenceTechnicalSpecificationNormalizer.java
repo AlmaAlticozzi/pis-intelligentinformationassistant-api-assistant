@@ -54,15 +54,15 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
         if (kind != AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR) {
             return outcome;
         }
-        String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
-        if (expectedValue == null || expectedValue.isBlank()) {
+        List<String> expectedValues = expectedValues(reference);
+        if (expectedValues.isEmpty()) {
             return outcome;
         }
 
         Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
         NormalizationResult technical = normalizeCondition(
                 technicalSpecification.get("condition"),
-                expectedValue);
+                expectedValues);
         if (!technical.changed()) {
             log(alertId, reference, technical, "technicalSpecification");
             return outcome;
@@ -72,7 +72,7 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
         NormalizationResult preview = NormalizationResult.noop("preview-missing");
         if (agentBlueprintPreview != null
                 && agentBlueprintPreview.get("parameters") instanceof Map<?, ?> parametersMap) {
-            preview = normalizeCondition(((Map<?, ?>) parametersMap).get("condition"), expectedValue);
+            preview = normalizeCondition(((Map<?, ?>) parametersMap).get("condition"), expectedValues);
             if (!preview.changed() && !"already-canonical".equals(preview.reason())) {
                 ((Map<String, Object>) parametersMap).put("condition",
                         mutableValue(technicalSpecification.get("condition")));
@@ -107,9 +107,13 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
                 outcome.safetyChecks());
     }
 
-    private NormalizationResult normalizeCondition(Object condition, String expectedValue) {
+    private NormalizationResult normalizeCondition(Object condition, List<String> expectedValues) {
         if (condition == null) {
             return NormalizationResult.noop("missing-condition");
+        }
+        NormalizationResult alternativeGroup = normalizeAlternativeGroup(condition, expectedValues, null);
+        if (alternativeGroup.changed()) {
+            return alternativeGroup;
         }
         List<LeafRef> compatibleLeaves = new ArrayList<>();
         List<String> canonicalGroups = new ArrayList<>();
@@ -117,6 +121,10 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
         if (canonicalGroups.size() == 1 && compatibleLeaves.isEmpty()) {
             return NormalizationResult.noop("already-canonical");
         }
+        if (expectedValues.size() != 1) {
+            return NormalizationResult.noop("ambiguous-or-contradictory");
+        }
+        String expectedValue = expectedValues.getFirst();
         List<LeafRef> matchingLeaves = compatibleLeaves.stream()
                 .filter(leaf -> sameNormalizedValue(expectedValue, stringValue(leaf.node().get("value"))))
                 .toList();
@@ -127,6 +135,58 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
         match.node().clear();
         match.node().put("any", canonicalDescriptorAny(expectedValue));
         return new NormalizationResult(true, "unqualified-descriptor-leaf-to-correlated-or");
+    }
+
+    @SuppressWarnings("unchecked")
+    private NormalizationResult normalizeAlternativeGroup(Object node, List<String> expectedValues, String arrayPath) {
+        if (node instanceof Map<?, ?> rawMap) {
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+            String nextArrayPath = arrayPath;
+            Object anyElement = map.get("anyElement");
+            if (anyElement instanceof Map<?, ?> anyElementMap) {
+                nextArrayPath = resolveArrayPath(arrayPath, stringValue(anyElementMap.get("path")));
+            }
+            if (JOURNEY_DETAILS_PATH.equals(arrayPath) && map.get("any") instanceof List<?> list
+                    && containsExactlyExpectedCompatibleLeaves(list, expectedValues, arrayPath)) {
+                map.clear();
+                map.put("any", canonicalDescriptorAny(expectedValues));
+                return new NormalizationResult(true, "unqualified-descriptor-alternative-group-to-correlated-or");
+            }
+            for (Object value : map.values()) {
+                NormalizationResult result = normalizeAlternativeGroup(value, expectedValues, nextArrayPath);
+                if (result.changed()) {
+                    return result;
+                }
+            }
+        } else if (node instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                NormalizationResult result = normalizeAlternativeGroup(item, expectedValues, arrayPath);
+                if (result.changed()) {
+                    return result;
+                }
+            }
+        }
+        return NormalizationResult.noop("no-alternative-group");
+    }
+
+    private boolean containsExactlyExpectedCompatibleLeaves(List<?> list, List<String> expectedValues, String arrayPath) {
+        if (list.size() != expectedValues.size()) {
+            return false;
+        }
+        List<String> values = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> rawLeaf)) {
+                return false;
+            }
+            Map<String, Object> leaf = new LinkedHashMap<>();
+            rawLeaf.forEach((key, value) -> leaf.put(String.valueOf(key), value));
+            if (!isPositiveCompatibleLeaf(leaf, arrayPath)) {
+                return false;
+            }
+            values.add(normalizeText(stringValue(leaf.get("value"))));
+        }
+        List<String> normalizedExpected = expectedValues.stream().map(this::normalizeText).toList();
+        return values.equals(normalizedExpected);
     }
 
     @SuppressWarnings("unchecked")
@@ -210,6 +270,19 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
                 canonicalLeaf(TRANSPORT_OPERATOR, value));
     }
 
+    private List<Map<String, Object>> canonicalDescriptorAny(List<String> values) {
+        if (values.size() == 1) {
+            return canonicalDescriptorAny(values.getFirst());
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (String value : values) {
+            Map<String, Object> group = new LinkedHashMap<>();
+            group.put("any", canonicalDescriptorAny(value));
+            result.add(group);
+        }
+        return result;
+    }
+
     private Map<String, Object> canonicalLeaf(String field, String value) {
         Map<String, Object> leaf = new LinkedHashMap<>();
         leaf.put("field", field);
@@ -260,6 +333,15 @@ public class AlertJourneyReferenceTechnicalSpecificationNormalizer {
 
     private String firstNonBlank(String first, String second) {
         return first != null && !first.isBlank() ? first : second;
+    }
+
+    private List<String> expectedValues(AlertVerificationLocationContext.NonLocationConstraint reference) {
+        List<String> values = reference.normalizedValues() == null ? List.of() : reference.normalizedValues();
+        if (!values.isEmpty()) {
+            return values.stream().filter(value -> value != null && !value.isBlank()).distinct().toList();
+        }
+        String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
+        return expectedValue == null || expectedValue.isBlank() ? List.of() : List.of(expectedValue);
     }
 
     private String stringValue(Object value) {

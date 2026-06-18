@@ -150,6 +150,13 @@ public class AlertLocationUnderstandingLlmResponseParser {
                     asString(map.get("rawText")),
                     journeyReferenceKind,
                     asString(map.get("normalizedValue")),
+                    asStringList(map.get("normalizedValues")),
+                    parseEnum(
+                            AlertJourneyReferenceValueCombination.class,
+                            asString(map.get("valueCombination")),
+                            AlertJourneyReferenceValueCombination.SINGLE,
+                            "nonLocationConstraints[" + index + "].valueCombination",
+                            warnings),
                     !map.containsKey("requiredCoverage") || Boolean.TRUE.equals(map.get("requiredCoverage")),
                     clamp(asDouble(map.get("confidence"), 0.0),
                             "nonLocationConstraints[" + index + "].confidence",

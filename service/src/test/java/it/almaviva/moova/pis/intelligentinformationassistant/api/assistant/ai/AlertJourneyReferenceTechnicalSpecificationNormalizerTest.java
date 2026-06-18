@@ -48,6 +48,26 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
     }
 
     @Test
+    void normalizesAlternativeUnqualifiedDescriptorLeavesToCanonicalGroups() {
+        AlertVerificationLocationContext context = context(
+                AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                List.of("M2", "M3"));
+        Map<String, Object> condition = anyElement(Map.of("any", List.of(
+                contains("vehicleJourneyName", "M2"),
+                contains("vehicleJourneyName", "M3"))));
+
+        AlertVerificationOutcome normalized = normalizer.normalize(outcome(condition), context, "ALRT_M23");
+        AlertVerificationOutcome reconciled = reconciler.reconcile(normalized, context, "ALRT_M23");
+        AlertVerificationOutcome validated = validator.validate(reconciled, "Prompt", context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(normalized.technicalSpecification().toString())
+                .contains("value=M2", "value=M3")
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("vehicleJourneyName");
+    }
+
+    @Test
     void leavesAlreadyCanonicalUnqualifiedDescriptorUnchanged() {
         AlertVerificationLocationContext context = context(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR, "M2");
         AlertVerificationOutcome original = outcome(anyElement(canonicalOr("M2")));
@@ -173,14 +193,20 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
     }
 
     private AlertVerificationLocationContext context(AlertJourneyReferenceKind kind, String value) {
+        return context(kind, List.of(value));
+    }
+
+    private AlertVerificationLocationContext context(AlertJourneyReferenceKind kind, List<String> values) {
         return new AlertVerificationLocationContext(
                 false,
                 List.of(),
                 List.of(new AlertVerificationLocationContext.NonLocationConstraint(
                         "JOURNEY_REFERENCE",
-                        value,
+                        String.join(" or ", values),
                         kind.name(),
-                        value,
+                        values.getFirst(),
+                        values,
+                        values.size() > 1 ? "ANY" : "SINGLE",
                         true,
                         0.92)),
                 List.of());

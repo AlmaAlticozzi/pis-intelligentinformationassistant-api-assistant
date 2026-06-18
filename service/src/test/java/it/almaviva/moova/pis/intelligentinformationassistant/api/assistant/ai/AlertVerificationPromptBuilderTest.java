@@ -201,10 +201,13 @@ class AlertVerificationPromptBuilderTest {
                 .contains("rawText: \"M2\"")
                 .contains("kind: UNQUALIFIED_DESCRIPTOR")
                 .contains("normalizedValue: \"M2\"")
-                .contains("- JOURNEY_REFERENCE=M2 kind=UNQUALIFIED_DESCRIPTOR normalizedValue=M2")
+                .contains("normalizedValues: [M2]")
+                .contains("valueCombination: SINGLE")
+                .contains("- JOURNEY_REFERENCE=M2 kind=UNQUALIFIED_DESCRIPTOR normalizedValue=M2 normalizedValues=[M2] valueCombination=SINGLE")
                 .contains("JOURNEY_REFERENCE_CONSTRAINT_JSON:")
-                .contains("{\"kind\":\"UNQUALIFIED_DESCRIPTOR\",\"normalizedValue\":\"M2\",\"requiredCoverage\":true}")
-                .contains("backend-derived journey-reference classification is authoritative");
+                .contains("\"normalizedValues\":[\"M2\"]")
+                .contains("\"valueCombination\":\"SINGLE\"")
+                .contains("backend-derived journey-reference classification and value relationship are authoritative");
     }
 
     @Test
