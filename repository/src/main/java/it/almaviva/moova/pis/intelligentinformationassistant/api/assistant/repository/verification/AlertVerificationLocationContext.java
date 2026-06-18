@@ -88,7 +88,14 @@ public record AlertVerificationLocationContext(
             section.append("\nRecognized non-location constraints:\n");
             for (NonLocationConstraint constraint : nonLocationConstraints) {
                 section.append("- type: ").append(nullToEmpty(constraint.type()))
-                        .append(", rawText: \"").append(nullToEmpty(constraint.rawText())).append("\"\n");
+                        .append(", rawText: \"").append(nullToEmpty(constraint.rawText())).append("\"");
+                if (!constraint.kind().isBlank()) {
+                    section.append(", kind: ").append(constraint.kind())
+                            .append(", normalizedValue: \"").append(nullToEmpty(constraint.normalizedValue())).append("\"")
+                            .append(", requiredCoverage: ").append(constraint.requiredCoverage())
+                            .append(", confidence: ").append(constraint.confidence());
+                }
+                section.append("\n");
             }
         }
         if (!warnings.isEmpty()) {
@@ -123,6 +130,12 @@ public record AlertVerificationLocationContext(
             for (NonLocationConstraint constraint : nonLocationConstraints) {
                 section.append("  - type: ").append(nullToEmpty(constraint.type())).append('\n');
                 section.append("    rawText: \"").append(escape(nullToEmpty(constraint.rawText()))).append("\"\n");
+                if (!constraint.kind().isBlank()) {
+                    section.append("    kind: ").append(constraint.kind()).append('\n');
+                    section.append("    normalizedValue: \"").append(escape(nullToEmpty(constraint.normalizedValue()))).append("\"\n");
+                    section.append("    requiredCoverage: ").append(constraint.requiredCoverage()).append('\n');
+                    section.append("    confidence: ").append(constraint.confidence()).append('\n');
+                }
             }
         }
         if (!warnings.isEmpty()) {
@@ -338,11 +351,27 @@ public record AlertVerificationLocationContext(
 
     public record NonLocationConstraint(
             String type,
-            String rawText) {
+            String rawText,
+            String kind,
+            String normalizedValue,
+            boolean requiredCoverage,
+            double confidence) {
+
+        public NonLocationConstraint(String type, String rawText) {
+            this(type, rawText, "", "", true, 0.0);
+        }
 
         public NonLocationConstraint {
             type = nullToEmpty(type);
             rawText = nullToEmpty(rawText);
+            kind = nullToEmpty(kind);
+            normalizedValue = nullToEmpty(normalizedValue);
+            requiredCoverage = true;
+            if (confidence < 0.0) {
+                confidence = 0.0;
+            } else if (confidence > 1.0) {
+                confidence = 1.0;
+            }
         }
     }
 }

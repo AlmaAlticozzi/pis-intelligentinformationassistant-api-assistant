@@ -34,6 +34,16 @@ class ScheduledAlertVerificationPromptBuilderTest {
     }
 
     @Test
+    void promptContainsScheduledJourneyReferenceMappingRules() {
+        LlmRequest request = builder().build(promptData(explicitContext()));
+
+        assertThat(fullPrompt(request))
+                .contains("Journey references use semantic kind")
+                .contains("UNQUALIFIED_DESCRIPTOR attached to the journey")
+                .contains("line.dsc, serviceCategory.dsc and transportOperator.dsc");
+    }
+
+    @Test
     void fileTemplatePromptContainsScheduledContractRuntimeContextAndUserPrompt() {
         LlmRequest request = builder().build(promptData(explicitContext()));
         String prompt = fullPrompt(request);

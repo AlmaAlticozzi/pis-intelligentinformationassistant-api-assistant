@@ -34,6 +34,112 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsUnqualifiedJourneyDescriptorOnlyWhenCorrelatedOrCoversAllDescriptorFields() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(journeyReference(
+                AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                "M2"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("any", List.of(
+                                                eq("line.dsc", "M2"),
+                                                eq("serviceCategory.dsc", "M2"),
+                                                eq("transportOperator.dsc", "M2"))))),
+                        coverageFor(
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")),
+                "Avvertimi quando una corsa M2 e in arrivo a Garibaldi FS",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsUnqualifiedJourneyDescriptorCoveredOnlyByLine() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(journeyReference(
+                AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                "M2"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", eq("line.dsc", "M2"))),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")),
+                "Avvertimi quando una corsa M2 e in arrivo a Garibaldi FS",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(validated.rejectedReason()).contains("Journey reference coverage validation failed");
+    }
+
+    @Test
+    void acceptsExplicitJourneyReferenceKindsOnSingleAuthoritativeField() {
+        assertThat(validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(contains("vehicleJourneyName", "125")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")),
+                "Avvertimi quando la corsa 125 e in arrivo",
+                noLocationContextWithConstraints(journeyReference(AlertJourneyReferenceKind.JOURNEY_NAME, "125")))
+                .decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+
+        assertThat(validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("line.dsc", "M2")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")),
+                "Avvertimi quando una corsa della linea M2 e in arrivo",
+                noLocationContextWithConstraints(journeyReference(AlertJourneyReferenceKind.LINE, "M2")))
+                .decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+
+        assertThat(validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("transportOperator.dsc", "ATM")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")),
+                "Avvertimi quando una corsa dell'operatore ATM e in arrivo",
+                noLocationContextWithConstraints(journeyReference(AlertJourneyReferenceKind.TRANSPORT_OPERATOR, "ATM")))
+                .decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+
+        assertThat(validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("serviceCategory.dsc", "Intercity")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc")),
+                "Avvertimi quando una corsa della categoria Intercity e in arrivo",
+                noLocationContextWithConstraints(journeyReference(AlertJourneyReferenceKind.SERVICE_CATEGORY, "Intercity")))
+                .decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void acceptsCombinedJourneyNameAndExplicitLineOnSameJourneyDetail() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                journeyReference(AlertJourneyReferenceKind.JOURNEY_NAME, "35"),
+                journeyReference(AlertJourneyReferenceKind.LINE, "M2"));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "anyElement", Map.of(
+                                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                                        "conditions", Map.of("all", List.of(
+                                                contains("vehicleJourneyName", "35"),
+                                                eq("line.dsc", "M2"))))),
+                        coverageFor(
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")),
+                "Avvertimi quando la corsa 35 della linea M2 e in arrivo a Garibaldi FS",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
     void acceptsDelayEventTypesOnCurrentEventsType() {
         String field = "payload.ongroundServiceEvent.eventsType";
 
@@ -3214,6 +3320,40 @@ class AlertVerificationOutcomeValidatorTest {
     private AlertVerificationLocationContext noLocationContextWithConstraints(
             AlertVerificationLocationContext.NonLocationConstraint... constraints) {
         return new AlertVerificationLocationContext(false, List.of(), List.of(constraints), List.of());
+    }
+
+    private AlertVerificationLocationContext.NonLocationConstraint journeyReference(
+            AlertJourneyReferenceKind kind,
+            String value) {
+        return new AlertVerificationLocationContext.NonLocationConstraint(
+                "JOURNEY_REFERENCE",
+                value,
+                kind.name(),
+                value,
+                true,
+                0.92);
+    }
+
+    private Map<String, Object> anyElementCondition(Map<String, Object> condition) {
+        return Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", condition));
+    }
+
+    private Map<String, Object> eq(String field, String value) {
+        return Map.of(
+                "field", field,
+                "operator", "EQUALS_NORMALIZED",
+                "value", value);
+    }
+
+    private Map<String, Object> contains(String field, String value) {
+        return Map.of(
+                "field", field,
+                "operator", "CONTAINS_NORMALIZED",
+                "value", value);
     }
 
     private AlertVerificationLocationContext.LocationResolution unresolved(String rawText, String role, String polarity) {

@@ -75,6 +75,38 @@ class AlertLocationUnderstandingLlmResponseParserTest {
     }
 
     @Test
+    void parsesJourneyReferenceNonLocationConstraint() {
+        AlertLocationUnderstandingResult result = parser.parse("""
+                {
+                  "hasLocations": false,
+                  "language": "it",
+                  "mainEvent": {"eventIntent": "ARRIVAL", "confidence": 0.9},
+                  "locations": [],
+                  "nonLocationConstraints": [
+                    {
+                      "type": "JOURNEY_REFERENCE",
+                      "kind": "UNQUALIFIED_DESCRIPTOR",
+                      "rawText": "M2",
+                      "normalizedValue": "M2",
+                      "requiredCoverage": true,
+                      "confidence": 0.92
+                    }
+                  ],
+                  "warnings": []
+                }
+                """);
+
+        AlertLocationUnderstandingNonLocationConstraint constraint = result.nonLocationConstraints().getFirst();
+
+        assertThat(constraint.type()).isEqualTo(AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE);
+        assertThat(constraint.journeyReferenceKind()).isEqualTo(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR);
+        assertThat(constraint.rawText()).isEqualTo("M2");
+        assertThat(constraint.normalizedValue()).isEqualTo("M2");
+        assertThat(constraint.requiredCoverage()).isTrue();
+        assertThat(constraint.confidence()).isEqualTo(0.92);
+    }
+
+    @Test
     void mapsUnknownRoleToGenericWithWarning() {
         AlertLocationUnderstandingResult result = parser.parse("""
                 {

@@ -8,7 +8,9 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import io.quarkus.arc.lookup.LookupIfProperty;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGatewayDiagnostics;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmProviderException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmProviderExceptionClassifier;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -24,6 +26,7 @@ import java.util.List;
 public class LangChain4jOpenAiGateway implements LlmGateway {
 
     private static final String PROVIDER_UNAVAILABLE_ERROR_CODE = "IIA-UTL-TXI-503-001";
+    private static final String PROVIDER = "OPENAI";
 
     @Inject
     ChatModel chatModel;
@@ -31,9 +34,11 @@ public class LangChain4jOpenAiGateway implements LlmGateway {
     @Override
     public LlmResponse generateText(LlmRequest request) {
         System.out.println("[IIA-AI-TEST] Real OpenAI gateway invoked");
+        boolean requestContextActive = requestContextActive();
+        LlmGatewayDiagnostics.logRequest(PROVIDER, request, requestContextActive);
         if (request != null && request.useCase() == it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase.ALERT_VERIFY) {
             System.out.println("[IIA][ALERT_VERIFY][OPENAI_GATEWAY_CONTEXT] requestContextActive="
-                    + io.quarkus.arc.Arc.container().requestContext().isActive());
+                    + requestContextActive);
         }
         try {
             ChatResponse response = chatModel.chat(List.of(
@@ -49,7 +54,7 @@ public class LangChain4jOpenAiGateway implements LlmGateway {
 
             return new LlmResponse(
                     aiMessage.text(),
-                    "OPENAI",
+                    PROVIDER,
                     request.model(),
                     tokenUsage == null ? null : tokenUsage.inputTokenCount(),
                     tokenUsage == null ? null : tokenUsage.outputTokenCount(),
@@ -57,7 +62,19 @@ public class LangChain4jOpenAiGateway implements LlmGateway {
         } catch (LlmProviderException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new LlmProviderException(PROVIDER_UNAVAILABLE_ERROR_CODE, ex);
+            LlmGatewayDiagnostics.logFailure(PROVIDER, request, ex);
+            throw new LlmProviderException(
+                    PROVIDER_UNAVAILABLE_ERROR_CODE,
+                    ex,
+                    LlmProviderExceptionClassifier.classify(ex));
+        }
+    }
+
+    private boolean requestContextActive() {
+        try {
+            return io.quarkus.arc.Arc.container().requestContext().isActive();
+        } catch (RuntimeException ex) {
+            return false;
         }
     }
 }

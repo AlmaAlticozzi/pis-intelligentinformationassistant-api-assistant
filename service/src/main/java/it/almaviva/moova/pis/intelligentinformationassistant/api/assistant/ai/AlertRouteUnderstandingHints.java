@@ -1,7 +1,5 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 
-import java.text.Normalizer;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 public record AlertRouteUnderstandingHints(
@@ -18,7 +16,8 @@ public record AlertRouteUnderstandingHints(
         boolean containsEventOccurrenceExpression,
         boolean containsUnsupportedWeatherExpression,
         boolean containsUnsupportedWifiOrOnboardFeatureExpression,
-        boolean containsGenericQuestionExpression
+        boolean containsGenericQuestionExpression,
+        boolean containsUnsupportedAbsenceOverTimeExpression
 ) {
 
     private static final Pattern DIGIT_NUMBER = Pattern.compile("\\b\\d+\\b");
@@ -66,11 +65,21 @@ public record AlertRouteUnderstandingHints(
             "\\b(piove|pioggia|meteo|weather|rain|raining|snow|nevica|temporale|vento|wind)\\b");
     private static final Pattern WIFI_OR_ONBOARD = Pattern.compile("\\b(wifi|wi-fi|wireless|a bordo|onboard)\\b");
     private static final Pattern GENERIC_QUESTION = Pattern.compile("\\b(quanto fa|2\\+2|what is|generic question)\\b");
+    private static final Pattern ABSENCE_OVER_TIME = Pattern.compile(
+            "\\b(non\\s+ci\\s+sono|non\\s+c[' ]?e|nessuna|nessun|no|without|absence)\\b"
+                    + ".*\\b(corse|corsa|treni|treno|journeys|journey|trains|train|services|service)\\b"
+                    + ".*\\b(per|for)\\s+\\d+\\s*(?:min|mins|minute|minutes|minuti|ore|hours)\\b");
 
     public static AlertRouteUnderstandingHints fromPrompt(String prompt) {
         String normalized = normalize(prompt);
         if (normalized == null) {
             return empty();
+        }
+        java.util.Optional<ServiceDataEventIntent> eventIntent = ServiceDataEventIntentDetector.detectIntent(prompt);
+        eventIntent.ifPresent(intent -> System.out.println("[IIA][ALERT_ROUTE][EVENT_HINT] detected=true family="
+                + intent.family() + " eventTypes=" + intent.eventTypes()));
+        if (eventIntent.isEmpty()) {
+            System.out.println("[IIA][ALERT_ROUTE][EVENT_HINT] detected=false");
         }
         boolean hasVehicleNoun = VEHICLE_NOUN.matcher(normalized).find();
         boolean countOrReport = COUNT_OR_REPORT.matcher(normalized).find();
@@ -79,13 +88,19 @@ public record AlertRouteUnderstandingHints(
         boolean platform = PLATFORM.matcher(normalized).find();
         boolean platformChange = PLATFORM_CHANGE.matcher(normalized).find();
         boolean changeCancellationExclusion = CHANGE_CANCELLATION_EXCLUSION.matcher(normalized).find();
+        boolean eventIntentOccurrence = eventIntent.isPresent()
+                && !countOrReport
+                && (!snapshotState
+                || (containsAny(normalized, "avvisami se", "avvertimi se", "notify me if", "tell me if")
+                && containsAny(normalized, "soppressione", "cancellazione", "cancellation")));
         boolean passiveCancellationOccurrence = containsAny(normalized, "avvisami quando", "avvertimi quando", "notify me when", "tell me when")
                 && containsAny(normalized, "soppress", "cancell", "cancelled", "canceled", "suppressed")
                 && containsAny(normalized, "treno", "treni", "corsa", "corse", "train", "trains", "journey", "journeys");
         boolean eventOccurrence = EVENT_OCCURRENCE.matcher(normalized).find()
                 || EVENT_NOTIFICATION_OCCURRENCE.matcher(normalized).find()
                 || PASSIVE_CANCELLATION_OCCURRENCE.matcher(normalized).find()
-                || passiveCancellationOccurrence;
+                || passiveCancellationOccurrence
+                || eventIntentOccurrence;
         boolean allLocations = ALL_LOCATIONS.matcher(normalized).find();
         boolean threshold = THRESHOLD.matcher(normalized).find();
         boolean attributeThreshold = ATTRIBUTE_THRESHOLD.matcher(normalized).find();
@@ -110,11 +125,12 @@ public record AlertRouteUnderstandingHints(
                 eventOccurrence,
                 WEATHER.matcher(normalized).find(),
                 WIFI_OR_ONBOARD.matcher(normalized).find(),
-                GENERIC_QUESTION.matcher(normalized).find());
+                GENERIC_QUESTION.matcher(normalized).find(),
+                ABSENCE_OVER_TIME.matcher(normalized).find());
     }
 
     public static AlertRouteUnderstandingHints empty() {
-        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false, false, false);
+        return new AlertRouteUnderstandingHints(false, false, false, false, false, false, false, false, false, false, false, false, false, false, false);
     }
 
     public boolean stronglyIndicatesAggregateSnapshot() {
@@ -140,6 +156,7 @@ public record AlertRouteUnderstandingHints(
                 - containsUnsupportedWeatherExpression: %s
                 - containsUnsupportedWifiOrOnboardFeatureExpression: %s
                 - containsGenericQuestionExpression: %s
+                - containsUnsupportedAbsenceOverTimeExpression: %s
 
                 Treat these as backend observations. They are not a technicalSpecification.
                 If aggregate snapshot/cardinality hints are true, prefer SCHEDULED_INTERPRETER over EVENT_INTERPRETER.
@@ -162,16 +179,12 @@ public record AlertRouteUnderstandingHints(
                 containsEventOccurrenceExpression,
                 containsUnsupportedWeatherExpression,
                 containsUnsupportedWifiOrOnboardFeatureExpression,
-                containsGenericQuestionExpression);
+                containsGenericQuestionExpression,
+                containsUnsupportedAbsenceOverTimeExpression);
     }
 
     private static String normalize(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT);
+        return ServiceDataEventIntentDetector.normalize(value);
     }
 
     private static boolean containsAny(String value, String... tokens) {

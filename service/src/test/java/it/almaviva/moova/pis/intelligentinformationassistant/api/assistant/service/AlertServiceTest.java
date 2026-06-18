@@ -31,6 +31,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Sc
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertVerificationService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.ScheduledAlertMonitoringScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmProviderException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
@@ -686,6 +687,36 @@ class AlertServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void verifyRouteGatewayFailureFallsBackToEventRouteAndContinuesIntoExistingAlertVerifyFlow()
+            throws ReflectiveOperationException {
+        AlertService service = verificationService(false);
+        service.alertRouteUnderstandingService = routeUnderstandingServiceWithGatewayFailure("IIA-UTL-TXI-503-001");
+        service.scheduledAlertLocationUnderstandingService = mock(ScheduledAlertLocationUnderstandingService.class);
+        String prompt = "Avvertimi quando una corsa e in partenza";
+        when(service.alertRepository.getAlertVerificationPromptData("ALRT1"))
+                .thenReturn(java.util.Optional.of(new AlertVerificationPromptData("ALRT1", "Alert", null, prompt)));
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse("""
+                {
+                  "decision":"REJECTED",
+                  "summary":"Unsupported.",
+                  "rejectedReason":"Unsupported.",
+                  "confidence":0.0,
+                  "warnings":[],
+                  "safetyChecks":[]
+                }
+                """, "OPENAI", "gpt-4.1-mini", null, null, null));
+
+        service.verifyAlert("ALRT1", new AlertVerificationRequest());
+
+        ArgumentCaptor<LlmRequest> llmRequest = ArgumentCaptor.forClass(LlmRequest.class);
+        verify(service.alertVerificationPromptBuilder).build(any());
+        verify(service.llmGateway.get()).generateText(llmRequest.capture());
+        assertThat(llmRequest.getValue().useCase()).isEqualTo(AiUseCase.ALERT_VERIFY);
+        verify(service.scheduledAlertLocationUnderstandingService, never()).understandLocations(any(), any());
+    }
+
+    @Test
     void verifyParserFailureDoesNotUseMockWhenFallbackIsDisabled() {
         AlertService service = verificationService(false);
         AlertVerificationRequest request = new AlertVerificationRequest();
@@ -735,6 +766,91 @@ class AlertServiceTest {
                 org.mockito.ArgumentMatchers.eq(request), outcome.capture());
         assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
         assertThat(outcome.getValue().summary()).contains("tenant context").doesNotContain("AI provider");
+    }
+
+    @Test
+    void promptRenderingFailureDoesNotCallProvider() {
+        AlertService service = verificationService(false);
+        when(service.alertVerificationPromptBuilder.build(any())).thenReturn(new LlmRequest(
+                AiUseCase.ALERT_VERIFY,
+                "system {{UNRESOLVED_SYSTEM}}",
+                "user",
+                "gpt-4.1-mini",
+                0.1,
+                5000,
+                "ALRT1"));
+
+        service.verifyAlert("ALRT1", new AlertVerificationRequest());
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.any(), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
+        assertThat(outcome.getValue().warnings()).anySatisfy(warning ->
+                assertThat(warning).contains("prompt rendering failed"));
+        verify(service.llmGateway.get(), never()).generateText(any());
+    }
+
+    @Test
+    void providerTechnicalFailurePersistsErrorWithoutArtifacts() {
+        AlertService service = verificationService(false);
+        when(service.llmGateway.get().generateText(any()))
+                .thenThrow(new LlmProviderException("IIA-UTL-TXI-503-001",
+                        new dev.langchain4j.exception.TimeoutException("request timed out")));
+
+        service.verifyAlert("ALRT1", new AlertVerificationRequest());
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.any(), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.ERROR);
+        assertThat(outcome.getValue().technicalSpecification()).isNull();
+        assertThat(outcome.getValue().agentBlueprintPreview()).isNull();
+    }
+
+    @Test
+    void successfulAlertVerifyResponseFollowsParserValidatorAndPersistence() {
+        AlertService service = verificationService(false);
+        when(service.llmGateway.get().generateText(any())).thenReturn(new LlmResponse("""
+                {
+                  "decision":"VERIFIED",
+                  "summary":"The alert can be evaluated on realtime ServiceData events.",
+                  "rejectedReason":null,
+                  "confidence":0.86,
+                  "requiredSources":["SERVICE_DATA"],
+                  "interpreterType":"EVENT_INTERPRETER",
+                  "inputModel":"ServiceDataV2",
+                  "outputModel":"AgentOutput.CANDIDATE_SUGGESTION",
+                  "triggerType":"EVENT",
+                  "evaluationMode":"STATELESS_EVENT_MATCH",
+                  "interpretedEventNames":["DEPARTING"],
+                  "targetTypes":["SERVICE_DATA_JOURNEY"],
+                  "technicalSpecification":{
+                    "schemaVersion":"iia.alert.technical-specification/v2",
+                    "source":"SERVICE_DATA",
+                    "interpreterType":"EVENT_INTERPRETER",
+                    "inputModel":"ServiceDataV2",
+                    "outputModel":"AgentOutput.CANDIDATE_SUGGESTION",
+                    "triggerType":"EVENT",
+                    "evaluationMode":"STATELESS_EVENT_MATCH",
+                    "condition":{"type":"SERVICE_DATA_FIELD_MATCH","field":"payload.ongroundServiceEvent.eventsType","operator":"EQUALS","value":"DEPARTING"}
+                  },
+                  "agentBlueprintPreview":{"schemaVersion":"iia.agent.blueprint/v1","agentName":"DepartingJourneyAgent"},
+                  "requirementCoverage":{"requirements":[],"allRequiredRequirementsMapped":true},
+                  "warnings":[],
+                  "safetyChecks":["No executable code generated."]
+                }
+                """, "OPENAI", "gpt-4.1-mini", null, null, "resp-1"));
+
+        service.verifyAlert("ALRT1", new AlertVerificationRequest());
+
+        ArgumentCaptor<AlertVerificationOutcome> outcome = ArgumentCaptor.forClass(AlertVerificationOutcome.class);
+        verify(service.alertRepository).verifyAlert(org.mockito.ArgumentMatchers.eq("ALRT1"),
+                org.mockito.ArgumentMatchers.any(), outcome.capture());
+        assertThat(outcome.getValue().decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.getValue().interpreterType()).isEqualTo("EVENT_INTERPRETER");
+        assertThat(outcome.getValue().technicalSpecification()).isNotNull();
+        verify(service.alertVerificationOutcomeValidator).validate(any(), any());
     }
 
     @Test

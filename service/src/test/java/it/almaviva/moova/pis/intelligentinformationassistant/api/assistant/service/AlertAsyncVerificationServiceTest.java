@@ -1,6 +1,7 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import it.almaviva.fnd.core.lib.quarkuscommon.multitenancy.TenantContext;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmProviderException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AlertRepository;
@@ -425,6 +426,20 @@ class AlertAsyncVerificationServiceTest {
         service.verifyCreatedAlertAsync("ALRT1", true, "tenant-a");
 
         verify(runner).markCreatedAlertVerificationErrorInRequestContext("ALRT1", "provider timeout", "tenant-a");
+    }
+
+    @Test
+    void llmProviderExceptionStillMarksTechnicalErrorThroughRunner() {
+        AlertAsyncVerificationRequestContextRunner runner = mock(AlertAsyncVerificationRequestContextRunner.class);
+        AlertAsyncVerificationService service = new AlertAsyncVerificationService();
+        service.requestContextRunner = runner;
+        doThrow(new LlmProviderException("IIA-UTL-TXI-503-001",
+                new dev.langchain4j.exception.TimeoutException("request timed out")))
+                .when(runner).verifyCreatedAlertInRequestContext("ALRT1", true, "tenant-a");
+
+        service.verifyCreatedAlertAsync("ALRT1", true, "tenant-a");
+
+        verify(runner).markCreatedAlertVerificationErrorInRequestContext("ALRT1", "IIA-UTL-TXI-503-001", "tenant-a");
     }
 
     @Test

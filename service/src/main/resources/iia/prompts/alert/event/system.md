@@ -77,6 +77,15 @@ Journey state filters introduced by "with", "having", "con", "con una", "con un"
 Arrival/departure wording attached to a state filter only selects the coherent field inside stopPointsJourneyDetails[].
 Use anyElement when predicates must apply to the same stopPointsJourneyDetails[] item.
 
+Journey-reference rules:
+- Explicit journey name/number -> vehicleJourneyName CONTAINS_NORMALIZED.
+- Explicit line -> line.dsc EQUALS_NORMALIZED.
+- Explicit service category -> serviceCategory.dsc EQUALS_NORMALIZED.
+- Explicit operator -> transportOperator.dsc EQUALS_NORMALIZED.
+- UNQUALIFIED_DESCRIPTOR attached to the journey -> one correlated stopPointsJourneyDetails[] anyElement with conditions.any over line.dsc, serviceCategory.dsc and transportOperator.dsc, all using the same value.
+- Never silently reinterpret an explicitly qualified constraint as unqualified.
+- Never add vehicleJourneyName to the UNQUALIFIED_DESCRIPTOR OR unless the understanding result separately classifies it as JOURNEY_NAME.
+
 ### Phase 4 - Correlation
 
 Keep same-array constraints inside the same anyElement.

@@ -70,6 +70,17 @@ public class AlertRouteUnderstandingPromptBuilder {
                   supported part.
 
                 Interpreter routing:
+                - Decision procedure: first ask whether the user wants a current operational condition on one
+                  ServiceData message. If yes, choose EVENT_INTERPRETER unless the prompt explicitly requires polling,
+                  scheduled frequency, report, count, aggregate snapshot, cardinality threshold or absence-over-time.
+                - EVENT_INTERPRETER is valid for current ServiceData events: arrival, departure, delay event,
+                  cancellation, platform confirmation/update/change, changed origin, changed destination, changed path
+                  and reload journey. A supported event predicate is enough; a monitored location is not required at
+                  route level.
+                - SCHEDULED_INTERPRETER is valid for periodic polling, report/count, snapshot presence, "how many",
+                  "at least N journeys", "every N minutes", or other aggregate state over ServiceData API results.
+                - Do not choose SCHEDULED_INTERPRETER only because a sentence contains "there is", "there are",
+                  "c'e" or "ci sono"; require snapshot/report/count/polling/cardinality semantics.
                 - EVENT_INTERPRETER is for alerts triggered by individual ServiceData/Kafka domain events, such as
                   arrival, departure, delay event, cancellation, changed origin, changed destination, changed path,
                   platform changed, platform update or platform confirmed.

@@ -645,6 +645,9 @@ public class ScheduledAlertVerificationPromptBuilder {
                 - Evaluate journeys at journeyPath stopPointsJourneyDetails[].
                 - Put constraints on the same journey inside one anyElement path stopPointsJourneyDetails[].
                 - Inside that anyElement use relative fields, e.g. changes, arrivalStatuses[].status, timetabledDeparturePlatform.dsc.
+                - Journey references use semantic kind: JOURNEY_NAME -> vehicleJourneyName CONTAINS_NORMALIZED; LINE -> line.dsc EQUALS_NORMALIZED; SERVICE_CATEGORY -> serviceCategory.dsc EQUALS_NORMALIZED; TRANSPORT_OPERATOR -> transportOperator.dsc EQUALS_NORMALIZED.
+                - UNQUALIFIED_DESCRIPTOR attached to the journey -> one correlated stopPointsJourneyDetails[] anyElement with conditions.any over line.dsc, serviceCategory.dsc and transportOperator.dsc using the same value.
+                - Do not add vehicleJourneyName to an unqualified descriptor OR unless it is explicitly classified as JOURNEY_NAME.
                 - Query/control fields are valid only in requirementCoverage.mappedBy, never inside snapshotEvaluation.condition.
                 """);
         if ((capabilities.contains("CANCELLATION") || capabilities.contains("JOURNEY_CANCELLATION"))

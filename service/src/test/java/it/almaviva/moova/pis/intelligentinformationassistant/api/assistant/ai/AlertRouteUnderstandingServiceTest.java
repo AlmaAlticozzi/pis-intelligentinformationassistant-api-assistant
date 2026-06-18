@@ -222,6 +222,49 @@ class AlertRouteUnderstandingServiceTest {
     }
 
     @Test
+    void eventScheduledPriorityRulesSurviveRouteGatewayFailure() {
+        for (String prompt : java.util.List.of(
+                "Avvertimi quando una corsa e in partenza",
+                "Avvertimi quando una corsa parte",
+                "Avvertimi quando una corsa e partita",
+                "Avvertimi quando una corsa arriva",
+                "Avvertimi quando una corsa cambia binario")) {
+            AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("IIA-UTL-TXI-503-001"))
+                    .understand(new AlertVerificationPromptData("ALRT1", "Route", null, prompt));
+
+            assertThat(result.decision()).as(prompt).isEqualTo(AlertRouteDecision.ROUTED);
+            assertThat(result.interpreterType()).as(prompt).isEqualTo(AlertRouteInterpreterType.EVENT_INTERPRETER);
+            assertThat(result.accessMode()).as(prompt).isEqualTo(AlertRouteAccessMode.KAFKA_EVENT);
+            assertThat(result.requiresKafkaEvent()).as(prompt).isTrue();
+            assertThat(result.requiresPolling()).as(prompt).isFalse();
+            assertThat(result.requiresServiceDataApi()).as(prompt).isFalse();
+        }
+
+        for (String prompt : java.util.List.of(
+                "Ogni 10 minuti dimmi quante corse sono in partenza",
+                "Quante corse sono in partenza a Garibaldi?")) {
+            AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("IIA-UTL-TXI-503-001"))
+                    .understand(new AlertVerificationPromptData("ALRT1", "Route", null, prompt));
+
+            assertThat(result.decision()).as(prompt).isEqualTo(AlertRouteDecision.ROUTED);
+            assertThat(result.interpreterType()).as(prompt).isEqualTo(AlertRouteInterpreterType.SCHEDULED_INTERPRETER);
+        }
+    }
+
+    @Test
+    void absenceOverTimeStaysRejectedWhenRouteGatewayFails() {
+        AlertRouteUnderstandingResult result = serviceWithGatewayFailure(new RuntimeException("IIA-UTL-TXI-503-001"))
+                .understand(new AlertVerificationPromptData(
+                        "ALRT1",
+                        "Route",
+                        null,
+                        "Avvertimi se non ci sono corse per 30 minuti"));
+
+        assertThat(result.decision()).isEqualTo(AlertRouteDecision.REJECTED);
+        assertThat(result.rejectedReason()).contains("Absence-over-time");
+    }
+
+    @Test
     void fallsBackWhenRouteResponseCannotBeParsed() {
         AlertRouteUnderstandingResult result = serviceWithResponse("not-json")
                 .understand(new AlertVerificationPromptData(

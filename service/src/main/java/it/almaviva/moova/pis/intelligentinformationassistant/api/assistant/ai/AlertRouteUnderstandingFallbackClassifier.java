@@ -9,7 +9,7 @@ import java.util.Optional;
 public class AlertRouteUnderstandingFallbackClassifier {
 
     private static final String SERVICE_DATA = "SERVICE_DATA";
-    private static final double FALLBACK_CONFIDENCE = 0.65;
+    private static final double FALLBACK_CONFIDENCE = 0.70;
 
     public Optional<AlertRouteUnderstandingResult> classify(
             String alertId,
@@ -23,32 +23,34 @@ public class AlertRouteUnderstandingFallbackClassifier {
         System.out.println("[IIA][ALERT_ROUTE][FALLBACK] LLM route failed alertId=" + alertId + " reason=" + reason);
 
         if (hasStrongUnsupportedSignal(safeHints)) {
-            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] not applicable alertId=" + alertId + " reason=unsupported-hints");
+            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] applicable=true reason=technical-route-failure+unsupported-hints decision=REJECTED");
             return Optional.empty();
         }
         if (isScheduledFallbackApplicable(safeHints)) {
-            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] selected SCHEDULED_INTERPRETER alertId=" + alertId
-                    + " reason=deterministic-hints polling=" + safeHints.containsPollingExpression()
+            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] applicable=true reason=technical-route-failure+scheduled-hints decision=SCHEDULED_INTERPRETER"
+                    + " alertId=" + alertId
+                    + " polling=" + safeHints.containsPollingExpression()
                     + " report=" + safeHints.containsCountOrReportExpression()
                     + " snapshot=" + safeHints.containsSnapshotStateExpression());
             return Optional.of(scheduledRoute(reason, safeHints));
         }
         if (isEventFallbackApplicable(safeHints)) {
-            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] selected EVENT_INTERPRETER alertId=" + alertId
-                    + " reason=deterministic-hints event=" + safeHints.containsEventOccurrenceExpression());
+            System.out.println("[IIA][ALERT_ROUTE][FALLBACK] applicable=true reason=technical-route-failure+event-hints decision=EVENT_INTERPRETER"
+                    + " alertId=" + alertId
+                    + " event=" + safeHints.containsEventOccurrenceExpression());
             return Optional.of(eventRoute(reason, safeHints));
         }
 
-        System.out.println("[IIA][ALERT_ROUTE][FALLBACK] not applicable alertId=" + alertId + " reason=insufficient-hints");
+        System.out.println("[IIA][ALERT_ROUTE][FALLBACK] not applicable reason=insufficient-hints alertId=" + alertId);
         return Optional.empty();
     }
 
     private boolean isScheduledFallbackApplicable(AlertRouteUnderstandingHints hints) {
         return hints.containsPollingExpression()
-                && (hints.containsCountOrReportExpression()
+                || hints.containsCountOrReportExpression()
                 || hints.containsSnapshotStateExpression()
                 || hints.containsCardinalityThresholdExpression()
-                || hints.containsAttributeThresholdExpression());
+                || hints.containsAttributeThresholdExpression();
     }
 
     private boolean isEventFallbackApplicable(AlertRouteUnderstandingHints hints) {
@@ -62,7 +64,8 @@ public class AlertRouteUnderstandingFallbackClassifier {
     private boolean hasStrongUnsupportedSignal(AlertRouteUnderstandingHints hints) {
         return hints.containsUnsupportedWeatherExpression()
                 || hints.containsUnsupportedWifiOrOnboardFeatureExpression()
-                || hints.containsGenericQuestionExpression();
+                || hints.containsGenericQuestionExpression()
+                || hints.containsUnsupportedAbsenceOverTimeExpression();
     }
 
     private AlertRouteUnderstandingResult scheduledRoute(String reason, AlertRouteUnderstandingHints hints) {
@@ -92,7 +95,6 @@ public class AlertRouteUnderstandingFallbackClassifier {
     }
 
     private AlertRouteUnderstandingResult eventRoute(String reason, AlertRouteUnderstandingHints hints) {
-        boolean condition = hints.containsAttributeThresholdExpression() || hints.containsPlatformExpression();
         String warning = "Route LLM failed with " + reason
                 + "; deterministic fallback selected EVENT_INTERPRETER from hints.";
         return new AlertRouteUnderstandingResult(
@@ -101,7 +103,7 @@ public class AlertRouteUnderstandingFallbackClassifier {
                 SERVICE_DATA,
                 AlertRouteInterpreterType.EVENT_INTERPRETER,
                 AlertRouteAccessMode.KAFKA_EVENT,
-                condition ? AlertRouteIntentKind.EVENT_CONDITION : AlertRouteIntentKind.EVENT_OCCURRENCE,
+                AlertRouteIntentKind.EVENT_CONDITION,
                 AlertRouteOutputMode.ON_MATCH,
                 false,
                 false,

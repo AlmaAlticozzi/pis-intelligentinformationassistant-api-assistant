@@ -5,19 +5,30 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
  */
 public class LlmProviderException extends RuntimeException {
 
+    private final LlmProviderFailure failure;
+
     public LlmProviderException() {
-        super();
+        this(null, null, LlmProviderFailure.unexpected());
     }
 
     public LlmProviderException(String message) {
-        super(message);
+        this(message, null, LlmProviderFailure.unexpected());
     }
 
     public LlmProviderException(String message, Throwable cause) {
-        super(message, cause);
+        this(message, cause, LlmProviderExceptionClassifier.classify(cause));
     }
 
     public LlmProviderException(Throwable cause) {
-        super(cause);
+        this(cause == null ? null : cause.getMessage(), cause, LlmProviderExceptionClassifier.classify(cause));
+    }
+
+    public LlmProviderException(String message, Throwable cause, LlmProviderFailure failure) {
+        super(message, cause);
+        this.failure = failure == null ? LlmProviderFailure.unexpected() : failure;
+    }
+
+    public LlmProviderFailure failure() {
+        return failure;
     }
 }

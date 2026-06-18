@@ -186,7 +186,14 @@ public class AlertVerificationPromptBuilder {
                     displayRawText = normalizedDelayEventType;
                 }
                 section.append("- ").append(nullToEmpty(constraint.type()))
-                        .append("=").append(displayRawText).append("\n");
+                        .append("=").append(displayRawText);
+                if ("JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())) {
+                    section.append(" kind=").append(nullToEmpty(constraint.kind()))
+                            .append(" normalizedValue=").append(nullToEmpty(constraint.normalizedValue()))
+                            .append(" requiredCoverage=").append(constraint.requiredCoverage())
+                            .append(" confidence=").append(constraint.confidence());
+                }
+                section.append("\n");
                 if ("DELAY_THRESHOLD".equalsIgnoreCase(constraint.type())) {
                     appendDelayThresholdBreakdown(section, constraint.rawText());
                 }

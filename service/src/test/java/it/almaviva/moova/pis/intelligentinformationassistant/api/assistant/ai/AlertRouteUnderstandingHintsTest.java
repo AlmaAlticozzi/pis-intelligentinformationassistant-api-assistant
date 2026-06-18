@@ -239,4 +239,30 @@ class AlertRouteUnderstandingHintsTest {
         assertThat(hints.containsUnsupportedWifiOrOnboardFeatureExpression()).isTrue();
         assertThat(hints.containsEventOccurrenceExpression()).isFalse();
     }
+
+    @Test
+    void serviceDataCurrentEventWordingSetsEventOccurrenceSignal() {
+        for (String prompt : java.util.List.of(
+                "Avvertimi quando una corsa e in partenza",
+                "Avvertimi quando una corsa parte",
+                "Avvertimi quando una corsa e partita",
+                "Avvertimi quando una corsa arriva",
+                "Avvertimi quando una corsa cambia binario")) {
+            AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+            assertThat(hints.containsEventOccurrenceExpression()).as(prompt).isTrue();
+            assertThat(hints.containsPollingExpression()).as(prompt).isFalse();
+            assertThat(hints.containsCountOrReportExpression()).as(prompt).isFalse();
+            assertThat(hints.containsCardinalityThresholdExpression()).as(prompt).isFalse();
+        }
+    }
+
+    @Test
+    void absenceOverTimeIsUnsupportedAndNotAnEventHint() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Avvertimi se non ci sono corse per 30 minuti");
+
+        assertThat(hints.containsUnsupportedAbsenceOverTimeExpression()).isTrue();
+        assertThat(hints.containsEventOccurrenceExpression()).isFalse();
+    }
 }

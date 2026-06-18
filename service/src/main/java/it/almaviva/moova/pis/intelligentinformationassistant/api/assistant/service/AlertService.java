@@ -25,14 +25,19 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Sc
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventPhase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertEventWordingClassifier;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertDelayEventTypeNormalizer;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceDetector;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceIntent;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationNonLocationConstraintType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPromptBuilder;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AiUseCase;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmGateway;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmProviderException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.LlmResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.AiConfiguration;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.prompt.PromptTemplateDiagnostics;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertCreateRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertDetail;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AlertInterpreterType;
@@ -165,6 +170,9 @@ public class AlertService {
 
     @Inject
     AlertEventWordingClassifier alertEventWordingClassifier;
+
+    @Inject
+    AlertJourneyReferenceDetector alertJourneyReferenceDetector;
 
     @Inject
     Instance<LlmGateway> llmGateway;
@@ -1904,7 +1912,7 @@ public class AlertService {
         List<AlertLocationResolution> resolutions = extraction.hasLocationMentions()
                 ? resolver.resolve(extraction.mentions())
                 : List.of();
-        AlertVerificationLocationContext context = toPromptLocationContext(extraction, resolutions);
+        AlertVerificationLocationContext context = toPromptLocationContext(prompt, extraction, resolutions);
         System.out.println("[IIA][ALERT_VERIFY][LOCATION] hasMentions="
                 + context.hasLocationMentions() + " resolutions=" + context.resolutions().size());
         System.out.println("[IIA][ALERT_VERIFY][LOCATION] compactMode=v2 length="
@@ -2314,6 +2322,7 @@ public class AlertService {
                         .map(this::toPromptNonLocationConstraint)
                         .filter(Objects::nonNull)
                         .toList());
+        addJourneyReferenceConstraint(constraints, prompt);
         DelayThreshold delayThreshold = delayThreshold(prompt);
         MainEventDerivation derivation = deriveMainEventSemantics(understanding, constraints, prompt);
         if (derivation.accessoryDelay()) {
@@ -2429,6 +2438,37 @@ public class AlertService {
                 canonicalizeDelayEventTypeConstraints(constraints);
         logMainEventDerivation(understanding, canonicalized, derivation);
         return canonicalized;
+    }
+
+    private void addJourneyReferenceConstraint(
+            List<AlertVerificationLocationContext.NonLocationConstraint> constraints,
+            String prompt) {
+        AlertJourneyReferenceDetector detector = alertJourneyReferenceDetector == null
+                ? new AlertJourneyReferenceDetector()
+                : alertJourneyReferenceDetector;
+        Optional<AlertJourneyReferenceIntent> detected = detector.detect(prompt);
+        if (detected.isEmpty()) {
+            System.out.println("[IIA][ALERT_JOURNEY_REFERENCE] detected=false");
+            return;
+        }
+        AlertJourneyReferenceIntent intent = detected.get();
+        boolean alreadyPresent = constraints.stream()
+                .anyMatch(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())
+                        && intent.kind().name().equalsIgnoreCase(constraint.kind())
+                        && intent.normalizedValue().equalsIgnoreCase(
+                        firstNonBlank(constraint.normalizedValue(), constraint.rawText())));
+        if (!alreadyPresent) {
+            constraints.add(new AlertVerificationLocationContext.NonLocationConstraint(
+                    "JOURNEY_REFERENCE",
+                    intent.rawText(),
+                    intent.kind().name(),
+                    intent.normalizedValue(),
+                    intent.requiredCoverage(),
+                    intent.confidence()));
+        }
+        System.out.println("[IIA][ALERT_JOURNEY_REFERENCE] detected=true kind="
+                + intent.kind()
+                + " value=" + intent.normalizedValue());
     }
 
     private MainEventDerivation deriveMainEventSemantics(
@@ -2617,6 +2657,15 @@ public class AlertService {
             it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingNonLocationConstraint constraint) {
         String type = constraint.type().name();
         String rawText = constraint.rawText();
+        if (constraint.type() == AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE) {
+            return new AlertVerificationLocationContext.NonLocationConstraint(
+                    type,
+                    rawText,
+                    constraint.journeyReferenceKind() == null ? "" : constraint.journeyReferenceKind().name(),
+                    firstNonBlank(constraint.normalizedValue(), rawText),
+                    constraint.requiredCoverage(),
+                    constraint.confidence());
+        }
         if ("DELAY_EVENT_TYPE".equals(type)) {
             String normalized = AlertDelayEventTypeNormalizer.normalize(rawText);
             if (normalized != null) {
@@ -2888,13 +2937,18 @@ public class AlertService {
     }
 
     private AlertVerificationLocationContext toPromptLocationContext(
+            String prompt,
             AlertLocationExtractionResult extraction,
             List<AlertLocationResolution> resolutions) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> constraints = new ArrayList<>();
+        addJourneyReferenceConstraint(constraints, prompt);
         return new AlertVerificationLocationContext(
                 extraction.hasLocationMentions(),
                 resolutions.stream()
                         .map(this::toPromptLocationResolution)
-                        .toList());
+                        .toList(),
+                constraints,
+                List.of());
     }
 
     private AlertVerificationLocationContext.LocationResolution toPromptLocationResolution(
@@ -3127,6 +3181,12 @@ public class AlertService {
                 throw new RuntimeException("Simulated ALERT_VERIFY provider timeout");
             }
 
+            Optional<String> renderingFailure = promptRenderingFailure(promptRequest);
+            if (renderingFailure.isPresent()) {
+                System.out.println("[IIA][ALERT_VERIFY][PROMPT_RENDERING_ERROR] " + renderingFailure.get());
+                return new AlertVerificationResolution(technicalErrorOutcome(renderingFailure.get(), promptRequest), false);
+            }
+
             System.out.println("[IIA][ALERT_VERIFY][LLM] Calling LlmGateway with useCase=ALERT_VERIFY alertId=" + alertId);
             // LangChain4j/OpenAI client may already apply retry. Application-level retry must be introduced later only with idempotency and backoff.
             LlmResponse response = llmGateway.get().generateText(promptRequest);
@@ -3160,13 +3220,27 @@ public class AlertService {
                     promptRequest), false);
         } catch (ProcessingException ex) {
             String shortMessage = shortTechnicalMessage(ex);
-            logTechnicalVerificationError(shortMessage);
+            logTechnicalVerificationError(shortMessage, ex);
             return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
         } catch (RuntimeException ex) {
             String shortMessage = shortTechnicalMessage(ex);
-            logTechnicalVerificationError(shortMessage);
+            logTechnicalVerificationError(shortMessage, ex);
             return new AlertVerificationResolution(technicalErrorOutcome(shortMessage, promptRequest), false);
         }
+    }
+
+    private Optional<String> promptRenderingFailure(LlmRequest promptRequest) {
+        Set<String> unresolvedSystem = PromptTemplateDiagnostics.extractPlaceholders(
+                promptRequest == null ? null : promptRequest.systemPrompt());
+        Set<String> unresolvedUser = PromptTemplateDiagnostics.extractPlaceholders(
+                promptRequest == null ? null : promptRequest.userPrompt());
+        if (unresolvedSystem.isEmpty() && unresolvedUser.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of("ALERT_VERIFY prompt rendering failed before provider call: unresolvedSystemPlaceholders="
+                + PromptTemplateDiagnostics.logValue(unresolvedSystem)
+                + " unresolvedUserPlaceholders="
+                + PromptTemplateDiagnostics.logValue(unresolvedUser));
     }
 
     private void scheduleAsyncVerification(String alertId, boolean enableAfterVerification) {
@@ -3494,14 +3568,8 @@ public class AlertService {
                 null,
                 List.of(),
                 List.of(),
-                Map.of(
-                        "schemaVersion", "iia.alert.technical-specification/v1",
-                        "decision", "ERROR",
-                        "error", summary),
-                Map.of(
-                        "schemaVersion", "iia.agent.blueprint/v1",
-                        "canGenerate", false,
-                        "error", summary),
+                null,
+                null,
                 Map.of(
                         "requirements", List.of(),
                         "allRequiredRequirementsMapped", false),
@@ -3523,9 +3591,16 @@ public class AlertService {
         return message.length() > 500 ? message.substring(0, 500) : message;
     }
 
-    private void logTechnicalVerificationError(String shortMessage) {
+    private void logTechnicalVerificationError(String shortMessage, Throwable throwable) {
         if (isTenantContextFailure(shortMessage)) {
             System.out.println("[IIA][ALERT_VERIFY][TENANT] tenant context failure during verification");
+            return;
+        }
+        if (throwable instanceof LlmProviderException providerException) {
+            System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage
+                    + " failureKind=" + providerException.failure().kind()
+                    + " httpStatus=" + providerException.failure().httpStatus()
+                    + " retryable=" + providerException.failure().retryable());
             return;
         }
         System.out.println("[IIA][ALERT_VERIFY][LLM_ERROR] " + shortMessage);

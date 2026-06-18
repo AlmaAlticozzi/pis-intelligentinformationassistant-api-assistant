@@ -50,6 +50,9 @@ class AlertVerificationPromptBuilderTest {
                 .contains("STATELESS_EVENT_MATCH")
                 .contains("payload.ongroundServiceEvent")
                 .contains("payload.stopPointJourney")
+                .contains("Journey-reference rules")
+                .contains("UNQUALIFIED_DESCRIPTOR attached to the journey")
+                .contains("line.dsc, serviceCategory.dsc and transportOperator.dsc")
                 .contains("{{SERVICE_DATA_CAPABILITY_CATALOG}}")
                 .doesNotContain("## Generic examples")
                 .doesNotContain("Expected condition:")
@@ -170,6 +173,35 @@ class AlertVerificationPromptBuilderTest {
                 .doesNotContain("Minimal examples")
                 .doesNotContain("Positive resolved single candidate")
                 .doesNotContain("Rules:");
+    }
+
+    @Test
+    void eventPromptContainsJourneyReferenceRuntimeContext() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                false,
+                List.of(),
+                List.of(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "JOURNEY_REFERENCE",
+                        "M2",
+                        "UNQUALIFIED_DESCRIPTOR",
+                        "M2",
+                        true,
+                        0.92)),
+                List.of());
+
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT_M2",
+                "M2 arrival",
+                "Runtime payload for journey reference prompt",
+                "Avvertimi quando una corsa M2 e in arrivo a Garibaldi FS",
+                context));
+
+        assertThat(request.userPrompt())
+                .contains("type: JOURNEY_REFERENCE")
+                .contains("rawText: \"M2\"")
+                .contains("kind: UNQUALIFIED_DESCRIPTOR")
+                .contains("normalizedValue: \"M2\"")
+                .contains("- JOURNEY_REFERENCE=M2 kind=UNQUALIFIED_DESCRIPTOR normalizedValue=M2");
     }
 
     @Test

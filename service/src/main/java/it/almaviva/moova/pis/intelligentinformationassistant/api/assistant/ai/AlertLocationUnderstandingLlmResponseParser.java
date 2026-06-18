@@ -139,7 +139,21 @@ public class AlertLocationUnderstandingLlmResponseParser {
                     AlertLocationNonLocationConstraintType.UNKNOWN,
                     "nonLocationConstraints[" + index + "].type",
                     warnings);
-            result.add(new AlertLocationUnderstandingNonLocationConstraint(type, asString(map.get("rawText"))));
+            AlertJourneyReferenceKind journeyReferenceKind = parseEnum(
+                    AlertJourneyReferenceKind.class,
+                    asString(map.get("kind")),
+                    null,
+                    "nonLocationConstraints[" + index + "].kind",
+                    warnings);
+            result.add(new AlertLocationUnderstandingNonLocationConstraint(
+                    type,
+                    asString(map.get("rawText")),
+                    journeyReferenceKind,
+                    asString(map.get("normalizedValue")),
+                    !map.containsKey("requiredCoverage") || Boolean.TRUE.equals(map.get("requiredCoverage")),
+                    clamp(asDouble(map.get("confidence"), 0.0),
+                            "nonLocationConstraints[" + index + "].confidence",
+                            warnings)));
             index++;
         }
         return result;

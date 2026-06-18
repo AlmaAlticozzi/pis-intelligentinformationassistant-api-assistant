@@ -434,6 +434,9 @@ public class AlertRouteUnderstandingValidator {
         if (hints.containsUnsupportedWifiOrOnboardFeatureExpression()) {
             return "Onboard wifi is not a controlled ServiceData capability for Alert Route Understanding.";
         }
+        if (hints.containsUnsupportedAbsenceOverTimeExpression()) {
+            return "Absence-over-time ServiceData alerts are not supported by stateless Alert Route Understanding.";
+        }
         String normalized = normalizeText(String.join(" ",
                 prompt == null ? "" : prompt,
                 route == null || route.summary() == null ? "" : route.summary(),

@@ -41,6 +41,10 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Do not invent locations. Return only locations explicitly mentioned by the user.
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
+                - Journey references are non-location constraints of type JOURNEY_REFERENCE.
+                - JOURNEY_REFERENCE.kind values: JOURNEY_NAME for explicit journey name/number; LINE for explicit line; SERVICE_CATEGORY for explicit service category; TRANSPORT_OPERATOR for explicit operator; UNQUALIFIED_DESCRIPTOR for a descriptor attached to the journey without an explicit qualifier.
+                - Examples: "journey 125"/"corsa 125" -> JOURNEY_NAME; "line M2"/"linea M2" -> LINE; "service category Intercity" -> SERVICE_CATEGORY; "operator ATM"/"operated by ATM" -> TRANSPORT_OPERATOR; "an M2 journey"/"una corsa M2" -> UNQUALIFIED_DESCRIPTOR.
+                - For JOURNEY_REFERENCE include kind, rawText, normalizedValue, requiredCoverage=true and confidence.
                 - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - Universal/all/any location wording is not a station, stop, or location mention: "qualsiasi localita", "qualunque localita", "ogni localita", "tutte le localita", "qualsiasi fermata", "ovunque", "any location", "all locations", "every location", "anywhere", "any stop" and "all stops" mean no location predicate and no required location coverage.
                 - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean DELAY_DIRECTION=ARRIVAL and DELAY_EVENT_TYPE=ARRIVAL_DELAY; "ritardo in partenza", "ritardo alla partenza", "ritardo di partenza", "departure delay" mean DELAY_DIRECTION=DEPARTURE and DELAY_EVENT_TYPE=DEPARTURE_DELAY.
@@ -128,6 +132,7 @@ public class AlertLocationUnderstandingPromptBuilder {
                 Allowed nonLocationConstraints.type values:
                 - PLATFORM
                 - VEHICLE_JOURNEY
+                - JOURNEY_REFERENCE
                 - LINE
                 - DELAY
                 - PASSING_TYPE
@@ -160,6 +165,14 @@ public class AlertLocationUnderstandingPromptBuilder {
                     {
                       "type": "PLATFORM",
                       "rawText": "binario 1"
+                    },
+                    {
+                      "type": "JOURNEY_REFERENCE",
+                      "kind": "UNQUALIFIED_DESCRIPTOR",
+                      "rawText": "M2",
+                      "normalizedValue": "M2",
+                      "requiredCoverage": true,
+                      "confidence": 0.92
                     }
                   ],
                   "warnings": []

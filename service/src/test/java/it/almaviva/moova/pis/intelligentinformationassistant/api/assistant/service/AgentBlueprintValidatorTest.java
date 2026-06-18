@@ -115,6 +115,27 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorPreservesNestedAnyForUnqualifiedJourneyDescriptor() {
+        Map<String, Object> condition = Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "anyElement", Map.of(
+                        "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                        "conditions", Map.of("any", List.of(
+                                Map.of("field", "line.dsc", "operator", "EQUALS_NORMALIZED", "value", "M2"),
+                                Map.of("field", "serviceCategory.dsc", "operator", "EQUALS_NORMALIZED", "value", "M2"),
+                                Map.of("field", "transportOperator.dsc", "operator", "EQUALS_NORMALIZED", "value", "M2")))));
+        AlertAgentGenerationPreviewData data = previewData(condition);
+
+        AgentBlueprintValidationResult result = validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+        Map<String, Object> preservedCondition =
+                (Map<String, Object>) ((Map<String, Object>) blueprint(data, "EVENT", false).getParameters()).get("condition");
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(preservedCondition).isEqualTo(condition);
+    }
+
+    @Test
     void previewValidatorAcceptsStopPointIdEquals() {
         AlertAgentGenerationPreviewData data = previewData(stopPointIdEqualsCondition());
 

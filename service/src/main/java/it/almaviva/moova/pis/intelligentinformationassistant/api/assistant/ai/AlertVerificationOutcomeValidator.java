@@ -38,6 +38,13 @@ public class AlertVerificationOutcomeValidator {
     private static final String OUTPUT_MODEL = "AgentOutput.CANDIDATE_SUGGESTION";
     private static final String DEFAULT_TEMPORAL_ZONE = "Europe/Rome";
     private static final String LOCAL_TIME_BETWEEN = "LOCAL_TIME_BETWEEN";
+    private static final String JOURNEY_DETAILS_PATH = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+    private static final String JOURNEY_NAME_FIELD = JOURNEY_DETAILS_PATH + ".vehicleJourneyName";
+    private static final String LINE_FIELD = JOURNEY_DETAILS_PATH + ".line.dsc";
+    private static final String SERVICE_CATEGORY_FIELD = JOURNEY_DETAILS_PATH + ".serviceCategory.dsc";
+    private static final String TRANSPORT_OPERATOR_FIELD = JOURNEY_DETAILS_PATH + ".transportOperator.dsc";
+    private static final Set<String> UNQUALIFIED_DESCRIPTOR_FIELDS =
+            Set.of(LINE_FIELD, SERVICE_CATEGORY_FIELD, TRANSPORT_OPERATOR_FIELD);
     private static final Set<String> PLATFORM_OPERATORS = Set.of(
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD",
@@ -304,6 +311,10 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         validateLocationCoverage(context);
+        if (context.failureReason != null) {
+            return;
+        }
+        validateJourneyReferenceCoverage(context);
         if (context.failureReason != null) {
             return;
         }
@@ -1636,6 +1647,144 @@ public class AlertVerificationOutcomeValidator {
             return List.of(field);
         }
         return List.of(field);
+    }
+
+    private void validateJourneyReferenceCoverage(ValidationContext context) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> journeyReferences = context.locationContext
+                .nonLocationConstraints()
+                .stream()
+                .filter(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type()))
+                .filter(AlertVerificationLocationContext.NonLocationConstraint::requiredCoverage)
+                .toList();
+        for (AlertVerificationLocationContext.NonLocationConstraint reference : journeyReferences) {
+            AlertJourneyReferenceKind kind = parseJourneyReferenceKind(reference.kind());
+            if (kind == null) {
+                continue;
+            }
+            String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
+            boolean valid = switch (kind) {
+                case JOURNEY_NAME -> hasSingleFieldJourneyReferenceCoverage(
+                        context, JOURNEY_NAME_FIELD, "CONTAINS_NORMALIZED", expectedValue);
+                case LINE -> hasSingleFieldJourneyReferenceCoverage(
+                        context, LINE_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                case SERVICE_CATEGORY -> hasSingleFieldJourneyReferenceCoverage(
+                        context, SERVICE_CATEGORY_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                case TRANSPORT_OPERATOR -> hasSingleFieldJourneyReferenceCoverage(
+                        context, TRANSPORT_OPERATOR_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                case UNQUALIFIED_DESCRIPTOR -> hasUnqualifiedDescriptorCoverage(context, expectedValue);
+            };
+            List<String> fields = matchedJourneyReferenceFields(context, kind, expectedValue);
+            System.out.println("[IIA][ALERT_VERIFY][JOURNEY_REFERENCE_COVERAGE] kind=" + kind
+                    + " valid=" + valid
+                    + " fields=" + fields);
+            if (!valid) {
+                context.fail("Journey reference coverage validation failed: " + kind
+                        + " '" + reference.rawText()
+                        + "' is not represented by the required correlated ServiceData journey-detail condition.");
+                return;
+            }
+        }
+    }
+
+    private AlertJourneyReferenceKind parseJourneyReferenceKind(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return AlertJourneyReferenceKind.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private boolean hasSingleFieldJourneyReferenceCoverage(
+            ValidationContext context,
+            String field,
+            String operator,
+            String expectedValue) {
+        return context.conditionLeaves.stream()
+                .anyMatch(leaf -> field.equals(leaf.field())
+                        && operator.equals(leaf.operator())
+                        && sameNormalizedValue(expectedValue, stringValue(leaf.value()))
+                        && ServiceDataCapabilityCatalog.isAllowedOperator(field, operator));
+    }
+
+    private boolean hasUnqualifiedDescriptorCoverage(ValidationContext context, String expectedValue) {
+        Map<String, List<ConditionLeaf>> leavesByAnyGroup = new LinkedHashMap<>();
+        for (ConditionLeaf leaf : context.conditionLeaves) {
+            if (!UNQUALIFIED_DESCRIPTOR_FIELDS.contains(leaf.field())
+                    || !JOURNEY_DETAILS_PATH.equals(leaf.arrayPath())
+                    || !"EQUALS_NORMALIZED".equals(leaf.operator())
+                    || !sameNormalizedValue(expectedValue, stringValue(leaf.value()))
+                    || !ServiceDataCapabilityCatalog.isAllowedOperator(leaf.field(), leaf.operator())) {
+                continue;
+            }
+            String anyGroup = anyGroupPath(leaf);
+            if (anyGroup == null) {
+                continue;
+            }
+            leavesByAnyGroup.computeIfAbsent(anyGroup, ignored -> new ArrayList<>()).add(leaf);
+        }
+        return leavesByAnyGroup.values().stream()
+                .anyMatch(leaves -> {
+                    Set<String> fields = leaves.stream()
+                            .map(ConditionLeaf::field)
+                            .collect(java.util.stream.Collectors.toSet());
+                    String group = anyGroupPath(leaves.getFirst());
+                    boolean containsVehicleJourneyName = context.conditionLeaves.stream()
+                            .anyMatch(leaf -> JOURNEY_NAME_FIELD.equals(leaf.field())
+                                    && group != null
+                                    && group.equals(anyGroupPath(leaf)));
+                    return fields.equals(UNQUALIFIED_DESCRIPTOR_FIELDS) && !containsVehicleJourneyName;
+                });
+    }
+
+    private List<String> matchedJourneyReferenceFields(
+            ValidationContext context,
+            AlertJourneyReferenceKind kind,
+            String expectedValue) {
+        if (kind == AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR) {
+            return context.conditionLeaves.stream()
+                    .filter(leaf -> UNQUALIFIED_DESCRIPTOR_FIELDS.contains(leaf.field()))
+                    .filter(leaf -> sameNormalizedValue(expectedValue, stringValue(leaf.value())))
+                    .map(ConditionLeaf::field)
+                    .distinct()
+                    .toList();
+        }
+        String field = switch (kind) {
+            case JOURNEY_NAME -> JOURNEY_NAME_FIELD;
+            case LINE -> LINE_FIELD;
+            case SERVICE_CATEGORY -> SERVICE_CATEGORY_FIELD;
+            case TRANSPORT_OPERATOR -> TRANSPORT_OPERATOR_FIELD;
+            case UNQUALIFIED_DESCRIPTOR -> "";
+        };
+        return context.conditionLeaves.stream()
+                .filter(leaf -> field.equals(leaf.field()))
+                .filter(leaf -> sameNormalizedValue(expectedValue, stringValue(leaf.value())))
+                .map(ConditionLeaf::field)
+                .distinct()
+                .toList();
+    }
+
+    private String anyGroupPath(ConditionLeaf leaf) {
+        if (leaf.path() == null) {
+            return null;
+        }
+        int anyIndex = leaf.path().lastIndexOf(".any[");
+        if (anyIndex < 0) {
+            return null;
+        }
+        return leaf.path().substring(0, anyIndex + ".any".length());
+    }
+
+    private boolean sameNormalizedValue(String expected, String actual) {
+        String normalizedExpected = normalizeText(expected);
+        String normalizedActual = normalizeText(actual);
+        return normalizedExpected != null && normalizedExpected.equals(normalizedActual);
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
     }
 
     private void validateMainEventPhase(ValidationContext context) {
