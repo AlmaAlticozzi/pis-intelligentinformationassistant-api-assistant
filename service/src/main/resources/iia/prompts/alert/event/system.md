@@ -1,5 +1,7 @@
 # Event Alert Verification Prompt
 
+ALERT_VERIFY_PROMPT_VERSION=EVENT_JOURNEY_REFERENCE_V2
+
 ## Mission and fixed contract
 
 You verify an Alert for the PIS Intelligent Information Assistant.
@@ -83,9 +85,12 @@ Journey-reference rules:
 - Explicit line -> line.dsc EQUALS_NORMALIZED.
 - Explicit service category -> serviceCategory.dsc EQUALS_NORMALIZED.
 - Explicit operator -> transportOperator.dsc EQUALS_NORMALIZED.
-- UNQUALIFIED_DESCRIPTOR attached to the journey -> one correlated stopPointsJourneyDetails[] anyElement with conditions.any over line.dsc, serviceCategory.dsc and transportOperator.dsc, all using the same value.
+- UNQUALIFIED_DESCRIPTOR attached to the journey -> exactly one correlated stopPointsJourneyDetails[] anyElement with conditions.any over exactly line.dsc, serviceCategory.dsc and transportOperator.dsc, all using EQUALS_NORMALIZED and the same value.
+- UNQUALIFIED_DESCRIPTOR never maps to vehicleJourneyName. Do not add vehicleJourneyName as a fourth fallback branch.
+- Keep the UNQUALIFIED_DESCRIPTOR any group inside the same stopPointsJourneyDetails[] element as correlated accessory journey-detail conditions.
+- JOURNEY_NAME alone maps to vehicleJourneyName. Never combine JOURNEY_NAME mapping with UNQUALIFIED_DESCRIPTOR mapping for the same value.
 - Never silently reinterpret an explicitly qualified constraint as unqualified.
-- Never add vehicleJourneyName to the UNQUALIFIED_DESCRIPTOR OR unless the understanding result separately classifies it as JOURNEY_NAME.
+- Never add vehicleJourneyName to the UNQUALIFIED_DESCRIPTOR OR.
 
 ### Phase 4 - Correlation
 

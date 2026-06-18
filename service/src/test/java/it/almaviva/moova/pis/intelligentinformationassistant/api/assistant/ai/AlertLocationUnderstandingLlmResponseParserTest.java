@@ -143,6 +143,67 @@ class AlertLocationUnderstandingLlmResponseParserTest {
     }
 
     @Test
+    void parsesStructuredMainEventAccessoryStatusAndTopLevelJourneyReference() {
+        AlertLocationUnderstandingResult result = parser.parse("""
+                {
+                  "hasLocations": false,
+                  "language": "it",
+                  "mainEvent": {
+                    "eventIntent": "ARRIVAL",
+                    "eventTypes": ["ARRIVING"],
+                    "combination": "ANY",
+                    "role": "PRIMARY",
+                    "evidenceText": "in arrivo",
+                    "confidence": 0.9
+                  },
+                  "locations": [],
+                  "journeyReferences": [
+                    {
+                      "kind": "UNQUALIFIED_DESCRIPTOR",
+                      "rawText": "treno S8",
+                      "entityHeadText": "treno",
+                      "descriptorValueTexts": ["S8"],
+                      "normalizedValues": ["S8"],
+                      "valueCombination": "SINGLE",
+                      "requiredCoverage": true
+                    }
+                  ],
+                  "accessoryConditions": [
+                    {
+                      "kind": "JOURNEY_STATUS",
+                      "direction": "DEPARTURE",
+                      "status": "DEPARTURE_CANCELLATION",
+                      "role": "ACCESSORY",
+                      "evidenceText": "departure cancellation",
+                      "requiredCoverage": true
+                    }
+                  ],
+                  "warnings": []
+                }
+                """);
+
+        assertThat(result.nonLocationConstraints())
+                .extracting(AlertLocationUnderstandingNonLocationConstraint::type)
+                .contains(
+                        AlertLocationNonLocationConstraintType.MAIN_EVENT,
+                        AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE,
+                        AlertLocationNonLocationConstraintType.JOURNEY_STATUS);
+        AlertLocationUnderstandingNonLocationConstraint mainEvent = result.nonLocationConstraints().stream()
+                .filter(constraint -> constraint.type() == AlertLocationNonLocationConstraintType.MAIN_EVENT)
+                .findFirst()
+                .orElseThrow();
+        assertThat(mainEvent.eventTypes()).containsExactly("ARRIVING");
+        assertThat(mainEvent.semanticRole()).isEqualTo("PRIMARY");
+        AlertLocationUnderstandingNonLocationConstraint status = result.nonLocationConstraints().stream()
+                .filter(constraint -> constraint.type() == AlertLocationNonLocationConstraintType.JOURNEY_STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(status.direction()).isEqualTo("DEPARTURE");
+        assertThat(status.status()).isEqualTo("DEPARTURE_CANCELLATION");
+        assertThat(status.semanticRole()).isEqualTo("ACCESSORY");
+    }
+
+    @Test
     void mapsUnknownRoleToGenericWithWarning() {
         AlertLocationUnderstandingResult result = parser.parse("""
                 {

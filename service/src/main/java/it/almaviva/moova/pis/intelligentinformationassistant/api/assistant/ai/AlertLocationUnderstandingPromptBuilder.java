@@ -42,14 +42,20 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Platform/binario/track/quay/banchina/marciapiede constraints are not locations.
                 - Put platform/binario/track/quay/banchina/marciapiede and similar constraints in nonLocationConstraints.
                 - Journey references are non-location constraints of type JOURNEY_REFERENCE.
-                - JOURNEY_REFERENCE.kind values: JOURNEY_NAME for explicit journey name/number; LINE for explicit line; SERVICE_CATEGORY for explicit service category; TRANSPORT_OPERATOR for explicit operator; UNQUALIFIED_DESCRIPTOR for a descriptor attached to the journey without an explicit qualifier.
-                - Examples: "journey 125"/"corsa 125" -> JOURNEY_NAME; "line M2"/"linea M2" -> LINE; "service category Intercity" -> SERVICE_CATEGORY; "operator ATM"/"operated by ATM" -> TRANSPORT_OPERATOR; "an M2 journey"/"una corsa M2" -> UNQUALIFIED_DESCRIPTOR.
+                - JOURNEY_REFERENCE.kind values: JOURNEY_NAME for explicitly identified journey name/number; LINE for explicitly qualified line; SERVICE_CATEGORY for explicitly qualified service category; TRANSPORT_OPERATOR for explicitly qualified operator; UNQUALIFIED_DESCRIPTOR for a value attached to a generic vehicle/journey entity without an explicit qualifier.
+                - Never reinterpret an unqualified descriptor as JOURNEY_NAME only because it looks like a code. The semantic qualification controls the kind.
+                - Examples: "journey 125"/"corsa 125" -> JOURNEY_NAME; "line M2"/"linea M2" -> LINE; "service category Intercity" -> SERVICE_CATEGORY; "operator ATM"/"operated by ATM" -> TRANSPORT_OPERATOR; "an M2 journey"/"una corsa M2"/"an S8 train" -> UNQUALIFIED_DESCRIPTOR.
                 - Generic entity nouns identify the monitored object and are not filters. Do not emit a JOURNEY_REFERENCE for a bare train, journey, bus, corsa, treno, autobus or equivalent entity mention.
                 - Emit UNQUALIFIED_DESCRIPTOR only when one or more actual attribute values are attached to that entity. The descriptor value must be semantically distinct from the generic entity head.
                 - Event/state expressions are not descriptor values. Articles, determiners, auxiliaries, prepositions and conjunctions are not descriptor values.
-                - Examples: "a journey is arriving" -> no JOURNEY_REFERENCE; "una corsa e partita" -> no JOURNEY_REFERENCE; "an M2 journey" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "una corsa M2" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "journey 125" -> JOURNEY_NAME values=[125]; "line M2" -> LINE values=[M2]; "operated by ATM" -> TRANSPORT_OPERATOR values=[ATM].
+                - Examples: "a journey is arriving" -> no JOURNEY_REFERENCE; "una corsa e partita" -> no JOURNEY_REFERENCE; "an S8 train" -> UNQUALIFIED_DESCRIPTOR values=[S8]; "an M2 journey" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "una corsa M2" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "journey 125" -> JOURNEY_NAME values=[125]; "line M2" -> LINE values=[M2]; "operator ATM" -> TRANSPORT_OPERATOR values=[ATM].
                 - For JOURNEY_REFERENCE include kind, rawText, entityHeadText, descriptorValueTexts, normalizedValue, normalizedValues, valueCombination, requiredCoverage=true and confidence.
                 - Use normalizedValues for the semantic values in source order. One value means valueCombination=SINGLE; alternatives connected as OR/ANY mean valueCombination=ANY. Preserve ANY as alternatives, not mandatory independent constraints.
+                - The primary event is the occurrence that determines when the alert is evaluated.
+                - Directional words inside an accessory condition do not override an explicit primary occurrence.
+                - Extract all independently expressed constraints. Journey references, locations and accessory statuses may coexist.
+                - A prompt can contain a primary arrival event and an accessory departure condition.
+                - Abstract example: "A vehicle arriving with a departure cancellation" -> MAIN_EVENT eventTypes=[ARRIVING] semanticRole=PRIMARY; JOURNEY_STATUS direction=DEPARTURE status=DEPARTURE_CANCELLATION semanticRole=ACCESSORY.
                 - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - Universal/all/any location wording is not a station, stop, or location mention: "qualsiasi localita", "qualunque localita", "ogni localita", "tutte le localita", "qualsiasi fermata", "ovunque", "any location", "all locations", "every location", "anywhere", "any stop" and "all stops" mean no location predicate and no required location coverage.
                 - Delay direction phrases are non-location constraints, not stop names: "ritardo in arrivo", "ritardo di arrivo", "arrival delay", "delay on arrival" mean DELAY_DIRECTION=ARRIVAL and DELAY_EVENT_TYPE=ARRIVAL_DELAY; "ritardo in partenza", "ritardo alla partenza", "ritardo di partenza", "departure delay" mean DELAY_DIRECTION=DEPARTURE and DELAY_EVENT_TYPE=DEPARTURE_DELAY.
@@ -138,11 +144,13 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - PLATFORM
                 - VEHICLE_JOURNEY
                 - JOURNEY_REFERENCE
+                - MAIN_EVENT
                 - LINE
                 - DELAY
                 - PASSING_TYPE
                 - DELAY_DIRECTION
                 - DELAY_EVENT_TYPE
+                - JOURNEY_STATUS
                 - TEMPORAL
                 - UNKNOWN
 
@@ -182,6 +190,22 @@ public class AlertLocationUnderstandingPromptBuilder {
                       "valueCombination": "ANY",
                       "requiredCoverage": true,
                       "confidence": 0.92
+                    },
+                    {
+                      "type": "MAIN_EVENT",
+                      "eventTypes": ["ARRIVING"],
+                      "valueCombination": "ANY",
+                      "semanticRole": "PRIMARY",
+                      "evidenceText": "arriving",
+                      "requiredCoverage": true
+                    },
+                    {
+                      "type": "JOURNEY_STATUS",
+                      "direction": "DEPARTURE",
+                      "status": "DEPARTURE_CANCELLATION",
+                      "semanticRole": "ACCESSORY",
+                      "evidenceText": "departure cancellation",
+                      "requiredCoverage": true
                     }
                   ],
                   "warnings": []

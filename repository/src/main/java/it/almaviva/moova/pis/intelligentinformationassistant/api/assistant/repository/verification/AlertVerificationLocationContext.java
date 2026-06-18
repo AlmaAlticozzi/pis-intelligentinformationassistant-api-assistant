@@ -97,6 +97,14 @@ public record AlertVerificationLocationContext(
                             .append(", requiredCoverage: ").append(constraint.requiredCoverage())
                             .append(", confidence: ").append(constraint.confidence());
                 }
+                if (!constraint.eventTypes().isEmpty() || !constraint.status().isBlank()) {
+                    section.append(", eventTypes: ").append(constraint.eventTypes())
+                            .append(", direction: ").append(nullToEmpty(constraint.direction()))
+                            .append(", status: ").append(nullToEmpty(constraint.status()))
+                            .append(", semanticRole: ").append(nullToEmpty(constraint.semanticRole()))
+                            .append(", evidenceText: \"").append(nullToEmpty(constraint.evidenceText())).append("\"")
+                            .append(", requiredCoverage: ").append(constraint.requiredCoverage());
+                }
                 section.append("\n");
             }
         }
@@ -139,6 +147,21 @@ public record AlertVerificationLocationContext(
                     section.append("    valueCombination: ").append(nullToEmpty(constraint.valueCombination())).append('\n');
                     section.append("    requiredCoverage: ").append(constraint.requiredCoverage()).append('\n');
                     section.append("    confidence: ").append(constraint.confidence()).append('\n');
+                }
+                if (!constraint.eventTypes().isEmpty()) {
+                    section.append("    eventTypes: ").append(constraint.eventTypes()).append('\n');
+                }
+                if (!constraint.direction().isBlank()) {
+                    section.append("    direction: ").append(constraint.direction()).append('\n');
+                }
+                if (!constraint.status().isBlank()) {
+                    section.append("    status: ").append(constraint.status()).append('\n');
+                }
+                if (!constraint.semanticRole().isBlank()) {
+                    section.append("    semanticRole: ").append(constraint.semanticRole()).append('\n');
+                }
+                if (!constraint.evidenceText().isBlank()) {
+                    section.append("    evidenceText: \"").append(escape(constraint.evidenceText())).append("\"\n");
                 }
             }
         }
@@ -360,6 +383,11 @@ public record AlertVerificationLocationContext(
             String normalizedValue,
             List<String> normalizedValues,
             String valueCombination,
+            List<String> eventTypes,
+            String direction,
+            String status,
+            String semanticRole,
+            String evidenceText,
             boolean requiredCoverage,
             double confidence) {
 
@@ -374,7 +402,35 @@ public record AlertVerificationLocationContext(
                 String normalizedValue,
                 boolean requiredCoverage,
                 double confidence) {
-            this(type, rawText, kind, normalizedValue, List.of(normalizedValue), "SINGLE", requiredCoverage, confidence);
+            this(type, rawText, kind, normalizedValue, List.of(normalizedValue), "SINGLE",
+                    List.of(), "", "", "", "", requiredCoverage, confidence);
+        }
+
+        public NonLocationConstraint(
+                String type,
+                String rawText,
+                String kind,
+                String normalizedValue,
+                List<String> normalizedValues,
+                String valueCombination,
+                boolean requiredCoverage,
+                double confidence) {
+            this(type, rawText, kind, normalizedValue, normalizedValues, valueCombination,
+                    List.of(), "", "", "", "", requiredCoverage, confidence);
+        }
+
+        public NonLocationConstraint(
+                String type,
+                String rawText,
+                List<String> eventTypes,
+                String direction,
+                String status,
+                String semanticRole,
+                String evidenceText,
+                boolean requiredCoverage,
+                double confidence) {
+            this(type, rawText, "", "", List.of(), "SINGLE",
+                    eventTypes, direction, status, semanticRole, evidenceText, requiredCoverage, confidence);
         }
 
         public NonLocationConstraint {
@@ -398,6 +454,17 @@ public record AlertVerificationLocationContext(
             valueCombination = nullToEmpty(valueCombination).isBlank()
                     ? (normalizedValues.size() > 1 ? "ANY" : "SINGLE")
                     : valueCombination.trim().toUpperCase();
+            eventTypes = eventTypes == null
+                    ? List.of()
+                    : eventTypes.stream()
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(value -> value.trim().toUpperCase())
+                    .distinct()
+                    .toList();
+            direction = nullToEmpty(direction).trim().toUpperCase();
+            status = nullToEmpty(status).trim().toUpperCase();
+            semanticRole = nullToEmpty(semanticRole).trim().toUpperCase();
+            evidenceText = nullToEmpty(evidenceText).trim();
             requiredCoverage = true;
             if (confidence < 0.0) {
                 confidence = 0.0;

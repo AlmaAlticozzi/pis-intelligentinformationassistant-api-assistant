@@ -108,6 +108,8 @@ public class AlertVerificationOutcomeValidator {
     private static final String STOP_POINTS_JOURNEY_DETAILS_PREFIX =
             STOP_POINTS_JOURNEY_DETAILS_ARRAY_PATH + ".";
     private static final Set<String> STOP_POINTS_CHILD_ARRAY_PATHS = Set.of(
+            "arrivalStatuses[]",
+            "departureStatuses[]",
             "nextCalls[]",
             "nextTransitCalls[]",
             "nextCancelledCalls[]",
@@ -320,6 +322,14 @@ public class AlertVerificationOutcomeValidator {
         if (context.failureReason != null) {
             return;
         }
+        validateAccessoryJourneyStatusCoverage(context);
+        if (context.failureReason != null) {
+            return;
+        }
+        validateStructuredMainEventCoverage(context);
+        if (context.failureReason != null) {
+            return;
+        }
         validateMainEventPhase(context);
         if (context.failureReason != null) {
             return;
@@ -404,6 +414,7 @@ public class AlertVerificationOutcomeValidator {
     private void validateConditionNode(ValidationContext context, Map<?, ?> conditionNode, String path) {
         Object all = conditionNode.get("all");
         Object any = conditionNode.get("any");
+        Object not = conditionNode.get("not");
         Object anyElement = conditionNode.get("anyElement");
         boolean hasComposite = false;
 
@@ -424,6 +435,17 @@ public class AlertVerificationOutcomeValidator {
         if (anyElement != null) {
             hasComposite = true;
             validateAnyElement(context, anyElement, path + ".anyElement", null);
+            if (context.failureReason != null) {
+                return;
+            }
+        }
+        if (not != null) {
+            hasComposite = true;
+            if (!(not instanceof Map<?, ?> notMap)) {
+                context.fail("Verified alert condition " + path + ".not must be an object.");
+                return;
+            }
+            validateConditionNode(context, notMap, path + ".not");
             if (context.failureReason != null) {
                 return;
             }
@@ -534,6 +556,13 @@ public class AlertVerificationOutcomeValidator {
         String arrayPath = resolveAnyElementPath(rawArrayPath, parentArrayPath);
         System.out.println("[IIA][ALERT_VERIFY][ARRAY] anyElement path found=" + rawArrayPath
                 + " resolvedPath=" + arrayPath);
+        if (parentArrayPath != null) {
+            System.out.println("[IIA][ALERT_VERIFY][NESTED_ARRAY]\n"
+                    + "parent=" + parentArrayPath + "\n"
+                    + "relative=" + rawArrayPath + "\n"
+                    + "resolved=" + arrayPath + "\n"
+                    + "valid=" + isAllowedAnyElementPath(arrayPath));
+        }
         if (!isAllowedAnyElementPath(arrayPath)) {
             rejectArrayCondition(context, rawArrayPath, "path is not allowed.");
             return;
@@ -594,6 +623,18 @@ public class AlertVerificationOutcomeValidator {
                 if (context.failureReason != null) {
                     return;
                 }
+            }
+        }
+        Object not = conditionNode.get("not");
+        if (not != null) {
+            hasComposite = true;
+            if (!(not instanceof Map<?, ?> notMap)) {
+                rejectArrayCondition(context, arrayPath, path + ".not must be an object.");
+                return;
+            }
+            validateAnyElementConditionNode(context, notMap, path + ".not", arrayPath);
+            if (context.failureReason != null) {
+                return;
             }
         }
         if (conditionNode.containsKey("field") || conditionNode.containsKey("operator")) {
@@ -1691,6 +1732,124 @@ public class AlertVerificationOutcomeValidator {
         }
     }
 
+    private void validateAccessoryJourneyStatusCoverage(ValidationContext context) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> statuses = context.locationContext
+                .nonLocationConstraints()
+                .stream()
+                .filter(constraint -> "JOURNEY_STATUS".equalsIgnoreCase(constraint.type()))
+                .filter(AlertVerificationLocationContext.NonLocationConstraint::requiredCoverage)
+                .filter(constraint -> "ACCESSORY".equalsIgnoreCase(constraint.semanticRole()))
+                .toList();
+        for (AlertVerificationLocationContext.NonLocationConstraint status : statuses) {
+            String expectedField = accessoryStatusField(status.direction());
+            String expectedStatus = status.status();
+            if (expectedField == null || expectedStatus.isBlank()) {
+                context.fail("Accessory journey status coverage validation failed: missing direction or status.");
+                return;
+            }
+            boolean covered = context.conditionLeaves.stream()
+                    .anyMatch(leaf -> expectedField.equals(leaf.field())
+                            && isPositiveStatusOperator(leaf.operator())
+                            && leafValues(leaf).contains(expectedStatus)
+                            && ServiceDataCapabilityCatalog.isAllowedOperator(expectedField, leaf.operator()));
+            System.out.println("[IIA][ALERT_VERIFY][ACCESSORY_STATUS_COVERAGE]\n"
+                    + "direction=" + status.direction() + "\n"
+                    + "status=" + expectedStatus + "\n"
+                    + "field=" + expectedField + "\n"
+                    + "valid=" + covered);
+            if (!covered) {
+                context.fail("Accessory journey status coverage validation failed: " + expectedStatus
+                        + " is not represented on " + expectedField + ".");
+                return;
+            }
+        }
+    }
+
+    private String accessoryStatusField(String direction) {
+        if ("DEPARTURE".equalsIgnoreCase(direction)) {
+            return JOURNEY_DETAILS_PATH + ".departureStatuses[].status";
+        }
+        if ("ARRIVAL".equalsIgnoreCase(direction)) {
+            return JOURNEY_DETAILS_PATH + ".arrivalStatuses[].status";
+        }
+        return null;
+    }
+
+    private boolean isPositiveStatusOperator(String operator) {
+        return "CONTAINS".equals(operator) || "CONTAINS_ANY".equals(operator);
+    }
+
+    private void validateStructuredMainEventCoverage(ValidationContext context) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> mainEvents = context.locationContext
+                .nonLocationConstraints()
+                .stream()
+                .filter(constraint -> "MAIN_EVENT".equalsIgnoreCase(constraint.type()))
+                .filter(AlertVerificationLocationContext.NonLocationConstraint::requiredCoverage)
+                .filter(constraint -> constraint.semanticRole() == null
+                        || constraint.semanticRole().isBlank()
+                        || "PRIMARY".equalsIgnoreCase(constraint.semanticRole()))
+                .toList();
+        if (mainEvents.isEmpty()) {
+            return;
+        }
+        List<String> actual = actualEventsTypeValues(context);
+        List<String> blueprintActual = actualEventsTypeValues(context.agentBlueprintPreview);
+        for (AlertVerificationLocationContext.NonLocationConstraint mainEvent : mainEvents) {
+            List<String> expected = structuredMainEventValues(mainEvent);
+            if (expected.isEmpty()) {
+                continue;
+            }
+            boolean technicalValid = expected.stream().allMatch(actual::contains);
+            boolean blueprintValid = blueprintActual.isEmpty() || expected.stream().allMatch(blueprintActual::contains);
+            boolean valid = technicalValid && blueprintValid;
+            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_COVERAGE]\n"
+                    + "expected=" + expected + "\n"
+                    + "actual=" + actual + "\n"
+                    + "blueprintActual=" + blueprintActual + "\n"
+                    + "valid=" + valid);
+            if (!valid) {
+                context.fail("Main event coverage validation failed: expected "
+                        + expected
+                        + " on payload.ongroundServiceEvent.eventsType but found "
+                        + actual + ".");
+                return;
+            }
+        }
+    }
+
+    private List<String> structuredMainEventValues(AlertVerificationLocationContext.NonLocationConstraint constraint) {
+        List<String> values = new ArrayList<>();
+        if (constraint.eventTypes() != null) {
+            constraint.eventTypes().stream()
+                    .map(this::stringValue)
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                    .forEach(values::add);
+        }
+        if (values.isEmpty() && constraint.normalizedValues() != null) {
+            constraint.normalizedValues().stream()
+                    .map(this::stringValue)
+                    .filter(value -> value != null && !value.isBlank())
+                    .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                    .forEach(values::add);
+        }
+        if (values.isEmpty()) {
+            String value = firstNonBlank(constraint.normalizedValue(), constraint.rawText());
+            if (value != null && !value.isBlank()) {
+                values.add(value.trim().toUpperCase(Locale.ROOT));
+            }
+        }
+        return values.stream().distinct().toList();
+    }
+
+    private List<String> leafValues(ConditionLeaf leaf) {
+        if (leaf.values() != null && !leaf.values().isEmpty()) {
+            return leaf.values();
+        }
+        String value = stringValue(leaf.value());
+        return value == null || value.isBlank() ? List.of() : List.of(value);
+    }
+
     private AlertJourneyReferenceKind parseJourneyReferenceKind(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -1745,16 +1904,49 @@ public class AlertVerificationOutcomeValidator {
                     expectedValue).stream()
                     .map(this::relativeJourneyField)
                     .toList();
+            List<ConditionLeaf> actualLeaves = unqualifiedDescriptorCandidateLeaves(context, expectedValue);
+            List<String> actualFields = actualLeaves.stream()
+                    .map(ConditionLeaf::field)
+                    .map(this::relativeJourneyField)
+                    .distinct()
+                    .toList();
+            List<String> unexpectedFields = actualFields.stream()
+                    .filter(field -> !expectedUnqualifiedDescriptorFields().contains(field))
+                    .distinct()
+                    .toList();
+            List<String> actualOperators = actualLeaves.stream()
+                    .map(ConditionLeaf::operator)
+                    .filter(operator -> operator != null && !operator.isBlank())
+                    .distinct()
+                    .toList();
             System.out.println("[IIA][ALERT_VERIFY][JOURNEY_REFERENCE_COVERAGE_CHECK]\n"
                     + "kind=" + reference.kind() + "\n"
                     + "values=" + expectedValues + "\n"
                     + "combination=" + reference.valueCombination() + "\n"
                     + "value=" + expectedValue + "\n"
+                    + "expectedFields=" + expectedUnqualifiedDescriptorFields() + "\n"
                     + "fields=" + fields + "\n"
+                    + "actualFields=" + actualFields + "\n"
+                    + "unexpectedFields=" + unexpectedFields + "\n"
+                    + "expectedOperator=EQUALS_NORMALIZED\n"
+                    + "actualOperators=" + actualOperators + "\n"
                     + "valid=" + valid);
             return valid;
         });
         return allValuesCovered && hasNoUnexpectedUnqualifiedDescriptorValues(context, expectedValues);
+    }
+
+    private List<String> expectedUnqualifiedDescriptorFields() {
+        return List.of("line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+    }
+
+    private List<ConditionLeaf> unqualifiedDescriptorCandidateLeaves(ValidationContext context, String expectedValue) {
+        return context.conditionLeaves.stream()
+                .filter(leaf -> JOURNEY_DETAILS_PATH.equals(leaf.arrayPath()))
+                .filter(leaf -> UNQUALIFIED_DESCRIPTOR_FIELDS.contains(leaf.field()) || JOURNEY_NAME_FIELD.equals(leaf.field()))
+                .filter(leaf -> sameNormalizedValue(expectedValue, stringValue(leaf.value())))
+                .filter(leaf -> anyGroupPath(leaf) != null)
+                .toList();
     }
 
     private boolean hasUnqualifiedDescriptorCoverage(ValidationContext context, String expectedValue) {
@@ -1896,6 +2088,12 @@ public class AlertVerificationOutcomeValidator {
     }
 
     private void validateMainEventPhase(ValidationContext context) {
+        if (hasRequiredStructuredMainEvent(context)) {
+            System.out.println("[IIA][ALERT_VERIFY][LEGACY_MAIN_EVENT]\n"
+                    + "skipped=true\n"
+                    + "reason=authoritative-structured-main-event-present");
+            return;
+        }
         String intent = nonLocationConstraintValue(context, "MAIN_EVENT_INTENT");
         String phase = nonLocationConstraintValue(context, "MAIN_EVENT_PHASE");
         String expectedEventType = nonLocationConstraintValue(context, "EXPECTED_MAIN_EVENT_TYPE");
@@ -1957,6 +2155,16 @@ public class AlertVerificationOutcomeValidator {
             return;
         }
         validateExpectedMainEventType(context, intent, phase, expectedEventType);
+    }
+
+    private boolean hasRequiredStructuredMainEvent(ValidationContext context) {
+        return context.locationContext.nonLocationConstraints()
+                .stream()
+                .filter(constraint -> "MAIN_EVENT".equalsIgnoreCase(constraint.type()))
+                .filter(AlertVerificationLocationContext.NonLocationConstraint::requiredCoverage)
+                .anyMatch(constraint -> constraint.semanticRole() == null
+                        || constraint.semanticRole().isBlank()
+                        || "PRIMARY".equalsIgnoreCase(constraint.semanticRole()));
     }
 
     private void validateExpectedMainEventType(
@@ -2147,6 +2355,44 @@ public class AlertVerificationOutcomeValidator {
                     return values.stream();
                 })
                 .toList();
+    }
+
+    private List<String> actualEventsTypeValues(Map<String, Object> agentBlueprintPreview) {
+        if (agentBlueprintPreview == null || agentBlueprintPreview.isEmpty()) {
+            return List.of();
+        }
+        Object parameters = agentBlueprintPreview.get("parameters");
+        if (!(parameters instanceof Map<?, ?> parameterMap)) {
+            return List.of();
+        }
+        Object condition = parameterMap.get("condition");
+        List<String> values = new ArrayList<>();
+        collectEventsTypeValues(condition, values);
+        return values.stream().distinct().toList();
+    }
+
+    private void collectEventsTypeValues(Object node, List<String> values) {
+        if (node instanceof Map<?, ?> map) {
+            String field = stringValue(map.get("field"));
+            if ("payload.ongroundServiceEvent.eventsType".equals(field)) {
+                String value = stringValue(map.get("value"));
+                if (value != null && !value.isBlank()) {
+                    values.add(value);
+                }
+                Object rawValues = map.get("values");
+                if (rawValues instanceof Collection<?> collection) {
+                    collection.stream()
+                            .map(this::stringValue)
+                            .filter(item -> item != null && !item.isBlank())
+                            .forEach(values::add);
+                }
+            }
+            map.values().forEach(child -> collectEventsTypeValues(child, values));
+            return;
+        }
+        if (node instanceof Collection<?> collection) {
+            collection.forEach(child -> collectEventsTypeValues(child, values));
+        }
     }
 
     private boolean hasDelayPredicate(ValidationContext context) {

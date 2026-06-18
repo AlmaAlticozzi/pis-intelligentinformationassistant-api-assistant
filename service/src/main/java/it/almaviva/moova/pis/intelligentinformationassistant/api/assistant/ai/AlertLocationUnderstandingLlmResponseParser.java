@@ -44,8 +44,12 @@ public class AlertLocationUnderstandingLlmResponseParser {
         String language = asString(payload.get("language"));
         AlertLocationUnderstandingMainEvent mainEvent = parseMainEvent(asMap(payload.get("mainEvent")), warnings);
         List<AlertLocationUnderstandingLocation> locations = parseLocations(payload.get("locations"), warnings);
-        List<AlertLocationUnderstandingNonLocationConstraint> nonLocationConstraints =
-                parseNonLocationConstraints(payload.get("nonLocationConstraints"), warnings);
+        List<AlertLocationUnderstandingNonLocationConstraint> nonLocationConstraints = new ArrayList<>(
+                parseNonLocationConstraints(payload.get("nonLocationConstraints"), warnings));
+        parseMainEventConstraint(asMap(payload.get("mainEvent")), warnings)
+                .ifPresent(nonLocationConstraints::add);
+        nonLocationConstraints.addAll(parseAccessoryConditions(payload.get("accessoryConditions"), warnings));
+        nonLocationConstraints.addAll(parseJourneyReferences(payload.get("journeyReferences"), warnings));
         warnings.addAll(asStringList(payload.get("warnings")));
 
         return new AlertLocationUnderstandingResult(
@@ -69,6 +73,38 @@ public class AlertLocationUnderstandingLlmResponseParser {
                 warnings);
         double confidence = clamp(asDouble(payload.get("confidence"), 0.0), "mainEvent.confidence", warnings);
         return new AlertLocationUnderstandingMainEvent(eventIntent, confidence);
+    }
+
+    private java.util.Optional<AlertLocationUnderstandingNonLocationConstraint> parseMainEventConstraint(
+            Map<String, Object> payload,
+            List<String> warnings) {
+        if (payload == null) {
+            return java.util.Optional.empty();
+        }
+        List<String> eventTypes = asStringList(payload.get("eventTypes"));
+        if (eventTypes.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new AlertLocationUnderstandingNonLocationConstraint(
+                AlertLocationNonLocationConstraintType.MAIN_EVENT,
+                firstNonBlank(asString(payload.get("evidenceText")), String.join(",", eventTypes)),
+                null,
+                eventTypes.getFirst(),
+                eventTypes,
+                "",
+                List.of(),
+                eventTypes,
+                "",
+                "",
+                firstNonBlank(asString(payload.get("semanticRole")), asString(payload.get("role"))),
+                asString(payload.get("evidenceText")),
+                parseEnum(AlertJourneyReferenceValueCombination.class,
+                        asString(firstNonBlank(asString(payload.get("valueCombination")), asString(payload.get("combination")))),
+                        AlertJourneyReferenceValueCombination.SINGLE,
+                        "mainEvent.combination",
+                        warnings),
+                !payload.containsKey("requiredCoverage") || Boolean.TRUE.equals(payload.get("requiredCoverage")),
+                clamp(asDouble(payload.get("confidence"), 0.0), "mainEvent.confidence", warnings)));
     }
 
     private List<AlertLocationUnderstandingLocation> parseLocations(Object value, List<String> warnings) {
@@ -147,6 +183,12 @@ public class AlertLocationUnderstandingLlmResponseParser {
                     "nonLocationConstraints[" + index + "].kind",
                     warnings);
             List<String> normalizedValues = asStringList(map.get("normalizedValues"));
+            List<String> eventTypes = asStringList(map.get("eventTypes"));
+            if (normalizedValues.isEmpty()
+                    && type == AlertLocationNonLocationConstraintType.MAIN_EVENT
+                    && !eventTypes.isEmpty()) {
+                normalizedValues = eventTypes;
+            }
             List<String> descriptorValueTexts = asStringList(map.get("descriptorValueTexts"));
             String entityHeadText = asString(map.get("entityHeadText"));
             AlertJourneyReferenceValueCombination valueCombination = parseEnum(
@@ -163,6 +205,11 @@ public class AlertLocationUnderstandingLlmResponseParser {
                     normalizedValues,
                     entityHeadText,
                     descriptorValueTexts,
+                    eventTypes,
+                    asString(map.get("direction")),
+                    asString(map.get("status")),
+                    firstNonBlank(asString(map.get("semanticRole")), asString(map.get("role"))),
+                    firstNonBlank(asString(map.get("evidenceText")), asString(map.get("rawText"))),
                     valueCombination,
                     !map.containsKey("requiredCoverage") || Boolean.TRUE.equals(map.get("requiredCoverage")),
                     clamp(asDouble(map.get("confidence"), 0.0),
@@ -174,6 +221,71 @@ public class AlertLocationUnderstandingLlmResponseParser {
             index++;
         }
         return result;
+    }
+
+    private List<AlertLocationUnderstandingNonLocationConstraint> parseAccessoryConditions(
+            Object value,
+            List<String> warnings) {
+        if (!(value instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        List<AlertLocationUnderstandingNonLocationConstraint> result = new ArrayList<>();
+        int index = 0;
+        for (Object item : collection) {
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                warnings.add("accessoryConditions[" + index + "] is not an object and was ignored.");
+                index++;
+                continue;
+            }
+            Map<String, Object> map = stringKeyMap(rawMap);
+            String kind = asString(map.get("kind"));
+            if (!"JOURNEY_STATUS".equalsIgnoreCase(kind)) {
+                index++;
+                continue;
+            }
+            String status = asString(map.get("status"));
+            result.add(new AlertLocationUnderstandingNonLocationConstraint(
+                    AlertLocationNonLocationConstraintType.JOURNEY_STATUS,
+                    firstNonBlank(asString(map.get("evidenceText")), status),
+                    null,
+                    status,
+                    status == null || status.isBlank() ? List.of() : List.of(status),
+                    "",
+                    List.of(),
+                    List.of(),
+                    asString(map.get("direction")),
+                    status,
+                    firstNonBlank(asString(map.get("semanticRole")), asString(map.get("role"))),
+                    asString(map.get("evidenceText")),
+                    AlertJourneyReferenceValueCombination.SINGLE,
+                    !map.containsKey("requiredCoverage") || Boolean.TRUE.equals(map.get("requiredCoverage")),
+                    clamp(asDouble(map.get("confidence"), 0.0),
+                            "accessoryConditions[" + index + "].confidence",
+                            warnings)));
+            index++;
+        }
+        return result;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : (second == null ? "" : second);
+    }
+
+    private List<AlertLocationUnderstandingNonLocationConstraint> parseJourneyReferences(
+            Object value,
+            List<String> warnings) {
+        if (!(value instanceof Collection<?> collection)) {
+            return List.of();
+        }
+        List<Map<String, Object>> mapped = new ArrayList<>();
+        for (Object item : collection) {
+            if (item instanceof Map<?, ?> rawMap) {
+                Map<String, Object> map = stringKeyMap(rawMap);
+                map.put("type", "JOURNEY_REFERENCE");
+                mapped.add(map);
+            }
+        }
+        return parseNonLocationConstraints(mapped, warnings);
     }
 
     private boolean acceptJourneyReferenceCandidate(

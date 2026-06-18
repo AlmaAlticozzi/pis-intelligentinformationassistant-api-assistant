@@ -34,6 +34,8 @@ public class AgentBlueprintValidator {
             "nextCalls[]",
             "nextTransitCalls[]",
             "nextCancelledCalls[]",
+            "arrivalStatuses[]",
+            "departureStatuses[]",
             "isReplacementOf[]",
             "replacement.stopPointReplacements[]",
             "externalReplacement.stopPointReplacements[]");

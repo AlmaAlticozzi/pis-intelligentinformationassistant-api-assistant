@@ -2957,6 +2957,56 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void structuredMainEventTakesPrecedenceOverConflictingLegacyMainEvent() {
+        String eventField = "payload.ongroundServiceEvent.eventsType";
+        String stopPointField = "payload.stopPointJourney.stopPoint.id";
+        String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
+        AlertVerificationLocationContext context = locationContextWithConstraints(
+                List.of(
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "MAIN_EVENT",
+                                "in arrivo",
+                                List.of("ARRIVING"),
+                                "",
+                                "",
+                                "PRIMARY",
+                                "in arrivo",
+                                true,
+                                0.95),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_INTENT", "DEPARTURE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("MAIN_EVENT_PHASE", "PROGRESSIVE"),
+                        new AlertVerificationLocationContext.NonLocationConstraint("EXPECTED_MAIN_EVENT_TYPE", "DEPARTING"),
+                        new AlertVerificationLocationContext.NonLocationConstraint(
+                                "JOURNEY_STATUS",
+                                "soppressione in partenza",
+                                List.of(),
+                                "DEPARTURE",
+                                "DEPARTURE_CANCELLATION",
+                                "ACCESSORY",
+                                "soppressione in partenza",
+                                true,
+                                0.92)),
+                resolved("Bignami", "MAIN_EVENT_LOCATION", "INCLUDE", BIGNAMI_ID));
+
+        AlertVerificationOutcome validated = validator.validate(
+                outcomeWithConditionAndCoverage(Map.of(
+                                "type", "SERVICE_DATA_FIELD_MATCH",
+                                "all", List.of(
+                                        Map.of("field", eventField, "operator", "CONTAINS", "value", "ARRIVING"),
+                                        Map.of("field", stopPointField, "operator", "EQUALS", "value", BIGNAMI_ID),
+                                        cancellationAnyElement(detailsPath, Map.of(
+                                                "field", "departureStatuses[].status",
+                                                "operator", "CONTAINS",
+                                                "value", "DEPARTURE_CANCELLATION")))),
+                        coverageFor(stopPointField, eventField, detailsPath + ".departureStatuses[].status")),
+                "Avvertimi quando a Bignami c'e un treno in arrivo con una soppressione in partenza",
+                context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(validated.rejectedReason()).isNull();
+    }
+
+    @Test
     void rejectsEqualPlatformWithoutValue() {
         assertPlatformConditionIsRejected(
                 Map.of("field", "timetabledDeparturePlatform.dsc", "operator", "EQUAL_PLATFORM"),

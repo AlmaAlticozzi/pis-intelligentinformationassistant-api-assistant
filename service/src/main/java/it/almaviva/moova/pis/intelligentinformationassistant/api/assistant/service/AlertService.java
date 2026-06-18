@@ -847,11 +847,10 @@ public class AlertService {
     }
 
     private AlertVerificationOutcome validateOutcomeWithLocationContext(
-            AlertVerificationOutcome outcome,
-            AlertVerificationPromptData enrichedPromptData) {
+        AlertVerificationOutcome outcome,
+        AlertVerificationPromptData enrichedPromptData) {
         outcome = normalizeSingleValueInOperators(outcome, enrichedPromptData.alertId());
         outcome = normalizeRequirementCoverage(outcome, enrichedPromptData.alertId());
-        outcome = normalizeExpectedMainEventType(outcome, enrichedPromptData);
         outcome = normalizeJourneyReferenceTechnicalSpecification(outcome, enrichedPromptData);
         outcome = reconcileRequirementMappings(outcome, enrichedPromptData);
         AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
@@ -887,208 +886,6 @@ public class AlertService {
                 outcome,
                 enrichedPromptData == null ? null : enrichedPromptData.locationResolutionContext(),
                 enrichedPromptData == null ? null : enrichedPromptData.alertId());
-    }
-
-    AlertVerificationOutcome normalizeExpectedMainEventType(
-            AlertVerificationOutcome outcome,
-            AlertVerificationPromptData promptData) {
-        if (outcome == null
-                || outcome.decision() != AlertVerificationDecision.VERIFIED
-                || promptData == null
-                || promptData.locationResolutionContext() == null) {
-            return outcome;
-        }
-        String expected = authoritativeEventType(promptData.locationResolutionContext());
-        if (expected == null || !isSupportedAuthoritativeEvent(expected)) {
-            return outcome;
-        }
-        DelayThreshold delayThreshold = delayThreshold(promptData.locationResolutionContext());
-        Map<String, Object> technicalSpecification = mutableMap(outcome.technicalSpecification());
-        Map<String, Object> agentBlueprintPreview = mutableMap(outcome.agentBlueprintPreview());
-        if (technicalSpecification == null) {
-            return outcome;
-        }
-        Object technicalCondition = technicalSpecification.get("condition");
-        if (isGenericDelayEvent(expected)) {
-            AlertVerificationOutcome normalized = normalizeGenericDelayEventType(
-                    outcome,
-                    promptData,
-                    technicalSpecification,
-                    agentBlueprintPreview,
-                    technicalCondition);
-            return normalizeMissingDelayThresholdPredicate(
-                    normalized,
-                    promptData,
-                    technicalSpecification,
-                    agentBlueprintPreview,
-                    technicalCondition,
-                    expected,
-                    delayThreshold);
-        }
-        MainEventNormalization normalization = normalizeMainEventLeaf(technicalCondition, expected);
-        boolean inserted = false;
-        if (!normalization.changed()
-                && !hasMainEventLeaf(technicalCondition)
-                && hasCoherentPredicateForExpectedEvent(technicalCondition, expected)) {
-            inserted = insertMainEventLeaf(technicalCondition, expected);
-            if (inserted) {
-                normalization = new MainEventNormalization(true, null, null, List.of());
-            }
-        }
-        if (!normalization.changed()) {
-            return normalizeMissingDelayThresholdPredicate(
-                    outcome,
-                    promptData,
-                    technicalSpecification,
-                    agentBlueprintPreview,
-                    technicalCondition,
-                    expected,
-                    delayThreshold);
-        }
-        if (inserted) {
-            insertBlueprintMainEventLeaf(agentBlueprintPreview, expected);
-            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
-                    + promptData.alertId()
-                    + " expectedMainEventType=" + expected
-                    + " reason=missing-eventsType-inserted-from-expected-main-event-type");
-        } else {
-            normalizeBlueprintMainEventLeaf(agentBlueprintPreview, expected);
-            System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_CANONICALIZATION] "
-                    + "action=REPLACED_EVENTS_TYPE"
-                    + " expected=" + expected
-                    + " actual=" + normalization.originalValue()
-                    + " reason=backend-derived-main-event-authoritative");
-            if (isOperationalMainEventType(expected)
-                    && (isDepartureDelayEvent(normalization.originalValue())
-                    || isArrivalDelayEvent(normalization.originalValue()))) {
-                System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
-                        + promptData.alertId()
-                        + " reason=event-primary-with-delay-overrides-delay-event-type"
-                        + " expectedMainEventType=" + expected
-                        + " originalEventsType=" + normalization.originalValue());
-            } else {
-                System.out.println("[IIA][ALERT_VERIFY][MAIN_EVENT_NORMALIZATION] alertId="
-                        + promptData.alertId()
-                        + " expectedMainEventType=" + expected
-                        + " originalOperator=" + normalization.originalOperator()
-                        + " originalValue=" + normalization.originalValue()
-                        + " originalValues=" + normalization.originalValues()
-                        + " normalizedOperator=CONTAINS"
-                        + " normalizedValue=" + expected
-                        + " normalizedValues=[]"
-                        + " reason=EXPECTED_MAIN_EVENT_TYPE is authoritative for the current ServiceData event phase");
-            }
-        }
-        AlertVerificationOutcome rebuilt = new AlertVerificationOutcome(
-                outcome.decision(),
-                outcome.summary(),
-                outcome.rejectedReason(),
-                outcome.confidence(),
-                outcome.provider(),
-                outcome.model(),
-                outcome.promptVersion(),
-                outcome.requiredSources(),
-                outcome.interpreterType(),
-                outcome.inputModel(),
-                outcome.outputModel(),
-                outcome.triggerType(),
-                outcome.evaluationMode(),
-                outcome.interpretedEventNames(),
-                outcome.interpretedTargetTypes(),
-                technicalSpecification,
-                agentBlueprintPreview,
-                outcome.requirementCoverage(),
-                outcome.warnings(),
-                outcome.safetyChecks());
-        return normalizeMissingDelayThresholdPredicate(
-                rebuilt,
-                promptData,
-                technicalSpecification,
-                agentBlueprintPreview,
-                technicalCondition,
-                expected,
-                delayThreshold);
-    }
-
-    private AlertVerificationOutcome normalizeGenericDelayEventType(
-            AlertVerificationOutcome outcome,
-            AlertVerificationPromptData promptData,
-            Map<String, Object> technicalSpecification,
-            Map<String, Object> agentBlueprintPreview,
-            Object technicalCondition) {
-        if (hasGenericDelayEventLeaf(technicalCondition) || !hasGenericDelayPredicate(technicalCondition)) {
-            return outcome;
-        }
-        boolean inserted = insertGenericDelayEventLeaf(technicalCondition);
-        if (!inserted) {
-            return outcome;
-        }
-        if (agentBlueprintPreview != null) {
-            Object parameters = agentBlueprintPreview.get("parameters");
-            if (parameters instanceof Map<?, ?> parametersMap) {
-                insertGenericDelayEventLeaf(parametersMap.get("condition"));
-            }
-        }
-        System.out.println("[IIA][ALERT_VERIFY][DELAY_EVENT_NORMALIZATION] alertId=" + promptData.alertId()
-                + " reason=generic-delay-eventsType-inserted"
-                + " delayEventType=BOTH");
-        return new AlertVerificationOutcome(
-                outcome.decision(),
-                outcome.summary(),
-                outcome.rejectedReason(),
-                outcome.confidence(),
-                outcome.provider(),
-                outcome.model(),
-                outcome.promptVersion(),
-                outcome.requiredSources(),
-                outcome.interpreterType(),
-                outcome.inputModel(),
-                outcome.outputModel(),
-                outcome.triggerType(),
-                outcome.evaluationMode(),
-                outcome.interpretedEventNames(),
-                outcome.interpretedTargetTypes(),
-                technicalSpecification,
-                agentBlueprintPreview,
-                outcome.requirementCoverage(),
-                outcome.warnings(),
-                outcome.safetyChecks());
-    }
-
-    private AlertVerificationOutcome normalizeMissingDelayThresholdPredicate(
-            AlertVerificationOutcome outcome,
-            AlertVerificationPromptData promptData,
-            Map<String, Object> technicalSpecification,
-            Map<String, Object> agentBlueprintPreview,
-            Object technicalCondition,
-            String expected,
-            DelayThreshold delayThreshold) {
-        if (delayThreshold == null || !supportsDelayThresholdPredicate(expected)) {
-            return outcome;
-        }
-        if (hasRequiredDelayThresholdPredicate(technicalCondition, expected, delayThreshold)) {
-            System.out.println("[IIA][ALERT_VERIFY][DELAY_THRESHOLD_NORMALIZATION] alertId=" + promptData.alertId()
-                    + " action=skip"
-                    + " reason=" + coherentDelayPredicateAlreadyPresentReason(expected, delayThreshold));
-            return outcome;
-        }
-        boolean inserted = insertDelayThresholdPredicate(technicalCondition, expected, delayThreshold);
-        if (!inserted) {
-            return outcome;
-        }
-        if (agentBlueprintPreview != null) {
-            Object parameters = agentBlueprintPreview.get("parameters");
-            if (parameters instanceof Map<?, ?> parametersMap) {
-                insertDelayThresholdPredicate(parametersMap.get("condition"), expected, delayThreshold);
-            }
-        }
-        System.out.println("[IIA][ALERT_VERIFY][DELAY_THRESHOLD_NORMALIZATION] alertId=" + promptData.alertId()
-                + " reason=missing-delay-threshold-predicate-inserted"
-                + " delayEventType=" + expected
-                + " operator=" + delayThreshold.operator()
-                + " value=" + delayThreshold.value()
-                + " measure=" + delayThreshold.measure());
-        return rebuildOutcome(outcome, technicalSpecification, agentBlueprintPreview, outcome.requirementCoverage());
     }
 
     AlertVerificationOutcome normalizeSingleValueInOperators(AlertVerificationOutcome outcome, String alertId) {
@@ -1132,62 +929,6 @@ public class AlertService {
         return rebuildOutcome(outcome, outcome.technicalSpecification(), outcome.agentBlueprintPreview(), coverage);
     }
 
-    private void normalizeBlueprintMainEventLeaf(Map<String, Object> agentBlueprintPreview, String expected) {
-        if (agentBlueprintPreview == null) {
-            return;
-        }
-        Object parameters = agentBlueprintPreview.get("parameters");
-        if (parameters instanceof Map<?, ?> parametersMap) {
-            Object condition = parametersMap.get("condition");
-            normalizeMainEventLeaf(condition, expected);
-        }
-    }
-
-    private void insertBlueprintMainEventLeaf(Map<String, Object> agentBlueprintPreview, String expected) {
-        if (agentBlueprintPreview == null) {
-            return;
-        }
-        Object parameters = agentBlueprintPreview.get("parameters");
-        if (parameters instanceof Map<?, ?> parametersMap) {
-            insertMainEventLeaf(parametersMap.get("condition"), expected);
-        }
-    }
-
-    private MainEventNormalization normalizeMainEventLeaf(Object node, String expected) {
-        if (node instanceof Map<?, ?> rawMap) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) rawMap;
-            String field = stringValue(map.get("field"));
-            String operator = stringValue(map.get("operator"));
-            if ("payload.ongroundServiceEvent.eventsType".equals(field) && "CONTAINS".equals(operator)) {
-                String originalValue = stringValue(map.get("value"));
-                if (originalValue != null
-                        && !expected.equals(originalValue)) {
-                    map.put("operator", "CONTAINS");
-                    map.put("value", expected);
-                    map.remove("values");
-                    return new MainEventNormalization(true, operator, originalValue, List.of());
-                }
-                return MainEventNormalization.unchanged();
-            }
-            for (Object value : map.values()) {
-                MainEventNormalization normalization = normalizeMainEventLeaf(value, expected);
-                if (normalization.changed()) {
-                    return normalization;
-                }
-            }
-        }
-        if (node instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                MainEventNormalization normalization = normalizeMainEventLeaf(item, expected);
-                if (normalization.changed()) {
-                    return normalization;
-                }
-            }
-        }
-        return MainEventNormalization.unchanged();
-    }
-
     private boolean hasMainEventLeaf(Object node) {
         if (node instanceof Map<?, ?> map) {
             if ("payload.ongroundServiceEvent.eventsType".equals(stringValue(map.get("field")))) {
@@ -1201,228 +942,6 @@ public class AlertService {
                     return true;
                 }
             }
-        }
-        return false;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean insertMainEventLeaf(Object node, String expected) {
-        if (!(node instanceof Map<?, ?> rawMap)) {
-            return false;
-        }
-        Map<String, Object> map = (Map<String, Object>) rawMap;
-        Map<String, Object> eventLeaf = new java.util.LinkedHashMap<>();
-        eventLeaf.put("field", "payload.ongroundServiceEvent.eventsType");
-        eventLeaf.put("operator", "CONTAINS");
-        eventLeaf.put("value", expected);
-        Object all = map.get("all");
-        if (all instanceof List<?> allList) {
-            List<Object> mutableAll = new ArrayList<>();
-            mutableAll.add(eventLeaf);
-            mutableAll.addAll(allList);
-            map.put("all", mutableAll);
-            return true;
-        }
-        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
-            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
-            map.clear();
-            map.put("type", "SERVICE_DATA_FIELD_MATCH");
-            map.put("all", new ArrayList<>(List.of(eventLeaf, original)));
-            return true;
-        }
-        return false;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean insertGenericDelayEventLeaf(Object node) {
-        if (!(node instanceof Map<?, ?> rawMap)) {
-            return false;
-        }
-        Map<String, Object> map = (Map<String, Object>) rawMap;
-        Map<String, Object> eventLeaf = new java.util.LinkedHashMap<>();
-        eventLeaf.put("field", "payload.ongroundServiceEvent.eventsType");
-        eventLeaf.put("operator", "CONTAINS_ANY");
-        eventLeaf.put("values", List.of("ARRIVAL_DELAY", "DEPARTURE_DELAY"));
-        Object all = map.get("all");
-        if (all instanceof List<?> allList) {
-            List<Object> mutableAll = new ArrayList<>();
-            mutableAll.add(eventLeaf);
-            mutableAll.addAll(allList);
-            map.put("all", mutableAll);
-            return true;
-        }
-        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
-            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
-            map.clear();
-            map.put("type", "SERVICE_DATA_FIELD_MATCH");
-            map.put("all", new ArrayList<>(List.of(eventLeaf, original)));
-            return true;
-        }
-        return false;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean insertDelayThresholdPredicate(Object node, String expected, DelayThreshold threshold) {
-        if (!(node instanceof Map<?, ?> rawMap)) {
-            return false;
-        }
-        Map<String, Object> map = (Map<String, Object>) rawMap;
-        Map<String, Object> delayPredicate = delayThresholdPredicate(expected, threshold);
-        if (delayPredicate.isEmpty()) {
-            return false;
-        }
-        Object all = map.get("all");
-        if (all instanceof List<?> allList) {
-            List<Object> mutableAll = new ArrayList<>(allList);
-            mutableAll.add(delayPredicate);
-            map.put("all", mutableAll);
-            return true;
-        }
-        if ("SERVICE_DATA_FIELD_MATCH".equals(stringValue(map.get("type")))) {
-            Map<String, Object> original = new java.util.LinkedHashMap<>(map);
-            map.clear();
-            map.put("type", "SERVICE_DATA_FIELD_MATCH");
-            map.put("all", new ArrayList<>(List.of(original, delayPredicate)));
-            return true;
-        }
-        return false;
-    }
-
-    private Map<String, Object> delayThresholdPredicate(String expected, DelayThreshold threshold) {
-        if (isDepartureDelayEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate(delayField("departure", threshold), threshold);
-        }
-        if (isArrivalDelayEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate(delayField("arrival", threshold), threshold);
-        }
-        if (isDepartureEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate(delayField("departure", threshold), threshold);
-        }
-        if (isArrivalEvent(expected)) {
-            return anyStopPointJourneyDetailPredicate(delayField("arrival", threshold), threshold);
-        }
-        if (isGenericDelayEvent(expected)) {
-            return Map.of("anyElement", Map.of(
-                    "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
-                    "conditions", Map.of("any", List.of(
-                            delayThresholdLeaf(delayField("arrival", threshold), threshold),
-                            delayThresholdLeaf(delayField("departure", threshold), threshold)))));
-        }
-        return Map.of();
-    }
-
-    private String delayField(String direction, DelayThreshold threshold) {
-        String measureField = "ROUNDED_DELAY".equals(threshold.measure()) ? "roundedDelay" : "delay";
-        return direction + "Delay." + measureField;
-    }
-
-    private Map<String, Object> anyStopPointJourneyDetailPredicate(String field, DelayThreshold threshold) {
-        return Map.of("anyElement", Map.of(
-                "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
-                "conditions", delayThresholdLeaf(field, threshold)));
-    }
-
-    private Map<String, Object> delayThresholdLeaf(String field, DelayThreshold threshold) {
-        return Map.of(
-                "field", field,
-                "operator", threshold.operator(),
-                "value", threshold.value());
-    }
-
-    private boolean hasRequiredDelayThresholdPredicate(Object node, String expected, DelayThreshold threshold) {
-        if (isDepartureDelayEvent(expected)) {
-            return hasDelayThresholdField(node, delayField("departure", threshold));
-        }
-        if (isArrivalDelayEvent(expected)) {
-            return hasDelayThresholdField(node, delayField("arrival", threshold));
-        }
-        if (isDepartureEvent(expected)) {
-            return hasDelayThresholdField(node, delayField("departure", threshold));
-        }
-        if (isArrivalEvent(expected)) {
-            return hasDelayThresholdField(node, delayField("arrival", threshold));
-        }
-        if (isGenericDelayEvent(expected)) {
-            return hasDelayThresholdField(node, delayField("arrival", threshold))
-                    && hasDelayThresholdField(node, delayField("departure", threshold));
-        }
-        return true;
-    }
-
-    private String coherentDelayPredicateAlreadyPresentReason(String expected, DelayThreshold threshold) {
-        if ("ROUNDED_DELAY".equals(threshold.measure()) && isDepartureDelayEvent(expected)) {
-            return "coherent-rounded-departure-delay-predicate-already-present";
-        }
-        if ("ROUNDED_DELAY".equals(threshold.measure()) && isArrivalDelayEvent(expected)) {
-            return "coherent-rounded-arrival-delay-predicate-already-present";
-        }
-        if ("ROUNDED_DELAY".equals(threshold.measure()) && isGenericDelayEvent(expected)) {
-            return "coherent-rounded-generic-delay-predicate-already-present";
-        }
-        return "coherent-delay-predicate-already-present";
-    }
-
-    private boolean hasDelayThresholdField(Object node, String fieldFragment) {
-        if (node instanceof Map<?, ?> map) {
-            String field = stringValue(map.get("field"));
-            if (field != null && field.contains(fieldFragment)) {
-                return true;
-            }
-            return map.values().stream().anyMatch(value -> hasDelayThresholdField(value, fieldFragment));
-        }
-        if (node instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                if (hasDelayThresholdField(item, fieldFragment)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean hasCoherentPredicateForExpectedEvent(Object node, String expected) {
-        if (node instanceof Map<?, ?> map) {
-            String field = stringValue(map.get("field"));
-            if (field != null && coherentFieldForExpectedEvent(field, expected)) {
-                return true;
-            }
-            return map.values().stream().anyMatch(value -> hasCoherentPredicateForExpectedEvent(value, expected));
-        }
-        if (node instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                if (hasCoherentPredicateForExpectedEvent(item, expected)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean coherentFieldForExpectedEvent(String field, String expected) {
-        if (isGenericDelayEvent(expected)) {
-            return field.contains("departureDelay.") || field.contains("arrivalDelay.");
-        }
-        if (isDepartureDelayEvent(expected)) {
-            return field.contains("departureDelay.");
-        }
-        if (isArrivalDelayEvent(expected)) {
-            return field.contains("arrivalDelay.");
-        }
-        if (isDepartureEvent(expected)) {
-            return field.contains("departureDelay.")
-                    || field.contains("DeparturePlatform")
-                    || field.contains("departureTime")
-                    || field.contains("timetabledCallStart.")
-                    || field.contains("callStart.")
-                    || field.endsWith(".passingType");
-        }
-        if (isArrivalEvent(expected)) {
-            return field.contains("arrivalDelay.")
-                    || field.contains("ArrivalPlatform")
-                    || field.contains("arrivalTime")
-                    || field.contains("timetabledCallEnd.")
-                    || field.contains("callEnd.")
-                    || field.endsWith(".passingType");
         }
         return false;
     }
@@ -1576,6 +1095,10 @@ public class AlertService {
     }
 
     private String authoritativeEventType(AlertVerificationLocationContext context) {
+        String structuredMainEvent = structuredMainEventType(context);
+        if (structuredMainEvent != null) {
+            return structuredMainEvent;
+        }
         if (isEventPrimaryDelayContext(context)) {
             return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
         }
@@ -1585,6 +1108,19 @@ public class AlertService {
             return normalized == null ? delayEventType : normalized;
         }
         return nonLocationConstraint(context, "EXPECTED_MAIN_EVENT_TYPE");
+    }
+
+    private String structuredMainEventType(AlertVerificationLocationContext context) {
+        if (context == null) {
+            return null;
+        }
+        List<AlertVerificationLocationContext.NonLocationConstraint> mainEvents = context.nonLocationConstraints().stream()
+                .filter(constraint -> "MAIN_EVENT".equalsIgnoreCase(constraint.type()))
+                .filter(AlertVerificationLocationContext.NonLocationConstraint::requiredCoverage)
+                .filter(constraint -> "PRIMARY".equalsIgnoreCase(constraint.semanticRole()))
+                .filter(constraint -> constraint.eventTypes().size() == 1)
+                .toList();
+        return mainEvents.size() == 1 ? mainEvents.getFirst().eventTypes().getFirst() : null;
     }
 
     private boolean isEventPrimaryDelayContext(AlertVerificationLocationContext context) {
@@ -1627,12 +1163,6 @@ public class AlertService {
         return null;
     }
 
-    private boolean isSupportedAuthoritativeEvent(String value) {
-        return isDepartureEvent(value) || isArrivalEvent(value)
-                || isDepartureDelayEvent(value) || isArrivalDelayEvent(value)
-                || isGenericDelayEvent(value);
-    }
-
     private boolean isOperationalMainEventType(String value) {
         return isDepartureEvent(value) || isArrivalEvent(value);
     }
@@ -1661,36 +1191,6 @@ public class AlertService {
 
     private boolean isGenericDelayEvent(String value) {
         return "BOTH".equals(value) || "GENERIC_DELAY".equals(value);
-    }
-
-    private boolean isSupportedDelayEventType(String value) {
-        return isDepartureDelayEvent(value) || isArrivalDelayEvent(value) || isGenericDelayEvent(value);
-    }
-
-    private boolean supportsDelayThresholdPredicate(String value) {
-        return isSupportedDelayEventType(value) || isOperationalMainEventType(value);
-    }
-
-    private boolean hasGenericDelayPredicate(Object node) {
-        return hasCoherentPredicateForExpectedEvent(node, "BOTH");
-    }
-
-    private boolean hasGenericDelayEventLeaf(Object node) {
-        if (node instanceof Map<?, ?> map) {
-            if ("payload.ongroundServiceEvent.eventsType".equals(stringValue(map.get("field")))) {
-                List<String> values = stringList(map.get("values"));
-                return values.contains("ARRIVAL_DELAY") && values.contains("DEPARTURE_DELAY");
-            }
-            return map.values().stream().anyMatch(this::hasGenericDelayEventLeaf);
-        }
-        if (node instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                if (hasGenericDelayEventLeaf(item)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private boolean hasRouteOrTransitCondition(Object node) {
@@ -1788,17 +1288,6 @@ public class AlertService {
                 .map(this::stringValue)
                 .filter(item -> item != null && !item.isBlank())
                 .toList();
-    }
-
-    private record MainEventNormalization(
-            boolean changed,
-            String originalOperator,
-            String originalValue,
-            List<String> originalValues) {
-
-        private static MainEventNormalization unchanged() {
-            return new MainEventNormalization(false, null, null, List.of());
-        }
     }
 
     private record DelayThreshold(String operator, int value, String unit, String measure) {
@@ -2358,6 +1847,7 @@ public class AlertService {
                         .filter(Objects::nonNull)
                         .toList());
         logLlmJourneyReferenceSources(constraints);
+        logSemanticUnderstandingSources(constraints);
         DelayThreshold delayThreshold = delayThreshold(prompt);
         MainEventDerivation derivation = deriveMainEventSemantics(understanding, constraints, prompt);
         if (derivation.accessoryDelay()) {
@@ -2534,6 +2024,21 @@ public class AlertService {
         System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][RESULT]\n"
                 + "source=LLM_UNDERSTANDING\n"
                 + "constraints=[" + summarized + "]");
+    }
+
+    private void logSemanticUnderstandingSources(List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
+        constraints.stream()
+                .filter(constraint -> "MAIN_EVENT".equalsIgnoreCase(constraint.type()))
+                .forEach(constraint -> System.out.println("[IIA][ALERT_SEMANTIC_UNDERSTANDING][MAIN_EVENT]\n"
+                        + "source=LLM_UNDERSTANDING\n"
+                        + "eventTypes=" + constraint.eventTypes() + "\n"
+                        + "role=" + constraint.semanticRole()));
+        constraints.stream()
+                .filter(constraint -> "JOURNEY_STATUS".equalsIgnoreCase(constraint.type()))
+                .forEach(constraint -> System.out.println("[IIA][ALERT_SEMANTIC_UNDERSTANDING][ACCESSORY_STATUS]\n"
+                        + "source=LLM_UNDERSTANDING\n"
+                        + "direction=" + constraint.direction() + "\n"
+                        + "status=" + constraint.status()));
     }
 
     private MainEventDerivation deriveMainEventSemantics(
@@ -2730,6 +2235,19 @@ public class AlertService {
                     firstNonBlank(constraint.normalizedValue(), rawText),
                     constraint.normalizedValues(),
                     constraint.valueCombination().name(),
+                    constraint.requiredCoverage(),
+                    constraint.confidence());
+        }
+        if (constraint.type() == AlertLocationNonLocationConstraintType.MAIN_EVENT
+                || constraint.type() == AlertLocationNonLocationConstraintType.JOURNEY_STATUS) {
+            return new AlertVerificationLocationContext.NonLocationConstraint(
+                    type,
+                    rawText,
+                    constraint.eventTypes(),
+                    constraint.direction(),
+                    constraint.status(),
+                    constraint.semanticRole(),
+                    constraint.evidenceText(),
                     constraint.requiredCoverage(),
                     constraint.confidence());
         }

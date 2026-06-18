@@ -10,6 +10,11 @@ public record AlertLocationUnderstandingNonLocationConstraint(
         List<String> normalizedValues,
         String entityHeadText,
         List<String> descriptorValueTexts,
+        List<String> eventTypes,
+        String direction,
+        String status,
+        String semanticRole,
+        String evidenceText,
         AlertJourneyReferenceValueCombination valueCombination,
         boolean requiredCoverage,
         double confidence) {
@@ -17,7 +22,8 @@ public record AlertLocationUnderstandingNonLocationConstraint(
     public AlertLocationUnderstandingNonLocationConstraint(
             AlertLocationNonLocationConstraintType type,
             String rawText) {
-        this(type, rawText, null, "", List.of(), "", List.of(), AlertJourneyReferenceValueCombination.SINGLE, true, 0.0);
+        this(type, rawText, null, "", List.of(), "", List.of(), List.of(), "", "", "", "",
+                AlertJourneyReferenceValueCombination.SINGLE, true, 0.0);
     }
 
     public AlertLocationUnderstandingNonLocationConstraint(
@@ -28,7 +34,8 @@ public record AlertLocationUnderstandingNonLocationConstraint(
             boolean requiredCoverage,
             double confidence) {
         this(type, rawText, journeyReferenceKind, normalizedValue, List.of(normalizedValue),
-                "", List.of(normalizedValue), AlertJourneyReferenceValueCombination.SINGLE, requiredCoverage, confidence);
+                "", List.of(normalizedValue), List.of(), "", "", "", "",
+                AlertJourneyReferenceValueCombination.SINGLE, requiredCoverage, confidence);
     }
 
     public AlertLocationUnderstandingNonLocationConstraint(
@@ -41,7 +48,23 @@ public record AlertLocationUnderstandingNonLocationConstraint(
             boolean requiredCoverage,
             double confidence) {
         this(type, rawText, journeyReferenceKind, normalizedValue, normalizedValues,
-                "", normalizedValues, valueCombination, requiredCoverage, confidence);
+                "", normalizedValues, List.of(), "", "", "", "", valueCombination, requiredCoverage, confidence);
+    }
+
+    public AlertLocationUnderstandingNonLocationConstraint(
+            AlertLocationNonLocationConstraintType type,
+            String rawText,
+            AlertJourneyReferenceKind journeyReferenceKind,
+            String normalizedValue,
+            List<String> normalizedValues,
+            String entityHeadText,
+            List<String> descriptorValueTexts,
+            AlertJourneyReferenceValueCombination valueCombination,
+            boolean requiredCoverage,
+            double confidence) {
+        this(type, rawText, journeyReferenceKind, normalizedValue, normalizedValues,
+                entityHeadText, descriptorValueTexts, List.of(), "", "", "", "",
+                valueCombination, requiredCoverage, confidence);
     }
 
     public AlertLocationUnderstandingNonLocationConstraint {
@@ -56,6 +79,17 @@ public record AlertLocationUnderstandingNonLocationConstraint(
                 .map(String::trim)
                 .distinct()
                 .toList();
+        eventTypes = eventTypes == null
+                ? List.of()
+                : eventTypes.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.trim().toUpperCase())
+                .distinct()
+                .toList();
+        direction = direction == null ? "" : direction.trim().toUpperCase();
+        status = status == null ? "" : status.trim().toUpperCase();
+        semanticRole = semanticRole == null ? "" : semanticRole.trim().toUpperCase();
+        evidenceText = evidenceText == null ? "" : evidenceText.trim();
         normalizedValues = normalizedValues == null
                 ? List.of()
                 : normalizedValues.stream()

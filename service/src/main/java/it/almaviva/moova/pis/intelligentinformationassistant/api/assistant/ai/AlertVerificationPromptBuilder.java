@@ -21,6 +21,7 @@ public class AlertVerificationPromptBuilder {
     private static final String SYSTEM_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/event/system.md";
     private static final String USER_PROMPT_TEMPLATE_PATH = "iia/prompts/alert/event/user-template.md";
     private static final String DEFAULT_PROMPT_TEMPLATE_VERSION = "event-file-v1";
+    private static final String JOURNEY_REFERENCE_PROMPT_VERSION = "EVENT_JOURNEY_REFERENCE_V2";
 
     @Inject
     AiConfiguration aiConfiguration;
@@ -50,6 +51,7 @@ public class AlertVerificationPromptBuilder {
         String userPrompt = userDiagnostics.renderedText();
         int totalLength = systemPrompt.length() + userPrompt.length();
         String totalPromptHash = PromptTemplateDiagnostics.shortSha256(systemPrompt + "\n" + userPrompt);
+        logPromptVersion(systemPrompt);
         System.out.println("[IIA][ALERT_VERIFY][CONFIG] model="
                 + model
                 + " temperature="
@@ -82,6 +84,13 @@ public class AlertVerificationPromptBuilder {
                 temperature,
                 maxOutputTokens,
                 alert.alertId());
+    }
+
+    private void logPromptVersion(String systemPrompt) {
+        boolean activeVersion = systemPrompt != null
+                && systemPrompt.contains("ALERT_VERIFY_PROMPT_VERSION=" + JOURNEY_REFERENCE_PROMPT_VERSION);
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT_VERSION]\n"
+                + "version=" + (activeVersion ? JOURNEY_REFERENCE_PROMPT_VERSION : "UNKNOWN"));
     }
 
     private PromptTemplateDiagnostics systemPrompt(String defaultTemporalZone) {
@@ -198,8 +207,10 @@ public class AlertVerificationPromptBuilder {
                 }
                 section.append("\n");
                 if ("JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())) {
+                    logJourneyReferencePromptConstraint(constraint);
                     section.append("JOURNEY_REFERENCE_CONSTRAINT_JSON:\n")
                             .append("{\"kind\":\"").append(jsonEscape(nullToEmpty(constraint.kind()))).append("\"")
+                            .append(",\"rawText\":\"").append(jsonEscape(nullToEmpty(constraint.rawText()))).append("\"")
                             .append(",\"normalizedValue\":\"").append(jsonEscape(nullToEmpty(constraint.normalizedValue()))).append("\"")
                             .append(",\"normalizedValues\":").append(jsonStringArray(constraint.normalizedValues()))
                             .append(",\"valueCombination\":\"").append(jsonEscape(nullToEmpty(constraint.valueCombination()))).append("\"")
@@ -212,7 +223,60 @@ public class AlertVerificationPromptBuilder {
                 }
             }
         }
+        appendAuthoritativeEventSemantics(section, alert.locationResolutionContext());
         return section.toString();
+    }
+
+    private void logJourneyReferencePromptConstraint(AlertVerificationLocationContext.NonLocationConstraint constraint) {
+        System.out.println("[IIA][ALERT_VERIFY][PROMPT_JOURNEY_REFERENCE]\n"
+                + "included=true\n"
+                + "blockName=JOURNEY_REFERENCE_CONSTRAINT_JSON\n"
+                + "kind=" + nullToEmpty(constraint.kind()) + "\n"
+                + "values=" + constraint.normalizedValues() + "\n"
+                + "combination=" + nullToEmpty(constraint.valueCombination()));
+    }
+
+    private void appendAuthoritativeEventSemantics(
+            StringBuilder section,
+            AlertVerificationLocationContext context) {
+        List<AlertVerificationLocationContext.NonLocationConstraint> mainEvents = context.nonLocationConstraints().stream()
+                .filter(constraint -> "MAIN_EVENT".equalsIgnoreCase(constraint.type()))
+                .filter(constraint -> !constraint.eventTypes().isEmpty())
+                .toList();
+        List<AlertVerificationLocationContext.NonLocationConstraint> accessoryStatuses = context.nonLocationConstraints().stream()
+                .filter(constraint -> "JOURNEY_STATUS".equalsIgnoreCase(constraint.type()))
+                .filter(constraint -> !constraint.status().isBlank())
+                .toList();
+        if (mainEvents.isEmpty() && accessoryStatuses.isEmpty()) {
+            return;
+        }
+        section.append("AUTHORITATIVE_EVENT_SEMANTICS_JSON:\n");
+        section.append("{\"mainEvent\":");
+        if (mainEvents.isEmpty()) {
+            section.append("null");
+        } else {
+            AlertVerificationLocationContext.NonLocationConstraint main = mainEvents.getFirst();
+            section.append("{\"eventTypes\":").append(jsonStringArray(main.eventTypes()))
+                    .append(",\"combination\":\"").append(jsonEscape(main.valueCombination())).append("\"")
+                    .append(",\"role\":\"").append(jsonEscape(main.semanticRole())).append("\"}");
+        }
+        section.append(",\"accessoryJourneyStatuses\":[");
+        for (int index = 0; index < accessoryStatuses.size(); index++) {
+            AlertVerificationLocationContext.NonLocationConstraint status = accessoryStatuses.get(index);
+            if (index > 0) {
+                section.append(',');
+            }
+            section.append("{\"direction\":\"").append(jsonEscape(status.direction())).append("\"")
+                    .append(",\"status\":\"").append(jsonEscape(status.status())).append("\"")
+                    .append(",\"role\":\"").append(jsonEscape(status.semanticRole())).append("\"}");
+        }
+        section.append("]}\n");
+        section.append("Authoritative event rules: mainEvent.eventTypes must be represented on payload.ongroundServiceEvent.eventsType. ")
+                .append("Accessory direction must not replace the main event. ")
+                .append("DEPARTURE_CANCELLATION must be represented inside stopPointsJourneyDetails[].departureStatuses[].status; ")
+                .append("ARRIVAL_CANCELLATION inside stopPointsJourneyDetails[].arrivalStatuses[].status. ")
+                .append("Journey-reference constraints keep their existing authoritative mapping. ")
+                .append("Correlated journey-detail predicates must remain inside the same outer stopPointsJourneyDetails[] element.\n");
     }
 
     private String jsonEscape(String value) {

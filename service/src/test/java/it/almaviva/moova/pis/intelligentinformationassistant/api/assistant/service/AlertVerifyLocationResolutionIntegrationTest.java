@@ -55,6 +55,8 @@ class AlertVerifyLocationResolutionIntegrationTest {
     private static final String BICOCCA_ID = "TNPNTS00000000000003";
     private static final String ZARA_ID = "TNPNTS00000000000007";
     private static final String MARCHE_ID = "TNPNTS00000000000006";
+    private static final String BIGNAMI_ID = "TNPNTS00000000000001";
+    private static final String SAN_SIRO_STADIO_ID = "TNPNTS00000000000019";
 
     @Test
     void rhoExactProducesStopPointIdEquals() {
@@ -62,7 +64,9 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 "Avvertimi quando una corsa parte da Rho Fieramilano",
                 verifiedOutcomeJson(stopPointEqualsCondition(RHO_ID), coverage("payload.ongroundServiceEvent.stopPoint.id")));
 
-        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.decision())
+                .as(outcome.rejectedReason())
+                .isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.technicalSpecification().toString())
                 .contains("payload.ongroundServiceEvent.stopPoint.id", "EQUALS", RHO_ID);
         assertThat(outcome.confidence()).isEqualTo(0.8);
@@ -158,7 +162,7 @@ class AlertVerifyLocationResolutionIntegrationTest {
 
     @Test
     void bareDelayDoesNotCreateJourneyReference() {
-        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+        VerificationRun run = verifyWithLlmOutcomeAndUnderstanding(
                 "Avvertimi quando una corsa ha pi\u00f9 di 10 minuti di ritardo",
                 verifiedOutcomeJson(
                         genericDelayGreaterThanCondition(600),
@@ -169,9 +173,12 @@ class AlertVerifyLocationResolutionIntegrationTest {
                         "una corsa",
                         "corsa",
                         "corsa",
-                        AlertLocationMainEventIntent.DELAY)).outcome();
+                        AlertLocationMainEventIntent.DELAY));
+        AlertVerificationOutcome outcome = run.outcome();
 
-        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.decision())
+                .as(outcome.rejectedReason() + "\n" + run.logs())
+                .isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.technicalSpecification().toString())
                 .contains("ARRIVAL_DELAY", "arrivalDelay.delay", "GREATER_THAN", "600")
                 .doesNotContain("vehicleJourneyName", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
@@ -207,6 +214,152 @@ class AlertVerifyLocationResolutionIntegrationTest {
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
         assertThat(outcome.rejectedReason())
                 .contains("Unsupported or unknown stopPoint id in technicalSpecification: TNPNTS99999999999999");
+    }
+
+    @Test
+    void accessoryDepartureCancellationDoesNotOverridePrimaryArrivalAndS8Descriptor() {
+        VerificationRun run = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando a Bignami o San Siro stadio c'\u00e8 un treno S8 in arrivo con una soppressione in partenza",
+                verifiedOutcomeJson(
+                        s8CorrectArrivingWithDepartureCancellationCondition(),
+                        coverageRequirements(
+                                requirement(
+                                        "arriving event",
+                                        "payload.ongroundServiceEvent.eventsType"),
+                                requirement(
+                                        "Bignami or San Siro Stadio",
+                                        "payload.ongroundServiceEvent.stopPoint.id"),
+                                requirement(
+                                        "train S8",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc"),
+                                requirement(
+                                        "departure cancellation",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status"))),
+                semanticUnderstanding("it", "ARRIVING", "S8", "DEPARTURE", "DEPARTURE_CANCELLATION"));
+        AlertVerificationOutcome outcome = run.outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("ARRIVING", BIGNAMI_ID, SAN_SIRO_STADIO_ID)
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .contains("departureStatuses[]", "status", "DEPARTURE_CANCELLATION")
+                .doesNotContain("DEPARTING")
+                .doesNotContain("vehicleJourneyName");
+        assertThat(outcome.agentBlueprintPreview().toString())
+                .contains("ARRIVING", "departureStatuses[]", "DEPARTURE_CANCELLATION")
+                .doesNotContain("DEPARTING")
+                .doesNotContain("vehicleJourneyName");
+        assertThat(outcome.requirementCoverage().toString())
+                .contains("semanticOwner=JOURNEY_REFERENCE")
+                .contains("normalizedValue=S8")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName");
+        assertThat(run.logs())
+                .contains("[IIA][ALERT_SEMANTIC_UNDERSTANDING][MAIN_EVENT]")
+                .contains("eventTypes=[ARRIVING]")
+                .contains("[IIA][ALERT_SEMANTIC_UNDERSTANDING][ACCESSORY_STATUS]")
+                .contains("status=DEPARTURE_CANCELLATION")
+                .contains("[IIA][ALERT_VERIFY][MAIN_EVENT_COVERAGE]")
+                .contains("valid=true")
+                .contains("[IIA][ALERT_VERIFY][LEGACY_MAIN_EVENT]")
+                .contains("reason=authoritative-structured-main-event-present")
+                .contains("expectedFields=[line.dsc, serviceCategory.dsc, transportOperator.dsc]")
+                .contains("actualFields=[line.dsc, serviceCategory.dsc, transportOperator.dsc]")
+                .contains("unexpectedFields=[]")
+                .contains("expectedOperator=EQUALS_NORMALIZED")
+                .contains("actualOperators=[EQUALS_NORMALIZED]")
+                .contains("relative=departureStatuses[]")
+                .doesNotContain("source=DETERMINISTIC_FALLBACK");
+    }
+
+    @Test
+    void wrongPrimaryEventFromTechnicalLlmIsRejectedInsteadOfRepaired() {
+        VerificationRun run = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando a Bignami o San Siro stadio c'\u00e8 un treno S8 in arrivo con una soppressione in partenza",
+                verifiedOutcomeJson(
+                        s8WrongDepartingWithDepartureCancellationCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.ongroundServiceEvent.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status")),
+                semanticUnderstanding("it", "ARRIVING", "S8", "DEPARTURE", "DEPARTURE_CANCELLATION"));
+
+        assertThat(run.outcome().decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(run.outcome().rejectedReason())
+                .contains("Main event coverage validation failed")
+                .contains("ARRIVING")
+                .contains("DEPARTING");
+        assertThat(run.logs())
+                .contains("[IIA][ALERT_VERIFY][MAIN_EVENT_COVERAGE]")
+                .contains("expected=[ARRIVING]")
+                .contains("actual=[DEPARTING]")
+                .contains("valid=false")
+                .doesNotContain("MAIN_EVENT_NORMALIZATION")
+                .doesNotContain("accessory-direction-must-not-override-primary-event");
+    }
+
+    @Test
+    void accessoryArrivalCancellationDoesNotOverridePrimaryDeparture() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando un treno \u00e8 in partenza con una soppressione in arrivo",
+                verifiedOutcomeJson(
+                        correctDepartingWithArrivalCancellationCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalStatuses[].status")),
+                semanticUnderstandingWithoutLocations("it", "DEPARTING", "", "ARRIVAL", "ARRIVAL_CANCELLATION")).outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("DEPARTING", "arrivalStatuses[]", "ARRIVAL_CANCELLATION")
+                .doesNotContain("value=ARRIVING");
+    }
+
+    @Test
+    void completedArrivalWithAccessoryDepartureCancellationUsesArrived() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando un treno \u00e8 arrivato con una soppressione in partenza",
+                verifiedOutcomeJson(
+                        correctArrivedWithDepartureCancellationNoLocation("S9"),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status")),
+                semanticUnderstandingWithoutLocations("it", "ARRIVED", "S9", "DEPARTURE", "DEPARTURE_CANCELLATION")).outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("ARRIVED", "DEPARTURE_CANCELLATION")
+                .doesNotContain("DEPARTING", "vehicleJourneyName");
+    }
+
+    @Test
+    void multilingualPromptsUseMockedSemanticUnderstandingNotBackendExtraction() {
+        for (String prompt : List.of(
+                "Notify me when an S8 train is arriving at Bignami or San Siro Stadium with a departure cancellation.",
+                "Alertez-moi lorsqu'un train S8 arrive \u00e0 Bignami ou San Siro Stadio avec une suppression au d\u00e9part.")) {
+            AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                    prompt,
+                    verifiedOutcomeJson(
+                            s8CorrectArrivingWithDepartureCancellationCondition(),
+                            coverage(
+                                    "payload.ongroundServiceEvent.eventsType",
+                                    "payload.ongroundServiceEvent.stopPoint.id",
+                                    "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                                    "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                                    "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc",
+                                    "payload.stopPointJourney.stopPointsJourneyDetails[].departureStatuses[].status")),
+                    semanticUnderstanding("en", "ARRIVING", "S8", "DEPARTURE", "DEPARTURE_CANCELLATION")).outcome();
+
+            assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+            assertThat(outcome.technicalSpecification().toString())
+                    .contains("ARRIVING", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc", "DEPARTURE_CANCELLATION")
+                    .doesNotContain("DEPARTING", "vehicleJourneyName");
+        }
     }
 
     @Test
@@ -505,6 +658,106 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 List.of());
     }
 
+    private AlertLocationUnderstandingResult semanticUnderstanding(
+            String language,
+            String mainEventType,
+            String descriptor,
+            String accessoryDirection,
+            String accessoryStatus) {
+        List<AlertLocationUnderstandingNonLocationConstraint> constraints = new java.util.ArrayList<>();
+        constraints.add(new AlertLocationUnderstandingNonLocationConstraint(
+                AlertLocationNonLocationConstraintType.MAIN_EVENT,
+                mainEventType,
+                null,
+                mainEventType,
+                List.of(mainEventType),
+                "",
+                List.of(),
+                List.of(mainEventType),
+                "",
+                "",
+                "PRIMARY",
+                "main event",
+                AlertJourneyReferenceValueCombination.SINGLE,
+                true,
+                0.95));
+        if (descriptor != null && !descriptor.isBlank()) {
+            constraints.add(new AlertLocationUnderstandingNonLocationConstraint(
+                    AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE,
+                    descriptor,
+                    AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR,
+                    descriptor,
+                    List.of(descriptor),
+                    "train",
+                    List.of(descriptor),
+                    AlertJourneyReferenceValueCombination.SINGLE,
+                    true,
+                    0.94));
+        }
+        constraints.add(new AlertLocationUnderstandingNonLocationConstraint(
+                AlertLocationNonLocationConstraintType.JOURNEY_STATUS,
+                accessoryStatus,
+                null,
+                accessoryStatus,
+                List.of(accessoryStatus),
+                "",
+                List.of(),
+                List.of(),
+                accessoryDirection,
+                accessoryStatus,
+                "ACCESSORY",
+                "accessory status",
+                AlertJourneyReferenceValueCombination.SINGLE,
+                true,
+                0.93));
+        return new AlertLocationUnderstandingResult(
+                true,
+                language,
+                new AlertLocationUnderstandingMainEvent(AlertLocationMainEventIntent.ARRIVAL, 0.95),
+                List.of(
+                        new AlertLocationUnderstandingLocation(
+                                "Bignami",
+                                "Bignami",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_LOCATION,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.96),
+                        new AlertLocationUnderstandingLocation(
+                                "San Siro Stadio",
+                                "San Siro Stadio",
+                                AlertLocationRole.MAIN_EVENT_LOCATION,
+                                AlertLocationRelation.EVENT_LOCATION,
+                                true,
+                                AlertLocationPolarity.INCLUDE,
+                                "G1",
+                                0.96)),
+                constraints,
+                List.of());
+    }
+
+    private AlertLocationUnderstandingResult semanticUnderstandingWithoutLocations(
+            String language,
+            String mainEventType,
+            String descriptor,
+            String accessoryDirection,
+            String accessoryStatus) {
+        AlertLocationUnderstandingResult withLocations = semanticUnderstanding(
+                language,
+                mainEventType,
+                descriptor,
+                accessoryDirection,
+                accessoryStatus);
+        return new AlertLocationUnderstandingResult(
+                false,
+                language,
+                withLocations.mainEvent(),
+                List.of(),
+                withLocations.nonLocationConstraints(),
+                List.of());
+    }
+
     private AlertLocationUnderstandingResult bareEntityJourneyReferenceUnderstanding(
             String rawText,
             String entityHeadText,
@@ -677,14 +930,17 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 {
                   "type": "SERVICE_DATA_FIELD_MATCH",
                   "all": [
-                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVAL_DELAY"},
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS_ANY", "values": ["ARRIVAL_DELAY", "DEPARTURE_DELAY"]},
                     {"anyElement": {
                       "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
-                      "conditions": {"field": "arrivalDelay.delay", "operator": "GREATER_THAN", "value": %d}
+                      "conditions": {"any": [
+                        {"field": "arrivalDelay.delay", "operator": "GREATER_THAN", "value": %d},
+                        {"field": "departureDelay.delay", "operator": "GREATER_THAN", "value": %d}
+                      ]}
                     }}
                   ]
                 }
-                """.formatted(seconds);
+                """.formatted(seconds, seconds);
     }
 
     private String numericGreaterThanDeparturePlatformCondition() {
@@ -768,6 +1024,144 @@ class AlertVerifyLocationResolutionIntegrationTest {
                   ]
                 }
                 """.formatted(GARIBALDI_FS_ID);
+    }
+
+    private String s8WrongDepartingWithDepartureCancellationCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "IN", "values": ["%s", "%s"]},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "all": [
+                          {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "S8"},
+                          {"anyElement": {
+                            "path": "departureStatuses[]",
+                            "conditions": {"field": "status", "operator": "CONTAINS", "value": "DEPARTURE_CANCELLATION"}
+                          }}
+                        ]
+                      }
+                    }}
+                  ]
+                }
+                """.formatted(BIGNAMI_ID, SAN_SIRO_STADIO_ID);
+    }
+
+    private String s8CorrectArrivingWithDepartureCancellationCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "IN", "values": ["%s", "%s"]},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "all": [
+                          {"any": [
+                            {"field": "line.dsc", "operator": "EQUALS_NORMALIZED", "value": "S8"},
+                            {"field": "serviceCategory.dsc", "operator": "EQUALS_NORMALIZED", "value": "S8"},
+                            {"field": "transportOperator.dsc", "operator": "EQUALS_NORMALIZED", "value": "S8"}
+                          ]},
+                          {"anyElement": {
+                            "path": "departureStatuses[]",
+                            "conditions": {"field": "status", "operator": "CONTAINS", "value": "DEPARTURE_CANCELLATION"}
+                          }}
+                        ]
+                      }
+                    }}
+                  ]
+                }
+                """.formatted(BIGNAMI_ID, SAN_SIRO_STADIO_ID);
+    }
+
+    private String wrongDepartingWithDepartureCancellationNoLocation(String descriptor) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTING"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "all": [
+                          {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "%s"},
+                          {"anyElement": {
+                            "path": "departureStatuses[]",
+                            "conditions": {"field": "status", "operator": "CONTAINS", "value": "DEPARTURE_CANCELLATION"}
+                          }}
+                        ]
+                      }
+                    }}
+                  ]
+                }
+                """.formatted(descriptor);
+    }
+
+    private String correctArrivedWithDepartureCancellationNoLocation(String descriptor) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVED"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "all": [
+                          {"any": [
+                            {"field": "line.dsc", "operator": "EQUALS_NORMALIZED", "value": "%s"},
+                            {"field": "serviceCategory.dsc", "operator": "EQUALS_NORMALIZED", "value": "%s"},
+                            {"field": "transportOperator.dsc", "operator": "EQUALS_NORMALIZED", "value": "%s"}
+                          ]},
+                          {"anyElement": {
+                            "path": "departureStatuses[]",
+                            "conditions": {"field": "status", "operator": "CONTAINS", "value": "DEPARTURE_CANCELLATION"}
+                          }}
+                        ]
+                      }
+                    }}
+                  ]
+                }
+                """.formatted(descriptor, descriptor, descriptor);
+    }
+
+    private String wrongArrivingWithArrivalCancellationCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"anyElement": {
+                        "path": "arrivalStatuses[]",
+                        "conditions": {"field": "status", "operator": "CONTAINS", "value": "ARRIVAL_CANCELLATION"}
+                      }}
+                    }}
+                  ]
+                }
+                """;
+    }
+
+    private String correctDepartingWithArrivalCancellationCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTING"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"anyElement": {
+                        "path": "arrivalStatuses[]",
+                        "conditions": {"field": "status", "operator": "CONTAINS", "value": "ARRIVAL_CANCELLATION"}
+                      }}
+                    }}
+                  ]
+                }
+                """;
     }
 
     private String transportOperatorAtGaribaldiCondition() {

@@ -4,11 +4,13 @@ public enum AlertLocationNonLocationConstraintType {
     PLATFORM,
     VEHICLE_JOURNEY,
     JOURNEY_REFERENCE,
+    MAIN_EVENT,
     LINE,
     DELAY,
     PASSING_TYPE,
     DELAY_DIRECTION,
     DELAY_EVENT_TYPE,
+    JOURNEY_STATUS,
     TEMPORAL,
     UNKNOWN
 }

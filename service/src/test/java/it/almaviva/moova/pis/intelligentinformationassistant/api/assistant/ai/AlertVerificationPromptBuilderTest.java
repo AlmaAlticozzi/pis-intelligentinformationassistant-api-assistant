@@ -23,6 +23,7 @@ class AlertVerificationPromptBuilderTest {
         String template = new PromptTemplateLoader().load(SYSTEM_TEMPLATE_PATH);
 
         assertThat(template)
+                .contains("ALERT_VERIFY_PROMPT_VERSION=EVENT_JOURNEY_REFERENCE_V2")
                 .contains("## Mission and fixed contract")
                 .contains("## EVENT_INTERPRETER evaluation phases")
                 .contains("Phase 1 - Current event scope")
@@ -53,6 +54,10 @@ class AlertVerificationPromptBuilderTest {
                 .contains("Journey-reference rules")
                 .contains("UNQUALIFIED_DESCRIPTOR attached to the journey")
                 .contains("line.dsc, serviceCategory.dsc and transportOperator.dsc")
+                .contains("all using EQUALS_NORMALIZED")
+                .contains("UNQUALIFIED_DESCRIPTOR never maps to vehicleJourneyName")
+                .contains("Do not add vehicleJourneyName as a fourth fallback branch")
+                .contains("Never add vehicleJourneyName to the UNQUALIFIED_DESCRIPTOR OR")
                 .contains("{{SERVICE_DATA_CAPABILITY_CATALOG}}")
                 .doesNotContain("## Generic examples")
                 .doesNotContain("Expected condition:")
@@ -205,9 +210,54 @@ class AlertVerificationPromptBuilderTest {
                 .contains("valueCombination: SINGLE")
                 .contains("- JOURNEY_REFERENCE=M2 kind=UNQUALIFIED_DESCRIPTOR normalizedValue=M2 normalizedValues=[M2] valueCombination=SINGLE")
                 .contains("JOURNEY_REFERENCE_CONSTRAINT_JSON:")
+                .contains("\"rawText\":\"M2\"")
                 .contains("\"normalizedValues\":[\"M2\"]")
                 .contains("\"valueCombination\":\"SINGLE\"")
                 .contains("backend-derived journey-reference classification and value relationship are authoritative");
+    }
+
+    @Test
+    void completeEventPromptCarriesAuthoritativeUnqualifiedDescriptorContext() {
+        AlertVerificationLocationContext context = new AlertVerificationLocationContext(
+                false,
+                List.of(),
+                List.of(new AlertVerificationLocationContext.NonLocationConstraint(
+                        "JOURNEY_REFERENCE",
+                        "un treno S8",
+                        "UNQUALIFIED_DESCRIPTOR",
+                        "S8",
+                        List.of("S8"),
+                        "SINGLE",
+                        true,
+                        0.92)),
+                List.of());
+
+        LlmRequest request = builder().build(new AlertVerificationPromptData(
+                "ALRT_S8",
+                "S8 arrival",
+                "Runtime payload for S8 journey reference prompt",
+                "Avvertimi quando a Bignami o San Siro stadio c'e un treno S8 in arrivo con una soppressione in partenza",
+                context));
+
+        assertThat(request.systemPrompt())
+                .contains("ALERT_VERIFY_PROMPT_VERSION=EVENT_JOURNEY_REFERENCE_V2")
+                .contains("UNQUALIFIED_DESCRIPTOR attached to the journey -> exactly one correlated stopPointsJourneyDetails[] anyElement")
+                .contains("line.dsc, serviceCategory.dsc and transportOperator.dsc")
+                .contains("all using EQUALS_NORMALIZED")
+                .contains("UNQUALIFIED_DESCRIPTOR never maps to vehicleJourneyName")
+                .contains("Do not add vehicleJourneyName as a fourth fallback branch")
+                .contains("Never add vehicleJourneyName to the UNQUALIFIED_DESCRIPTOR OR");
+        assertThat(request.userPrompt())
+                .contains("JOURNEY_REFERENCE_CONSTRAINT_JSON:")
+                .contains("\"kind\":\"UNQUALIFIED_DESCRIPTOR\"")
+                .contains("\"rawText\":\"un treno S8\"")
+                .contains("\"normalizedValues\":[\"S8\"]")
+                .contains("normalizedValues=[S8]")
+                .contains("\"valueCombination\":\"SINGLE\"")
+                .contains("valueCombination=SINGLE")
+                .contains("backend-derived journey-reference classification and value relationship are authoritative")
+                .doesNotContain("JOURNEY_REFERENCE=S8 kind=JOURNEY_NAME")
+                .doesNotContain("\"kind\":\"JOURNEY_NAME\"");
     }
 
     @Test
