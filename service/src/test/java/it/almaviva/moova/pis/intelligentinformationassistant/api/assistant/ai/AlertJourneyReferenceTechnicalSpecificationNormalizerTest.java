@@ -14,6 +14,7 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
 
     private final AlertJourneyReferenceTechnicalSpecificationNormalizer normalizer =
             new AlertJourneyReferenceTechnicalSpecificationNormalizer();
+    private final AlertRequirementMappingReconciler reconciler = new AlertRequirementMappingReconciler();
     private final AlertVerificationOutcomeValidator validator = new AlertVerificationOutcomeValidator();
 
     @Test
@@ -99,6 +100,44 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
     }
 
     @Test
+    void reconcilesStaleMappedByAfterUnqualifiedDescriptorNormalization() {
+        AlertVerificationLocationContext context = context(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR, "MXP");
+        AlertVerificationOutcome stale = outcomeWithCoverage(
+                anyElement(contains("vehicleJourneyName", "MXP")),
+                "train MXP",
+                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"));
+
+        AlertVerificationOutcome normalized = normalizer.normalize(stale, context, "ALRT_MXP");
+        AlertVerificationOutcome reconciled = reconciler.reconcile(normalized, context, "ALRT_MXP");
+        AlertVerificationOutcome validated = validator.validate(reconciled, "Prompt", context);
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(reconciled.technicalSpecification().toString())
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("vehicleJourneyName=MXP");
+        assertThat(reconciled.requirementCoverage().toString())
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")
+                .doesNotContain("vehicleJourneyName");
+    }
+
+    @Test
+    void keepsGenuineUncoveredRequirementRejected() {
+        AlertVerificationLocationContext context = context(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR, "MXP");
+        AlertVerificationOutcome stale = outcomeWithCoverage(
+                anyElement(canonicalOr("MXP")),
+                "passenger count greater than 10",
+                List.of("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"));
+
+        AlertVerificationOutcome reconciled = reconciler.reconcile(stale, context, "ALRT_MXP");
+        AlertVerificationOutcome validated = validator.validate(reconciled, "Prompt", context);
+
+        assertThat(reconciled.requirementCoverage().toString()).contains("vehicleJourneyName");
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
     void leavesAmbiguousContradictoryPredicatesUnchangedForValidatorRejection() {
         AlertVerificationLocationContext context = context(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR, "M2");
         Map<String, Object> condition = Map.of(
@@ -148,6 +187,19 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
     }
 
     private AlertVerificationOutcome outcome(Map<String, Object> condition) {
+        return outcomeWithCoverage(
+                condition,
+                "M2",
+                List.of(
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
+                        "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc"));
+    }
+
+    private AlertVerificationOutcome outcomeWithCoverage(
+            Map<String, Object> condition,
+            String requirementText,
+            List<String> mappedBy) {
         return new AlertVerificationOutcome(
                 AlertVerificationDecision.VERIFIED,
                 "ok",
@@ -178,13 +230,10 @@ class AlertJourneyReferenceTechnicalSpecificationNormalizerTest {
                 Map.of(
                         "allRequiredRequirementsMapped", true,
                         "requirements", List.of(Map.of(
-                                "text", "M2",
+                                "text", requirementText,
                                 "required", true,
                                 "mappable", true,
-                                "mappedBy", List.of(
-                                        "payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc",
-                                        "payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc",
-                                        "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc"),
+                                "mappedBy", mappedBy,
                                 "reason", ""))),
                 List.of(),
                 List.of());

@@ -192,6 +192,37 @@ class AlertVerifyLocationResolutionIntegrationTest {
     }
 
     @Test
+    void staleMappedByIsReconciledAfterUnqualifiedDescriptorNormalization() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando un treno MXP ha un ritardo arrotondato in partenza maggiore di 5 minuti",
+                verifiedOutcomeJson(
+                        mxpVehicleJourneyNameWithRoundedDepartureDelayCondition(),
+                        coverageRequirements(
+                                requirement(
+                                        "train MXP",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName"),
+                                requirement(
+                                        "rounded departure delay greater than 5 minutes",
+                                        "payload.ongroundServiceEvent.eventsType",
+                                        "payload.stopPointJourney.stopPointsJourneyDetails[].departureDelay.roundedDelay"))));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("DEPARTURE_DELAY", "departureDelay.roundedDelay", "GREATER_THAN", "300")
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("field=vehicleJourneyName, operator=CONTAINS_NORMALIZED, value=MXP");
+        assertThat(outcome.requirementCoverage().toString())
+                .contains("semanticOwner=JOURNEY_REFERENCE")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].serviceCategory.dsc")
+                .contains("payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")
+                .doesNotContain("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName");
+        assertThat(outcome.agentBlueprintPreview().toString())
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("field=vehicleJourneyName, operator=CONTAINS_NORMALIZED, value=MXP");
+    }
+
+    @Test
     void explicitTransportOperatorDoesNotCreateUnqualifiedDescriptorConstraint() {
         AlertVerificationOutcome outcome = verifyWithLlmOutcome(
                 "Avvertimi quando una corsa dell'operatore di trasporto ATM \u00e8 in arrivo a Garibaldi FS",
@@ -473,6 +504,26 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 """.formatted(GARIBALDI_FS_ID);
     }
 
+    private String mxpVehicleJourneyNameWithRoundedDepartureDelayCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "DEPARTURE_DELAY"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {
+                        "all": [
+                          {"field": "departureDelay.roundedDelay", "operator": "GREATER_THAN", "value": 300},
+                          {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "MXP"}
+                        ]
+                      }
+                    }}
+                  ]
+                }
+                """;
+    }
+
     private String journeyName125AtMultipleStopsCondition(String operator) {
         return """
                 {
@@ -502,6 +553,30 @@ class AlertVerifyLocationResolutionIntegrationTest {
                   "allRequiredRequirementsMapped": true
                 }
                 """.formatted(mappedBy);
+    }
+
+    private String coverageRequirements(String... requirements) {
+        String joined = java.util.Arrays.stream(requirements)
+                .reduce((left, right) -> left + ",\n        " + right)
+                .orElse("");
+        return """
+                {
+                  "requirements": [
+                    %s
+                  ],
+                  "allRequiredRequirementsMapped": true
+                }
+                """.formatted(joined);
+    }
+
+    private String requirement(String text, String... fields) {
+        String mappedBy = java.util.Arrays.stream(fields)
+                .map(field -> "\"" + field + "\"")
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+        return """
+                {"text": "%s", "required": true, "mappable": true, "mappedBy": [%s], "reason": ""}
+                """.formatted(text, mappedBy);
     }
 
     private String locationResolution(String id) {

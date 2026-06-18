@@ -28,6 +28,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceDetector;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceIntent;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceTechnicalSpecificationNormalizer;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertRequirementMappingReconciler;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationNonLocationConstraintType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
@@ -177,6 +178,9 @@ public class AlertService {
 
     @Inject
     AlertJourneyReferenceTechnicalSpecificationNormalizer alertJourneyReferenceTechnicalSpecificationNormalizer;
+
+    @Inject
+    AlertRequirementMappingReconciler alertRequirementMappingReconciler;
 
     @Inject
     Instance<LlmGateway> llmGateway;
@@ -849,6 +853,7 @@ public class AlertService {
         outcome = normalizeRequirementCoverage(outcome, enrichedPromptData.alertId());
         outcome = normalizeExpectedMainEventType(outcome, enrichedPromptData);
         outcome = normalizeJourneyReferenceTechnicalSpecification(outcome, enrichedPromptData);
+        outcome = reconcileRequirementMappings(outcome, enrichedPromptData);
         AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
                 outcome,
                 enrichedPromptData.prompt(),
@@ -867,6 +872,18 @@ public class AlertService {
                         ? new AlertJourneyReferenceTechnicalSpecificationNormalizer()
                         : alertJourneyReferenceTechnicalSpecificationNormalizer;
         return normalizer.normalize(
+                outcome,
+                enrichedPromptData == null ? null : enrichedPromptData.locationResolutionContext(),
+                enrichedPromptData == null ? null : enrichedPromptData.alertId());
+    }
+
+    private AlertVerificationOutcome reconcileRequirementMappings(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData enrichedPromptData) {
+        AlertRequirementMappingReconciler reconciler = alertRequirementMappingReconciler == null
+                ? new AlertRequirementMappingReconciler()
+                : alertRequirementMappingReconciler;
+        return reconciler.reconcile(
                 outcome,
                 enrichedPromptData == null ? null : enrichedPromptData.locationResolutionContext(),
                 enrichedPromptData == null ? null : enrichedPromptData.alertId());
