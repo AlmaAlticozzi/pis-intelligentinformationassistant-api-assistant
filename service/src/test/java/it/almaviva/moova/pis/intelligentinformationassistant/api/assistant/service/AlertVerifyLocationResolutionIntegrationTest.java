@@ -35,6 +35,10 @@ class AlertVerifyLocationResolutionIntegrationTest {
     private static final String MALPENSA_T1_ID = "TNPNTS00000000000028";
     private static final String MALPENSA_T2_ID = "TNPNTS00000000000029";
     private static final String LUNIGIANA_ID = "TNPNTS00000000000031";
+    private static final String GARIBALDI_FS_ID = "TNPNTS00000000000009";
+    private static final String BICOCCA_ID = "TNPNTS00000000000003";
+    private static final String ZARA_ID = "TNPNTS00000000000007";
+    private static final String MARCHE_ID = "TNPNTS00000000000006";
 
     @Test
     void rhoExactProducesStopPointIdEquals() {
@@ -167,6 +171,60 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 .doesNotContain("CONTAINS_ANY", "stopPoint.id");
     }
 
+    @Test
+    void unqualifiedJourneyDescriptorVehicleJourneyNameLlmOutputIsNormalizedBeforePersistence() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando una corsa M2 \u00e8 in arrivo a Garibaldi FS",
+                verifiedOutcomeJson(
+                        m2VehicleJourneyNameAtGaribaldiCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.ongroundServiceEvent.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("field=vehicleJourneyName, operator=CONTAINS_NORMALIZED, value=M2");
+        assertThat(outcome.agentBlueprintPreview().toString())
+                .contains("line.dsc", "serviceCategory.dsc", "transportOperator.dsc")
+                .doesNotContain("field=vehicleJourneyName, operator=CONTAINS_NORMALIZED, value=M2");
+    }
+
+    @Test
+    void journeyNameEqualsNormalizedLlmOutputRemainsVerified() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando la corsa 125 \u00e8 in arrivo a Bicocca o a Zara o Marche",
+                verifiedOutcomeJson(
+                        journeyName125AtMultipleStopsCondition("EQUALS_NORMALIZED"),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.ongroundServiceEvent.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("vehicleJourneyName", "EQUALS_NORMALIZED", "125")
+                .doesNotContain("line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+    }
+
+    @Test
+    void journeyNameContainsNormalizedLlmOutputRemainsVerified() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando la corsa 125 \u00e8 in arrivo a Bicocca o a Zara o Marche",
+                verifiedOutcomeJson(
+                        journeyName125AtMultipleStopsCondition("CONTAINS_NORMALIZED"),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.ongroundServiceEvent.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("vehicleJourneyName", "CONTAINS_NORMALIZED", "125")
+                .doesNotContain("line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+    }
+
     @SuppressWarnings("unchecked")
     private AlertVerificationOutcome verifyWithLlmOutcome(String prompt, String llmJson) {
         AlertService service = new AlertService();
@@ -240,13 +298,14 @@ class AlertVerifyLocationResolutionIntegrationTest {
                     "evaluationMode": "STATELESS_EVENT_MATCH",
                     "targetTypes": ["SERVICE_DATA_JOURNEY"],
                     "stateRequirements": {"requiresState": false},
+                    "parameters": {"conditionType": "SERVICE_DATA_FIELD_MATCH", "condition": %s},
                     "output": {"type": "CANDIDATE_SUGGESTION"}
                   },
                   "requirementCoverage": %s,
                   "warnings": [],
                   "safetyChecks": ["No executable code generated.", "No Agent Definition created.", "No Suggestion created."]
                 }
-                """.formatted(condition, extraTechnicalSpecification, requirementCoverage);
+                """.formatted(condition, extraTechnicalSpecification, condition, requirementCoverage);
     }
 
     private String stopPointEqualsCondition(String id) {
@@ -363,6 +422,38 @@ class AlertVerifyLocationResolutionIntegrationTest {
                   ]
                 }
                 """;
+    }
+
+    private String m2VehicleJourneyNameAtGaribaldiCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "EQUALS", "value": "%s"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "M2"}
+                    }}
+                  ]
+                }
+                """.formatted(GARIBALDI_FS_ID);
+    }
+
+    private String journeyName125AtMultipleStopsCondition(String operator) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "IN", "values": ["%s", "%s", "%s"]},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "vehicleJourneyName", "operator": "%s", "value": "125"}
+                    }}
+                  ]
+                }
+                """.formatted(BICOCCA_ID, ZARA_ID, MARCHE_ID, operator);
     }
 
     private String coverage(String... fields) {

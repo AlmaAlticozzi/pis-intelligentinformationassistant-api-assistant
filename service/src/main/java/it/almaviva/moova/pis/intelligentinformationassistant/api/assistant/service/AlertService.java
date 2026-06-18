@@ -27,6 +27,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertDelayEventTypeNormalizer;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceDetector;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceIntent;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertJourneyReferenceTechnicalSpecificationNormalizer;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationNonLocationConstraintType;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AgentGenerationPreviewOutcome;
@@ -173,6 +174,9 @@ public class AlertService {
 
     @Inject
     AlertJourneyReferenceDetector alertJourneyReferenceDetector;
+
+    @Inject
+    AlertJourneyReferenceTechnicalSpecificationNormalizer alertJourneyReferenceTechnicalSpecificationNormalizer;
 
     @Inject
     Instance<LlmGateway> llmGateway;
@@ -844,6 +848,7 @@ public class AlertService {
         outcome = normalizeSingleValueInOperators(outcome, enrichedPromptData.alertId());
         outcome = normalizeRequirementCoverage(outcome, enrichedPromptData.alertId());
         outcome = normalizeExpectedMainEventType(outcome, enrichedPromptData);
+        outcome = normalizeJourneyReferenceTechnicalSpecification(outcome, enrichedPromptData);
         AlertVerificationOutcome validated = alertVerificationOutcomeValidator.validate(
                 outcome,
                 enrichedPromptData.prompt(),
@@ -852,6 +857,19 @@ public class AlertService {
             validated = alertVerificationOutcomeValidator.validate(outcome, enrichedPromptData.prompt());
         }
         return validated;
+    }
+
+    private AlertVerificationOutcome normalizeJourneyReferenceTechnicalSpecification(
+            AlertVerificationOutcome outcome,
+            AlertVerificationPromptData enrichedPromptData) {
+        AlertJourneyReferenceTechnicalSpecificationNormalizer normalizer =
+                alertJourneyReferenceTechnicalSpecificationNormalizer == null
+                        ? new AlertJourneyReferenceTechnicalSpecificationNormalizer()
+                        : alertJourneyReferenceTechnicalSpecificationNormalizer;
+        return normalizer.normalize(
+                outcome,
+                enrichedPromptData == null ? null : enrichedPromptData.locationResolutionContext(),
+                enrichedPromptData == null ? null : enrichedPromptData.alertId());
     }
 
     AlertVerificationOutcome normalizeExpectedMainEventType(

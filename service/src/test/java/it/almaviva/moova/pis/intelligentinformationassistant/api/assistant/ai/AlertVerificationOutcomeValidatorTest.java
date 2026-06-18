@@ -116,6 +116,57 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsJourneyNameEqualsNormalizedAndContainsNormalizedWithNormalizedValue() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(
+                new AlertVerificationLocationContext.NonLocationConstraint(
+                        "JOURNEY_REFERENCE",
+                        "corsa 125",
+                        AlertJourneyReferenceKind.JOURNEY_NAME.name(),
+                        "125",
+                        true,
+                        0.94));
+
+        AlertVerificationOutcome equals = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("vehicleJourneyName", "125")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")),
+                "Avvertimi quando la corsa 125 e in arrivo",
+                context);
+        AlertVerificationOutcome contains = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(contains("vehicleJourneyName", "125")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")),
+                "Avvertimi quando la corsa 125 e in arrivo",
+                context);
+
+        assertThat(equals.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(contains.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+    }
+
+    @Test
+    void rejectsJourneyNameWhenValueOrFieldDoesNotMatch() {
+        AlertVerificationLocationContext context = noLocationContextWithConstraints(journeyReference(
+                AlertJourneyReferenceKind.JOURNEY_NAME,
+                "125"));
+
+        AlertVerificationOutcome wrongValue = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("vehicleJourneyName", "126")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].vehicleJourneyName")),
+                "Avvertimi quando la corsa 125 e in arrivo",
+                context);
+        AlertVerificationOutcome wrongField = validator.validate(
+                outcomeWithConditionAndCoverage(
+                        anyElementCondition(eq("line.dsc", "125")),
+                        coverageFor("payload.stopPointJourney.stopPointsJourneyDetails[].line.dsc")),
+                "Avvertimi quando la corsa 125 e in arrivo",
+                context);
+
+        assertThat(wrongValue.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+        assertThat(wrongField.decision()).isEqualTo(AlertVerificationDecision.REJECTED);
+    }
+
+    @Test
     void acceptsCombinedJourneyNameAndExplicitLineOnSameJourneyDetail() {
         AlertVerificationLocationContext context = noLocationContextWithConstraints(
                 journeyReference(AlertJourneyReferenceKind.JOURNEY_NAME, "35"),

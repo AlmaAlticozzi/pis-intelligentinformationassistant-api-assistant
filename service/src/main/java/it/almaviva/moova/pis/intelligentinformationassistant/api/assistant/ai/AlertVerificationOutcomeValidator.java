@@ -45,6 +45,8 @@ public class AlertVerificationOutcomeValidator {
     private static final String TRANSPORT_OPERATOR_FIELD = JOURNEY_DETAILS_PATH + ".transportOperator.dsc";
     private static final Set<String> UNQUALIFIED_DESCRIPTOR_FIELDS =
             Set.of(LINE_FIELD, SERVICE_CATEGORY_FIELD, TRANSPORT_OPERATOR_FIELD);
+    private static final Set<String> POSITIVE_TEXT_OPERATORS =
+            Set.of("EQUALS_NORMALIZED", "CONTAINS_NORMALIZED");
     private static final Set<String> PLATFORM_OPERATORS = Set.of(
             "EQUAL_PLATFORM", "NOT_EQUAL_PLATFORM", "IN_PLATFORMS", "NOT_IN_PLATFORMS",
             "PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD",
@@ -1664,13 +1666,13 @@ public class AlertVerificationOutcomeValidator {
             String expectedValue = firstNonBlank(reference.normalizedValue(), reference.rawText());
             boolean valid = switch (kind) {
                 case JOURNEY_NAME -> hasSingleFieldJourneyReferenceCoverage(
-                        context, JOURNEY_NAME_FIELD, "CONTAINS_NORMALIZED", expectedValue);
+                        context, reference, JOURNEY_NAME_FIELD, expectedValue);
                 case LINE -> hasSingleFieldJourneyReferenceCoverage(
-                        context, LINE_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                        context, reference, LINE_FIELD, expectedValue);
                 case SERVICE_CATEGORY -> hasSingleFieldJourneyReferenceCoverage(
-                        context, SERVICE_CATEGORY_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                        context, reference, SERVICE_CATEGORY_FIELD, expectedValue);
                 case TRANSPORT_OPERATOR -> hasSingleFieldJourneyReferenceCoverage(
-                        context, TRANSPORT_OPERATOR_FIELD, "EQUALS_NORMALIZED", expectedValue);
+                        context, reference, TRANSPORT_OPERATOR_FIELD, expectedValue);
                 case UNQUALIFIED_DESCRIPTOR -> hasUnqualifiedDescriptorCoverage(context, expectedValue);
             };
             List<String> fields = matchedJourneyReferenceFields(context, kind, expectedValue);
@@ -1699,14 +1701,29 @@ public class AlertVerificationOutcomeValidator {
 
     private boolean hasSingleFieldJourneyReferenceCoverage(
             ValidationContext context,
+            AlertVerificationLocationContext.NonLocationConstraint reference,
             String field,
-            String operator,
             String expectedValue) {
-        return context.conditionLeaves.stream()
-                .anyMatch(leaf -> field.equals(leaf.field())
-                        && operator.equals(leaf.operator())
-                        && sameNormalizedValue(expectedValue, stringValue(leaf.value()))
-                        && ServiceDataCapabilityCatalog.isAllowedOperator(field, operator));
+        boolean matched = false;
+        for (ConditionLeaf leaf : context.conditionLeaves) {
+            boolean fieldValid = field.equals(leaf.field());
+            boolean valueValid = sameNormalizedValue(expectedValue, stringValue(leaf.value()));
+            boolean operatorValid = isPositiveTextOperator(field, leaf.operator());
+            boolean correlationValid = JOURNEY_DETAILS_PATH.equals(leaf.arrayPath());
+            if (fieldValid || valueValid) {
+                logJourneyReferenceCoverageCheck(
+                        reference,
+                        expectedValue,
+                        leaf,
+                        relativeJourneyField(leaf.field()),
+                        fieldValid,
+                        valueValid,
+                        operatorValid,
+                        correlationValid);
+            }
+            matched = matched || (fieldValid && valueValid && operatorValid && correlationValid);
+        }
+        return matched;
     }
 
     private boolean hasUnqualifiedDescriptorCoverage(ValidationContext context, String expectedValue) {
@@ -1714,7 +1731,7 @@ public class AlertVerificationOutcomeValidator {
         for (ConditionLeaf leaf : context.conditionLeaves) {
             if (!UNQUALIFIED_DESCRIPTOR_FIELDS.contains(leaf.field())
                     || !JOURNEY_DETAILS_PATH.equals(leaf.arrayPath())
-                    || !"EQUALS_NORMALIZED".equals(leaf.operator())
+                    || !isPositiveTextOperator(leaf.field(), leaf.operator())
                     || !sameNormalizedValue(expectedValue, stringValue(leaf.value()))
                     || !ServiceDataCapabilityCatalog.isAllowedOperator(leaf.field(), leaf.operator())) {
                 continue;
@@ -1735,8 +1752,43 @@ public class AlertVerificationOutcomeValidator {
                             .anyMatch(leaf -> JOURNEY_NAME_FIELD.equals(leaf.field())
                                     && group != null
                                     && group.equals(anyGroupPath(leaf)));
-                    return fields.equals(UNQUALIFIED_DESCRIPTOR_FIELDS) && !containsVehicleJourneyName;
+                    return leaves.size() == 3 && fields.equals(UNQUALIFIED_DESCRIPTOR_FIELDS) && !containsVehicleJourneyName;
                 });
+    }
+
+    private boolean isPositiveTextOperator(String field, String operator) {
+        return POSITIVE_TEXT_OPERATORS.contains(operator)
+                && ServiceDataCapabilityCatalog.isAllowedOperator(field, operator);
+    }
+
+    private void logJourneyReferenceCoverageCheck(
+            AlertVerificationLocationContext.NonLocationConstraint reference,
+            String expectedValue,
+            ConditionLeaf leaf,
+            String leafField,
+            boolean fieldValid,
+            boolean valueValid,
+            boolean operatorValid,
+            boolean correlationValid) {
+        System.out.println("[IIA][ALERT_VERIFY][JOURNEY_REFERENCE_COVERAGE_CHECK]\n"
+                + "kind=" + reference.kind() + "\n"
+                + "rawText=" + reference.rawText() + "\n"
+                + "expectedValue=" + expectedValue + "\n"
+                + "leafField=" + leafField + "\n"
+                + "leafValue=" + stringValue(leaf.value()) + "\n"
+                + "leafOperator=" + leaf.operator() + "\n"
+                + "arrayPath=" + leaf.arrayPath() + "\n"
+                + "fieldValid=" + fieldValid + "\n"
+                + "valueValid=" + valueValid + "\n"
+                + "operatorValid=" + operatorValid + "\n"
+                + "correlationValid=" + correlationValid);
+    }
+
+    private String relativeJourneyField(String field) {
+        if (field != null && field.startsWith(JOURNEY_DETAILS_PATH + ".")) {
+            return field.substring((JOURNEY_DETAILS_PATH + ".").length());
+        }
+        return field;
     }
 
     private List<String> matchedJourneyReferenceFields(

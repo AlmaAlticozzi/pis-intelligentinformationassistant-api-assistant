@@ -194,12 +194,24 @@ public class AlertVerificationPromptBuilder {
                             .append(" confidence=").append(constraint.confidence());
                 }
                 section.append("\n");
+                if ("JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type())) {
+                    section.append("JOURNEY_REFERENCE_CONSTRAINT_JSON:\n")
+                            .append("{\"kind\":\"").append(jsonEscape(nullToEmpty(constraint.kind()))).append("\"")
+                            .append(",\"normalizedValue\":\"").append(jsonEscape(nullToEmpty(constraint.normalizedValue()))).append("\"")
+                            .append(",\"requiredCoverage\":").append(constraint.requiredCoverage())
+                            .append("}\n")
+                            .append("This backend-derived journey-reference classification is authoritative.\n");
+                }
                 if ("DELAY_THRESHOLD".equalsIgnoreCase(constraint.type())) {
                     appendDelayThresholdBreakdown(section, constraint.rawText());
                 }
             }
         }
         return section.toString();
+    }
+
+    private String jsonEscape(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void appendDelayThresholdBreakdown(StringBuilder section, String rawText) {

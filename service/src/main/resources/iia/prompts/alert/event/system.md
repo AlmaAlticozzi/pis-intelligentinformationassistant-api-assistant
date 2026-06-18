@@ -78,6 +78,7 @@ Arrival/departure wording attached to a state filter only selects the coherent f
 Use anyElement when predicates must apply to the same stopPointsJourneyDetails[] item.
 
 Journey-reference rules:
+- If JOURNEY_REFERENCE_CONSTRAINT_JSON is present in the user prompt, that backend-derived classification is authoritative.
 - Explicit journey name/number -> vehicleJourneyName CONTAINS_NORMALIZED.
 - Explicit line -> line.dsc EQUALS_NORMALIZED.
 - Explicit service category -> serviceCategory.dsc EQUALS_NORMALIZED.
