@@ -2519,13 +2519,21 @@ public class AlertService {
     }
 
     private void logLlmJourneyReferenceSources(List<AlertVerificationLocationContext.NonLocationConstraint> constraints) {
-        constraints.stream()
+        List<AlertVerificationLocationContext.NonLocationConstraint> journeyReferences = constraints.stream()
                 .filter(constraint -> "JOURNEY_REFERENCE".equalsIgnoreCase(constraint.type()))
-                .forEach(constraint -> System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][SOURCE]\n"
+                .toList();
+        journeyReferences.forEach(constraint -> System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][SOURCE]\n"
                         + "source=LLM_UNDERSTANDING\n"
                         + "kind=" + constraint.kind() + "\n"
                         + "values=" + constraint.normalizedValues() + "\n"
                         + "combination=" + constraint.valueCombination()));
+        String summarized = journeyReferences.stream()
+                .map(constraint -> constraint.kind() + ":" + constraint.normalizedValues())
+                .reduce((left, right) -> left + "," + right)
+                .orElse("");
+        System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][RESULT]\n"
+                + "source=LLM_UNDERSTANDING\n"
+                + "constraints=[" + summarized + "]");
     }
 
     private MainEventDerivation deriveMainEventSemantics(

@@ -44,7 +44,11 @@ public class AlertLocationUnderstandingPromptBuilder {
                 - Journey references are non-location constraints of type JOURNEY_REFERENCE.
                 - JOURNEY_REFERENCE.kind values: JOURNEY_NAME for explicit journey name/number; LINE for explicit line; SERVICE_CATEGORY for explicit service category; TRANSPORT_OPERATOR for explicit operator; UNQUALIFIED_DESCRIPTOR for a descriptor attached to the journey without an explicit qualifier.
                 - Examples: "journey 125"/"corsa 125" -> JOURNEY_NAME; "line M2"/"linea M2" -> LINE; "service category Intercity" -> SERVICE_CATEGORY; "operator ATM"/"operated by ATM" -> TRANSPORT_OPERATOR; "an M2 journey"/"una corsa M2" -> UNQUALIFIED_DESCRIPTOR.
-                - For JOURNEY_REFERENCE include kind, rawText, normalizedValue, normalizedValues, valueCombination, requiredCoverage=true and confidence.
+                - Generic entity nouns identify the monitored object and are not filters. Do not emit a JOURNEY_REFERENCE for a bare train, journey, bus, corsa, treno, autobus or equivalent entity mention.
+                - Emit UNQUALIFIED_DESCRIPTOR only when one or more actual attribute values are attached to that entity. The descriptor value must be semantically distinct from the generic entity head.
+                - Event/state expressions are not descriptor values. Articles, determiners, auxiliaries, prepositions and conjunctions are not descriptor values.
+                - Examples: "a journey is arriving" -> no JOURNEY_REFERENCE; "una corsa e partita" -> no JOURNEY_REFERENCE; "an M2 journey" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "una corsa M2" -> UNQUALIFIED_DESCRIPTOR values=[M2]; "journey 125" -> JOURNEY_NAME values=[125]; "line M2" -> LINE values=[M2]; "operated by ATM" -> TRANSPORT_OPERATOR values=[ATM].
+                - For JOURNEY_REFERENCE include kind, rawText, entityHeadText, descriptorValueTexts, normalizedValue, normalizedValues, valueCombination, requiredCoverage=true and confidence.
                 - Use normalizedValues for the semantic values in source order. One value means valueCombination=SINGLE; alternatives connected as OR/ANY mean valueCombination=ANY. Preserve ANY as alternatives, not mandatory independent constraints.
                 - Functional words without a proper stop/place name are not locations: "in arrivo", "in partenza", "arrivo", "partenza", "destinazione", "destino", "origine", "transito", "arrival", "departure", "destination", "origin", "transit".
                 - Universal/all/any location wording is not a station, stop, or location mention: "qualsiasi localita", "qualunque localita", "ogni localita", "tutte le localita", "qualsiasi fermata", "ovunque", "any location", "all locations", "every location", "anywhere", "any stop" and "all stops" mean no location predicate and no required location coverage.
@@ -170,7 +174,9 @@ public class AlertLocationUnderstandingPromptBuilder {
                     {
                       "type": "JOURNEY_REFERENCE",
                       "kind": "UNQUALIFIED_DESCRIPTOR",
-                      "rawText": "M2 o M3",
+                      "rawText": "una corsa M2 o M3",
+                      "entityHeadText": "corsa",
+                      "descriptorValueTexts": ["M2", "M3"],
                       "normalizedValue": "M2",
                       "normalizedValues": ["M2", "M3"],
                       "valueCombination": "ANY",

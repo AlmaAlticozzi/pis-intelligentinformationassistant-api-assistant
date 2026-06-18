@@ -9,6 +9,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.Al
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRelation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationRole;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLocation;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingLlmResponseParser;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingMainEvent;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingNonLocationConstraint;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.AlertLocationUnderstandingResult;
@@ -110,6 +111,89 @@ class AlertVerifyLocationResolutionIntegrationTest {
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
         assertThat(outcome.technicalSpecification().get("condition").toString()).doesNotContain("stopPoint");
         assertThat(outcome.warnings()).isEmpty();
+    }
+
+    @Test
+    void bareGenericJourneyEventAlternativesDiscardSpuriousJourneyReference() {
+        VerificationRun run = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando una corsa \u00e8 partita o \u00e8 arrivata",
+                verifiedOutcomeJson(
+                        eventsTypeAnyCondition(List.of("DEPARTED", "ARRIVED")),
+                        coverage("payload.ongroundServiceEvent.eventsType")),
+                bareEntityJourneyReferenceUnderstanding(
+                        "una corsa",
+                        "corsa",
+                        "corsa",
+                        AlertLocationMainEventIntent.DEPARTURE_OR_ARRIVAL));
+        AlertVerificationOutcome outcome = run.outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("DEPARTED", "ARRIVED")
+                .doesNotContain("vehicleJourneyName", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+        assertThat(run.logs())
+                .contains("reason=no-semantic-value-beyond-entity-head")
+                .contains("source=LLM_UNDERSTANDING")
+                .contains("constraints=[]");
+    }
+
+    @Test
+    void bareProgressiveArrivalDoesNotCreateJourneyReference() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando una corsa \u00e8 in arrivo",
+                verifiedOutcomeJson(
+                        eventsTypeCondition("ARRIVING"),
+                        coverage("payload.ongroundServiceEvent.eventsType")),
+                bareEntityJourneyReferenceUnderstanding(
+                        "una corsa",
+                        "corsa",
+                        "corsa",
+                        AlertLocationMainEventIntent.ARRIVAL)).outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("ARRIVING")
+                .doesNotContain("vehicleJourneyName", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+    }
+
+    @Test
+    void bareDelayDoesNotCreateJourneyReference() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                "Avvertimi quando una corsa ha pi\u00f9 di 10 minuti di ritardo",
+                verifiedOutcomeJson(
+                        genericDelayGreaterThanCondition(600),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].arrivalDelay.delay")),
+                bareEntityJourneyReferenceUnderstanding(
+                        "una corsa",
+                        "corsa",
+                        "corsa",
+                        AlertLocationMainEventIntent.DELAY)).outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("ARRIVAL_DELAY", "arrivalDelay.delay", "GREATER_THAN", "600")
+                .doesNotContain("vehicleJourneyName", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
+    }
+
+    @Test
+    void englishBareGenericJourneyEventAlternativesDiscardSpuriousJourneyReference() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcomeAndUnderstanding(
+                "Notify me when a journey has departed or arrived",
+                verifiedOutcomeJson(
+                        eventsTypeAnyCondition(List.of("DEPARTED", "ARRIVED")),
+                        coverage("payload.ongroundServiceEvent.eventsType")),
+                bareEntityJourneyReferenceUnderstanding(
+                        "a journey",
+                        "journey",
+                        "journey",
+                        AlertLocationMainEventIntent.DEPARTURE_OR_ARRIVAL)).outcome();
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("DEPARTED", "ARRIVED")
+                .doesNotContain("vehicleJourneyName", "line.dsc", "serviceCategory.dsc", "transportOperator.dsc");
     }
 
     @Test
@@ -421,6 +505,35 @@ class AlertVerifyLocationResolutionIntegrationTest {
                 List.of());
     }
 
+    private AlertLocationUnderstandingResult bareEntityJourneyReferenceUnderstanding(
+            String rawText,
+            String entityHeadText,
+            String normalizedValue,
+            AlertLocationMainEventIntent eventIntent) {
+        return new AlertLocationUnderstandingLlmResponseParser().parse("""
+                {
+                  "hasLocations": false,
+                  "language": "it",
+                  "mainEvent": {"eventIntent": "%s", "confidence": 0.9},
+                  "locations": [],
+                  "nonLocationConstraints": [
+                    {
+                      "type": "JOURNEY_REFERENCE",
+                      "kind": "UNQUALIFIED_DESCRIPTOR",
+                      "rawText": "%s",
+                      "entityHeadText": "%s",
+                      "descriptorValueTexts": [],
+                      "normalizedValue": "%s",
+                      "normalizedValues": ["%s"],
+                      "requiredCoverage": true,
+                      "confidence": 0.92
+                    }
+                  ],
+                  "warnings": []
+                }
+                """.formatted(eventIntent.name(), rawText, entityHeadText, normalizedValue, normalizedValue));
+    }
+
     private record VerificationRun(AlertVerificationOutcome outcome, String logs) {
     }
 
@@ -541,6 +654,37 @@ class AlertVerifyLocationResolutionIntegrationTest {
                   ]
                 }
                 """.formatted(value);
+    }
+
+    private String eventsTypeAnyCondition(List<String> values) {
+        String leaves = values.stream()
+                .map(value -> "{\"field\": \"payload.ongroundServiceEvent.eventsType\", \"operator\": \"CONTAINS\", \"value\": \"%s\"}"
+                        .formatted(value))
+                .reduce((left, right) -> left + ",\n" + right)
+                .orElse("");
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "any": [
+                    %s
+                  ]
+                }
+                """.formatted(leaves);
+    }
+
+    private String genericDelayGreaterThanCondition(int seconds) {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVAL_DELAY"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "arrivalDelay.delay", "operator": "GREATER_THAN", "value": %d}
+                    }}
+                  ]
+                }
+                """.formatted(seconds);
     }
 
     private String numericGreaterThanDeparturePlatformCondition() {

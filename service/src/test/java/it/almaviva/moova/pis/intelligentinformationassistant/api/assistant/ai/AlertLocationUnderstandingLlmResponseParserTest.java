@@ -86,8 +86,11 @@ class AlertLocationUnderstandingLlmResponseParserTest {
                     {
                       "type": "JOURNEY_REFERENCE",
                       "kind": "UNQUALIFIED_DESCRIPTOR",
-                      "rawText": "M2",
+                      "rawText": "una corsa M2",
+                      "entityHeadText": "corsa",
+                      "descriptorValueTexts": ["M2"],
                       "normalizedValue": "M2",
+                      "normalizedValues": ["M2"],
                       "requiredCoverage": true,
                       "confidence": 0.92
                     }
@@ -100,10 +103,43 @@ class AlertLocationUnderstandingLlmResponseParserTest {
 
         assertThat(constraint.type()).isEqualTo(AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE);
         assertThat(constraint.journeyReferenceKind()).isEqualTo(AlertJourneyReferenceKind.UNQUALIFIED_DESCRIPTOR);
-        assertThat(constraint.rawText()).isEqualTo("M2");
+        assertThat(constraint.rawText()).isEqualTo("una corsa M2");
+        assertThat(constraint.entityHeadText()).isEqualTo("corsa");
+        assertThat(constraint.descriptorValueTexts()).containsExactly("M2");
         assertThat(constraint.normalizedValue()).isEqualTo("M2");
+        assertThat(constraint.normalizedValues()).containsExactly("M2");
         assertThat(constraint.requiredCoverage()).isTrue();
         assertThat(constraint.confidence()).isEqualTo(0.92);
+    }
+
+    @Test
+    void discardsBareEntityJourneyReferenceCandidateWithoutDescriptorEvidence() {
+        AlertLocationUnderstandingLlmResponseParser.ParseResult parseResult = parser.parseDetailed("""
+                {
+                  "hasLocations": false,
+                  "language": "en",
+                  "mainEvent": {"eventIntent": "DEPARTURE_OR_ARRIVAL", "confidence": 0.9},
+                  "locations": [],
+                  "nonLocationConstraints": [
+                    {
+                      "type": "JOURNEY_REFERENCE",
+                      "kind": "UNQUALIFIED_DESCRIPTOR",
+                      "rawText": "a journey",
+                      "entityHeadText": "journey",
+                      "descriptorValueTexts": [],
+                      "normalizedValue": "journey",
+                      "normalizedValues": ["journey"],
+                      "requiredCoverage": true,
+                      "confidence": 0.92
+                    }
+                  ],
+                  "warnings": []
+                }
+                """);
+
+        assertThat(parseResult.result().nonLocationConstraints()).isEmpty();
+        assertThat(parseResult.warnings())
+                .anyMatch(warning -> warning.contains("no-semantic-value-beyond-entity-head"));
     }
 
     @Test

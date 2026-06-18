@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -145,25 +146,97 @@ public class AlertLocationUnderstandingLlmResponseParser {
                     null,
                     "nonLocationConstraints[" + index + "].kind",
                     warnings);
-            result.add(new AlertLocationUnderstandingNonLocationConstraint(
+            List<String> normalizedValues = asStringList(map.get("normalizedValues"));
+            List<String> descriptorValueTexts = asStringList(map.get("descriptorValueTexts"));
+            String entityHeadText = asString(map.get("entityHeadText"));
+            AlertJourneyReferenceValueCombination valueCombination = parseEnum(
+                    AlertJourneyReferenceValueCombination.class,
+                    asString(map.get("valueCombination")),
+                    AlertJourneyReferenceValueCombination.SINGLE,
+                    "nonLocationConstraints[" + index + "].valueCombination",
+                    warnings);
+            AlertLocationUnderstandingNonLocationConstraint candidate = new AlertLocationUnderstandingNonLocationConstraint(
                     type,
                     asString(map.get("rawText")),
                     journeyReferenceKind,
                     asString(map.get("normalizedValue")),
-                    asStringList(map.get("normalizedValues")),
-                    parseEnum(
-                            AlertJourneyReferenceValueCombination.class,
-                            asString(map.get("valueCombination")),
-                            AlertJourneyReferenceValueCombination.SINGLE,
-                            "nonLocationConstraints[" + index + "].valueCombination",
-                            warnings),
+                    normalizedValues,
+                    entityHeadText,
+                    descriptorValueTexts,
+                    valueCombination,
                     !map.containsKey("requiredCoverage") || Boolean.TRUE.equals(map.get("requiredCoverage")),
                     clamp(asDouble(map.get("confidence"), 0.0),
                             "nonLocationConstraints[" + index + "].confidence",
-                            warnings)));
+                            warnings));
+            if (acceptJourneyReferenceCandidate(candidate, index, warnings)) {
+                result.add(candidate);
+            }
             index++;
         }
         return result;
+    }
+
+    private boolean acceptJourneyReferenceCandidate(
+            AlertLocationUnderstandingNonLocationConstraint candidate,
+            int index,
+            List<String> warnings) {
+        if (candidate.type() != AlertLocationNonLocationConstraintType.JOURNEY_REFERENCE) {
+            return true;
+        }
+        String reason = journeyReferenceRejectionReason(candidate);
+        boolean accepted = reason == null;
+        System.out.println("[IIA][ALERT_JOURNEY_REFERENCE][LLM_CANDIDATE]\n"
+                + "kind=" + candidate.journeyReferenceKind() + "\n"
+                + "rawText=" + candidate.rawText() + "\n"
+                + "entityHeadText=" + candidate.entityHeadText() + "\n"
+                + "descriptorValueTexts=" + candidate.descriptorValueTexts() + "\n"
+                + "normalizedValues=" + candidate.normalizedValues() + "\n"
+                + "accepted=" + accepted
+                + (accepted ? "" : "\nreason=" + reason));
+        if (!accepted) {
+            warnings.add("nonLocationConstraints[" + index + "] JOURNEY_REFERENCE discarded: reason=" + reason + ".");
+        }
+        return accepted;
+    }
+
+    private String journeyReferenceRejectionReason(AlertLocationUnderstandingNonLocationConstraint candidate) {
+        List<String> normalizedValues = candidate.normalizedValues();
+        if (normalizedValues.isEmpty()) {
+            return "missing-normalized-values";
+        }
+        if (candidate.descriptorValueTexts().isEmpty()) {
+            return "no-semantic-value-beyond-entity-head";
+        }
+        String normalizedEntityHead = normalizeSemantic(candidate.entityHeadText());
+        for (String value : normalizedValues) {
+            String normalizedValue = normalizeSemantic(value);
+            if (normalizedValue == null || normalizedValue.isBlank()) {
+                return "blank-normalized-value";
+            }
+            if (normalizedEntityHead != null && normalizedEntityHead.equals(normalizedValue)) {
+                return "no-semantic-value-beyond-entity-head";
+            }
+            boolean traceable = candidate.descriptorValueTexts().stream()
+                    .map(this::normalizeSemantic)
+                    .anyMatch(descriptor -> normalizedValue.equals(descriptor))
+                    || normalizeSemantic(candidate.rawText()).contains(normalizedValue);
+            if (!traceable) {
+                return "value-not-traceable-to-evidence";
+            }
+        }
+        return null;
+    }
+
+    private String normalizeSemantic(String value) {
+        if (value == null) {
+            return null;
+        }
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replaceAll("[^\\p{Alnum}._/-]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim()
+                .toLowerCase(Locale.ROOT);
     }
 
     private <E extends Enum<E>> E parseEnum(
