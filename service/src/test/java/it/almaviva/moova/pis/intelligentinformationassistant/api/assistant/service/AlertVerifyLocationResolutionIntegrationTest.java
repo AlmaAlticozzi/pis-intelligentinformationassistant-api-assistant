@@ -192,6 +192,23 @@ class AlertVerifyLocationResolutionIntegrationTest {
     }
 
     @Test
+    void explicitTransportOperatorDoesNotCreateUnqualifiedDescriptorConstraint() {
+        AlertVerificationOutcome outcome = verifyWithLlmOutcome(
+                "Avvertimi quando una corsa dell'operatore di trasporto ATM \u00e8 in arrivo a Garibaldi FS",
+                verifiedOutcomeJson(
+                        transportOperatorAtGaribaldiCondition(),
+                        coverage(
+                                "payload.ongroundServiceEvent.eventsType",
+                                "payload.ongroundServiceEvent.stopPoint.id",
+                                "payload.stopPointJourney.stopPointsJourneyDetails[].transportOperator.dsc")));
+
+        assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(outcome.technicalSpecification().toString())
+                .contains("transportOperator.dsc", "EQUALS_NORMALIZED", "ATM")
+                .doesNotContain("serviceCategory.dsc", "line.dsc");
+    }
+
+    @Test
     void journeyNameEqualsNormalizedLlmOutputRemainsVerified() {
         AlertVerificationOutcome outcome = verifyWithLlmOutcome(
                 "Avvertimi quando la corsa 125 \u00e8 in arrivo a Bicocca o a Zara o Marche",
@@ -434,6 +451,22 @@ class AlertVerifyLocationResolutionIntegrationTest {
                     {"anyElement": {
                       "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
                       "conditions": {"field": "vehicleJourneyName", "operator": "CONTAINS_NORMALIZED", "value": "M2"}
+                    }}
+                  ]
+                }
+                """.formatted(GARIBALDI_FS_ID);
+    }
+
+    private String transportOperatorAtGaribaldiCondition() {
+        return """
+                {
+                  "type": "SERVICE_DATA_FIELD_MATCH",
+                  "all": [
+                    {"field": "payload.ongroundServiceEvent.eventsType", "operator": "CONTAINS", "value": "ARRIVING"},
+                    {"field": "payload.ongroundServiceEvent.stopPoint.id", "operator": "EQUALS", "value": "%s"},
+                    {"anyElement": {
+                      "path": "payload.stopPointJourney.stopPointsJourneyDetails[]",
+                      "conditions": {"field": "transportOperator.dsc", "operator": "EQUALS_NORMALIZED", "value": "ATM"}
                     }}
                   ]
                 }
