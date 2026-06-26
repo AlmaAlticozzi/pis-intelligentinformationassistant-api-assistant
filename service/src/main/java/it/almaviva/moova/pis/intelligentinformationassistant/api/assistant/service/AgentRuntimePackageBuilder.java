@@ -60,7 +60,9 @@ public class AgentRuntimePackageBuilder {
 
         List<AgentRuntimeSubmission.AgentRuntimeDataSourceBinding> bindings = bindingResolverRegistry.resolve(snapshot);
         AgentRuntimeSubmission.AgentRuntimeDefinitionPackage agentDefinition = toAgentDefinition(snapshot, bindings);
-        AgentCanonicalJsonHashResult packageHash = canonicalJsonService.hash(agentDefinition);
+        AgentCanonicalJsonHashResult packageHash = canonicalJsonService.hash(runtimeSignificantPayload(
+                command.startImmediatelyIfAllowed(),
+                agentDefinition));
         String hashHex = stripSha256Prefix(packageHash.hash());
         String submissionId = submissionId(snapshot.agentDefinitionId(), context.packageVersion(), hashHex);
         AgentRuntimeSubmission submission = new AgentRuntimeSubmission(
@@ -111,6 +113,32 @@ public class AgentRuntimePackageBuilder {
                 snapshot.updatedAt(),
                 dataDomain(snapshot, runtimeContract),
                 bindings);
+    }
+
+    private Map<String, Object> runtimeSignificantPayload(
+            boolean startImmediatelyIfAllowed,
+            AgentRuntimeSubmission.AgentRuntimeDefinitionPackage agentDefinition) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("desiredStatus", DESIRED_STATUS_ACTIVE);
+        payload.put("startImmediatelyIfAllowed", startImmediatelyIfAllowed);
+        payload.put("agentDefinition", new AgentRuntimeSubmission.AgentRuntimeDefinitionPackage(
+                agentDefinition.id(),
+                agentDefinition.name(),
+                agentDefinition.description(),
+                agentDefinition.source(),
+                agentDefinition.profile(),
+                agentDefinition.activationPolicy(),
+                agentDefinition.interpreterType(),
+                agentDefinition.triggerType(),
+                agentDefinition.inputModel(),
+                agentDefinition.outputModel(),
+                agentDefinition.runtimeContract(),
+                agentDefinition.artifact(),
+                agentDefinition.metadata(),
+                null,
+                agentDefinition.dataDomain(),
+                agentDefinition.dataSourceBindings()));
+        return payload;
     }
 
     private AgentRuntimeSubmission.AgentRuntimeSourceReference toSource(AgentActivationSnapshot snapshot) {

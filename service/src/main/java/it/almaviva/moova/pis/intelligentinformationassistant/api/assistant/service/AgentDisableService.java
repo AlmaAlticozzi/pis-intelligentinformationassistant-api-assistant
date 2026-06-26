@@ -7,11 +7,14 @@ import jakarta.inject.Inject;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 @ApplicationScoped
 public class AgentDisableService {
 
     private static final String READY = "READY";
+    private static final String ACTIVE = "ACTIVE";
     private static final String DISABLED = "DISABLED";
 
     private final AgentLifecycleCommandFactory commandFactory = new AgentLifecycleCommandFactory();
@@ -28,6 +31,9 @@ public class AgentDisableService {
 
     @Inject
     AgentOrchestratorGateway orchestratorGateway;
+
+    @Inject
+    AgentDisableFinalizationService disableFinalizationService;
 
     Clock clock = Clock.systemUTC();
 
@@ -138,11 +144,24 @@ public class AgentDisableService {
                 Instant.now(clock));
         try {
             orchestratorGateway.disable(gatewayRequest);
-            System.out.println("[IIA][AGENT_DISABLE] failed agentDefinitionId=" + command.agentDefinitionId()
+            OffsetDateTime disabledAt = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
+            boolean finalized = disableFinalizationService.finalizeAcceptedDisable(
+                    command.agentDefinitionId(),
+                    ACTIVE,
+                    DISABLED,
+                    disabledAt);
+            if (!finalized) {
+                AgentDefinitionLifecycleState current = loadState(command.agentDefinitionId());
+                System.out.println("[IIA][AGENT_DISABLE] rejected agentDefinitionId=" + command.agentDefinitionId()
+                        + " outcome=LIFECYCLE_CONFLICT currentStatus=" + current.status()
+                        + " stateChangeApplied=false");
+                throw new AgentDisableRejectedException(current.status(), "Agent Definition status changed during disable.");
+            }
+            System.out.println("[IIA][AGENT_DISABLE] completed agentDefinitionId=" + command.agentDefinitionId()
                     + " previousStatus=" + state.status()
-                    + " outcome=RUNTIME_ACCEPTANCE_NOT_SUPPORTED httpStatus=500 stateChangeApplied=false");
-            throw new AgentDisableRuntimeAcceptanceNotSupportedException(
-                    "Runtime disable was accepted, but control-plane disable finalization is not enabled in this phase.");
+                    + " currentStatus=" + DISABLED
+                    + " executionMode=ORCHESTRATOR_REQUIRED stateChangeApplied=true");
+            return agentDefinitionService.getAgentDefinition(command.agentDefinitionId());
         } catch (AgentOrchestratorUnavailableException ex) {
             System.out.println("[IIA][AGENT_DISABLE] failed agentDefinitionId=" + command.agentDefinitionId()
                     + " previousStatus=" + state.status()

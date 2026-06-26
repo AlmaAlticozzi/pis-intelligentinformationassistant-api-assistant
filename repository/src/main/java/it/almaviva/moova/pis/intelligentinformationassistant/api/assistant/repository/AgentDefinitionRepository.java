@@ -22,6 +22,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 
 import java.time.OffsetDateTime;
@@ -87,6 +88,29 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                 .findFirst();
     }
 
+    public Optional<AgentDefinition> findByDefinitionIdForUpdate(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select d
+                        from AgentDefinition d
+                        where d.codAgentdefinition = :agentDefinitionId
+                        """, AgentDefinition.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .setLockMode(LockModeType.PESSIMISTIC_WRITE)
+                .getResultStream()
+                .findFirst();
+    }
+
+    public List<String> findActiveDefinitionIdsWithoutCurrentRuntimePackage() {
+        return entityManager.createQuery("""
+                        select d.codAgentdefinition
+                        from AgentDefinition d
+                        where d.sglStatus.sglStatus = 'ACTIVE'
+                            and d.codCurrentruntimepackage is null
+                        order by d.codAgentdefinition
+                        """, String.class)
+                .getResultList();
+    }
+
     public Optional<String> findLatestCompilationReferenceId(String agentDefinitionId) {
         List<String> rows = entityManager.createNativeQuery("""
                         select cod_latestcompilation
@@ -135,6 +159,41 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                 .setParameter("agentDefinitionId", agentDefinitionId)
                 .setParameter("expectedStatus", expectedStatus)
                 .executeUpdate();
+    }
+
+    @Transactional
+    public int transitionStatusAndCurrentRuntimePackage(
+            String agentDefinitionId,
+            String expectedStatus,
+            String targetStatus,
+            String currentRuntimePackageId,
+            OffsetDateTime updatedAt) {
+        return entityManager.createQuery("""
+                        update AgentDefinition d
+                        set d.sglStatus = :targetStatus,
+                            d.codCurrentruntimepackage = :currentRuntimePackageId,
+                            d.dtUpdatedat = :updatedAt
+                        where d.codAgentdefinition = :agentDefinitionId
+                            and d.sglStatus.sglStatus = :expectedStatus
+                        """)
+                .setParameter("targetStatus", statusReference(targetStatus))
+                .setParameter("currentRuntimePackageId", currentRuntimePackageId)
+                .setParameter("updatedAt", updatedAt)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .setParameter("expectedStatus", expectedStatus)
+                .executeUpdate();
+    }
+
+    @Transactional
+    public boolean setCurrentRuntimePackage(String agentDefinitionId, String currentRuntimePackageId, OffsetDateTime updatedAt) {
+        AgentDefinition definition = entityManager.find(AgentDefinition.class, agentDefinitionId);
+        if (definition == null) {
+            return false;
+        }
+        definition.setCodCurrentruntimepackage(currentRuntimePackageId);
+        definition.setDtUpdatedat(updatedAt);
+        entityManager.flush();
+        return true;
     }
 
     public List<AgentDefinitionDayOfWeek> findActivationDaysOfWeek(String agentDefinitionId) {

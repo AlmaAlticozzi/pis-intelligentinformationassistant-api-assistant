@@ -2,16 +2,27 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentActivationRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionDetail;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentRuntimePackage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @ApplicationScoped
 public class AgentActivationService {
+
+    private static final ObjectMapper JSON_MAPPER = JsonMapper.builder()
+            .findAndAddModules()
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .build();
 
     private final AgentLifecycleCommandFactory commandFactory = new AgentLifecycleCommandFactory();
     private final AgentLifecycleTransitionValidator transitionValidator = new AgentLifecycleTransitionValidator();
@@ -30,6 +41,15 @@ public class AgentActivationService {
 
     @Inject
     AgentRuntimePackageVersionProvider packageVersionProvider;
+
+    @Inject
+    RuntimePackageIdentityService runtimePackageIdentityService;
+
+    @Inject
+    AgentActivationFinalizationService activationFinalizationService;
+
+    @Inject
+    AgentDefinitionService agentDefinitionService;
 
     @ConfigProperty(
             name = "iia.agent-activation.fallback-submitted-by",
@@ -98,17 +118,31 @@ public class AgentActivationService {
             throw new AgentActivationPreconditionFailedException(preconditions.errors());
         }
 
-        AgentRuntimePackageBuildResult packageBuildResult = buildRuntimePackage(snapshot, command);
+        AgentRuntimePackage runtimePackage = runtimePackageIdentityService.materializeOrReuse(
+                command.agentDefinitionId(),
+                command);
+        AgentRuntimeSubmission submission = persistedSubmission(runtimePackage);
         AgentOrchestratorActivationRequest gatewayRequest = new AgentOrchestratorActivationRequest(
                 command.agentDefinitionId(),
-                packageBuildResult.submission(),
-                packageBuildResult.canonicalPackageHash());
+                submission,
+                "sha256:" + runtimePackage.getDscPackagefingerprint());
         try {
-            AgentOrchestratorRuntimeAgentResult result = orchestratorGateway.activate(gatewayRequest);
-            System.out.println("[IIA][AGENT_ACTIVATION] failed agentDefinitionId=" + command.agentDefinitionId()
-                    + " outcome=RUNTIME_ACCEPTANCE_NOT_SUPPORTED httpStatus=500 stateChangeApplied=false");
-            throw new AgentActivationRuntimeAcceptanceNotSupportedException(
-                    "Runtime activation was accepted, but control-plane activation finalization is not enabled in this phase.");
+            orchestratorGateway.activate(gatewayRequest);
+            OffsetDateTime activatedAt = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
+            boolean finalized = activationFinalizationService.finalizeAcceptedActivation(
+                    command.agentDefinitionId(),
+                    snapshot.status(),
+                    runtimePackage,
+                    activatedAt);
+            if (!finalized) {
+                System.out.println("[IIA][AGENT_ACTIVATION] rejected agentDefinitionId=" + command.agentDefinitionId()
+                        + " outcome=LIFECYCLE_CONFLICT stateChangeApplied=false");
+                throw new AgentActivationRejectedException(snapshot.status(), "Agent Definition status changed during activation.");
+            }
+            System.out.println("[IIA][AGENT_ACTIVATION] completed agentDefinitionId=" + command.agentDefinitionId()
+                    + " packageVersion=" + runtimePackage.getNumPackageversion()
+                    + " stateChangeApplied=true");
+            return agentDefinitionService.getAgentDefinition(command.agentDefinitionId());
         } catch (AgentOrchestratorUnavailableException ex) {
             System.out.println("[IIA][AGENT_ACTIVATION] failed agentDefinitionId=" + command.agentDefinitionId()
                     + " outcome=ORCHESTRATOR_UNAVAILABLE httpStatus=503 stateChangeApplied=false");
@@ -150,6 +184,14 @@ public class AgentActivationService {
             throw ex;
         } catch (RuntimeException ex) {
             throw new AgentActivationTechnicalException("Runtime package construction failed.", ex);
+        }
+    }
+
+    private AgentRuntimeSubmission persistedSubmission(AgentRuntimePackage runtimePackage) {
+        try {
+            return JSON_MAPPER.convertValue(runtimePackage.getJsnRuntimepackage(), AgentRuntimeSubmission.class);
+        } catch (IllegalArgumentException ex) {
+            throw new AgentActivationTechnicalException("Persisted runtime package snapshot is invalid.", ex);
         }
     }
 

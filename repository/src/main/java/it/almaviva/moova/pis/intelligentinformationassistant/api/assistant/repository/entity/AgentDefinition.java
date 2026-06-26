@@ -214,6 +214,10 @@ public class AgentDefinition {
     @JoinColumn(name = "cod_latestrun")
     private AgentRun codLatestrun;
 
+    @Size(max = 50)
+    @Column(name = "cod_currentruntimepackage", length = 50)
+    private String codCurrentruntimepackage;
+
     @Size(max = 100)
     @Column(name = "cod_createdby", length = 100)
     private String codCreatedby;
