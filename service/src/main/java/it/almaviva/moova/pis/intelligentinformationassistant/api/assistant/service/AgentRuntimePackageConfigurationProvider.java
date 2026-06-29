@@ -12,7 +12,7 @@ public class AgentRuntimePackageConfigurationProvider {
     @ConfigProperty(name = "iia.agent-runtime-package.default-runtime-class", defaultValue = "STANDARD_DSL_RUNTIME")
     String defaultRuntimeClass;
 
-    @ConfigProperty(name = "iia.agent-runtime-package.artifact-canonicalization", defaultValue = "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES")
+    @ConfigProperty(name = "iia.agent-runtime-package.artifact-canonicalization", defaultValue = "RFC8785_JSON")
     String artifactCanonicalization;
 
     @ConfigProperty(name = "iia.agent-runtime-package.artifact-media-type", defaultValue = "application/json")

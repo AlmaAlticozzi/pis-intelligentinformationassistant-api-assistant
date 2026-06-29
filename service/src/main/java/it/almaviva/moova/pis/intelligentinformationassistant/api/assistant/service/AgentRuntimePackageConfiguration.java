@@ -13,7 +13,7 @@ public record AgentRuntimePackageConfiguration(
         return new AgentRuntimePackageConfiguration(
                 "pis-intelligentinformationassistant-api-assistant",
                 "STANDARD_DSL_RUNTIME",
-                "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES",
+                "RFC8785_JSON",
                 "application/json",
                 "iia.runtime.data-source-binding/v1",
                 new ConnectorConfiguration(

@@ -48,7 +48,10 @@ class AgentRuntimePackageBuilderTest {
         assertThat(submission.agentDefinition().artifact().content())
                 .extractingByKey("runtime")
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
-                .containsEntry("executionModel", "KAFKA_EVENT");
+                .containsEntry("executionModel", "STANDARD_DSL_EVALUATOR");
+        assertThat(submission.agentDefinition().runtimeContract().requiredOperators()).containsExactly("CONTAINS");
+        assertThat(submission.agentDefinition().runtimeContract().compatibility())
+                .containsEntry("canonicalization", "RFC8785_JSON");
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
                 .satisfies(binding -> {
                     assertThat(binding.accessMode()).isEqualTo("EVENT_STREAM");
@@ -82,7 +85,8 @@ class AgentRuntimePackageBuilderTest {
         assertThat(submission.agentDefinition().artifact().content())
                 .extractingByKey("runtime")
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
-                .containsEntry("executionModel", "SCHEDULED_POLLING");
+                .containsEntry("executionModel", "STANDARD_DSL_EVALUATOR");
+        assertThat(submission.agentDefinition().runtimeContract().requiredOperators()).containsExactly("EXISTS");
         assertThat(submission.agentDefinition().runtimeContract().allowedTools()).extracting(
                 AgentRuntimeSubmission.RuntimeToolReference::name).containsExactly(TOOL);
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
@@ -128,18 +132,28 @@ class AgentRuntimePackageBuilderTest {
     }
 
     @Test
-    void governedRuntimeModelIsIndependentFromDslExecutionModeAndChangesLegacyFingerprint() throws Exception {
+    void correctedRuntimeContractArtifactAndCanonicalizationChangeLegacyFingerprint() throws Exception {
         AgentRuntimePackageBuildResult corrected = builder.build(
                 fixture().build(), new AgentActivationCommand("AGDF1", null, true), context(1));
         JsonNode legacyPayload = OBJECT_MAPPER.readTree(corrected.canonicalPackageJson());
-        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyPayload
-                .path("agentDefinition").path("runtimeContract"))
-                .put("runtimeExecutionModel", "KAFKA_EVENT");
+        com.fasterxml.jackson.databind.node.ObjectNode definition =
+                (com.fasterxml.jackson.databind.node.ObjectNode) legacyPayload.path("agentDefinition");
+        com.fasterxml.jackson.databind.node.ObjectNode contract =
+                (com.fasterxml.jackson.databind.node.ObjectNode) definition.path("runtimeContract");
+        contract.put("runtimeExecutionModel", "KAFKA_EVENT");
+        contract.putArray("requiredOperators");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) contract.path("compatibility"))
+                .put("canonicalization", "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES");
+        com.fasterxml.jackson.databind.node.ObjectNode artifact =
+                (com.fasterxml.jackson.databind.node.ObjectNode) definition.path("artifact");
+        artifact.put("canonicalization", "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) artifact.path("content").path("runtime"))
+                .put("executionModel", "KAFKA_EVENT");
 
         assertThat(new AgentCanonicalJsonService().hash(legacyPayload).hash())
                 .isNotEqualTo(corrected.canonicalPackageHash());
         assertThat(corrected.submission().agentDefinition().runtimeContract().runtimeExecutionModel())
-                .isNotEqualTo(corrected.submission().agentDefinition().artifact().content()
+                .isEqualTo(corrected.submission().agentDefinition().artifact().content()
                         .get("runtime") instanceof Map<?, ?> runtime ? runtime.get("executionModel") : null);
         assertThat(corrected.submission().agentDefinition().artifact().signatureStatus()).isEqualTo("SIGNED");
     }
@@ -156,7 +170,7 @@ class AgentRuntimePackageBuilderTest {
         assertThat(artifact.hashAlgorithm()).isEqualTo("SHA-256");
         assertThat(artifact.schemaVersion()).isEqualTo("iia.agent.dsl/v1");
         assertThat(artifact.sizeBytes()).isPositive();
-        assertThat(artifact.canonicalization()).isEqualTo("JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES");
+        assertThat(artifact.canonicalization()).isEqualTo("RFC8785_JSON");
         assertThat(artifact.signatureStatus()).isEqualTo("SIGNED");
         assertThat(artifact.signature().algorithm()).isEqualTo("SHA256_WITH_CONTROL_PLANE_ATTESTATION");
         assertThat(artifact.content()).containsEntry("agentDefinitionId", "AGDF1");
@@ -339,7 +353,7 @@ class AgentRuntimePackageBuilderTest {
             configuration = new AgentRuntimePackageConfiguration(
                     "pis-intelligentinformationassistant-api-assistant",
                     "STANDARD_DSL_RUNTIME",
-                    "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES",
+                    "RFC8785_JSON",
                     "application/json",
                     "iia.runtime.data-source-binding/v1",
                     new AgentRuntimePackageConfiguration.ConnectorConfiguration(value, "KAFKA", "EVENT_STREAM", "ServiceDataV2", "v2", null, "SERVICEDATA_EVENTS"),
@@ -426,7 +440,7 @@ class AgentRuntimePackageBuilderTest {
         contract.put("orchestratorCompatibility", Map.of(
                 "minimumRuntimeVersion", "0.0.3",
                 "runtimeClass", "STANDARD_DSL_RUNTIME",
-                "canonicalization", "JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES"));
+                "canonicalization", "RFC8785_JSON"));
         return contract;
     }
 
@@ -462,7 +476,11 @@ class AgentRuntimePackageBuilderTest {
         artifact.put("agentDefinitionId", "AGDF1");
         artifact.put("runtime", runtime);
         artifact.put("trigger", Map.of("type", "EVENT", "source", "SERVICE_DATA", "inputModel", "ServiceDataV2"));
-        artifact.put("evaluation", Map.of("mode", "STATELESS_EVENT_MATCH", "condition", Map.of("field", "payload.status", "operator", "EXISTS")));
+        artifact.put("evaluation", Map.of(
+                "mode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of("all", List.of(
+                        Map.of("field", "payload.status", "operator", "CONTAINS", "value", "active"),
+                        Map.of("field", "payload.message", "operator", "CONTAINS", "value", "delay")))));
         artifact.put("output", Map.of("type", "CANDIDATE_SUGGESTION", "outputModel", "AgentOutput.CANDIDATE_SUGGESTION"));
         artifact.put("governance", Map.of("llmRuntimeExecutionAllowed", false, "externalCodeExecutionAllowed", false));
         return artifact;

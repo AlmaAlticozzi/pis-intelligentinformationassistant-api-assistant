@@ -23,6 +23,7 @@ public class AgentRuntimePackageBuilder {
     private final AgentRuntimePackageConfiguration configuration;
     private final RuntimeDataSourceBindingResolverRegistry bindingResolverRegistry;
     private final AgentCanonicalJsonService canonicalJsonService;
+    private final AgentRuntimeOperatorExtractor operatorExtractor;
 
     public AgentRuntimePackageBuilder() {
         this(AgentRuntimePackageConfiguration.defaults(), null, new AgentCanonicalJsonService());
@@ -44,6 +45,7 @@ public class AgentRuntimePackageBuilder {
                 ? defaultRegistry(this.configuration)
                 : bindingResolverRegistry;
         this.canonicalJsonService = canonicalJsonService == null ? new AgentCanonicalJsonService() : canonicalJsonService;
+        this.operatorExtractor = new AgentRuntimeOperatorExtractor();
     }
 
     public AgentRuntimePackageBuildResult build(
@@ -211,12 +213,16 @@ public class AgentRuntimePackageBuilder {
             Map<String, Object> runtimeContract) {
         AgentActivationSnapshot.AgentActivationArtifactSnapshot artifact = snapshot.artifact();
         require(artifact != null, "Artifact metadata is required.");
-        Map<String, Object> dslArtifact = requireMap(snapshot.dslArtifact(), "DSL artifact is required.");
+        require("RFC8785_JSON".equals(configuration.artifactCanonicalization()),
+                "Artifact canonicalization must be RFC8785_JSON.");
+        String runtimeExecutionModel = governedRuntimeExecutionModel(runtimeContract);
+        Map<String, Object> dslArtifact = governedArtifactContent(
+                requireMap(snapshot.dslArtifact(), "DSL artifact is required."), runtimeExecutionModel);
         AgentCanonicalJsonHashResult dslHash = canonicalJsonService.hash(dslArtifact);
-        String persistedHash = requireText(artifact.artifactHash(), "Artifact hash is required.");
+        requireText(artifact.artifactHash(), "Artifact hash is required.");
         String signatureStatus = requireText(artifact.signatureStatus(), "Artifact signatureStatus is required.");
         require("SIGNED".equals(signatureStatus), "Artifact signatureStatus must be SIGNED.");
-        String hashHex = stripSha256Prefix(persistedHash);
+        String hashHex = stripSha256Prefix(dslHash.hash());
         String schemaVersion = firstText(text(dslArtifact.get("schemaVersion")), artifact.sdkVersion());
         return new AgentRuntimeSubmission.AgentRuntimeArtifact(
                 ARTIFACT_TYPE_DSL,
@@ -226,10 +232,7 @@ public class AgentRuntimePackageBuilder {
                 dslArtifact,
                 "SHA-256",
                 hashHex,
-                firstText(
-                        nestedText(runtimeContract, "orchestratorCompatibility", "canonicalization"),
-                        nestedText(runtimeContract, "compatibility", "canonicalization"),
-                        configuration.artifactCanonicalization()),
+                "RFC8785_JSON",
                 signatureStatus,
                 new AgentRuntimeSubmission.AgentRuntimeArtifactSignature(
                         SIGNATURE_TYPE,
@@ -260,7 +263,7 @@ public class AgentRuntimePackageBuilder {
                 snapshot.inputModel(),
                 snapshot.outputModel(),
                 firstText(text(runtimeContract.get("evaluationMode")), nestedText(snapshot.dslArtifact(), "runtime", "evaluationMode")),
-                distinctStrings(runtimeContract.get("requiredOperators")),
+                operatorExtractor.extract(snapshot.dslArtifact()),
                 tools,
                 profile.networkPolicy(),
                 distinctStrings(runtimeContract.get("forbiddenCapabilities")),
@@ -289,9 +292,41 @@ public class AgentRuntimePackageBuilder {
             map.forEach((key, value) -> compatibility.put(String.valueOf(key), value));
         }
         compatibility.putIfAbsent("runtimeClass", runtimeClass);
-        compatibility.putIfAbsent("canonicalization", configuration.artifactCanonicalization());
+        compatibility.put("canonicalization", "RFC8785_JSON");
         compatibility.putIfAbsent("dataSourceBindingSchema", configuration.bindingSchemaVersion());
         return compatibility;
+    }
+
+    private Map<String, Object> governedArtifactContent(
+            Map<String, Object> source,
+            String runtimeExecutionModel) {
+        Map<String, Object> copy = deepCopyMap(source);
+        Object runtimeValue = copy.get("runtime");
+        require(runtimeValue instanceof Map<?, ?>, "DSL artifact runtime object is required.");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> runtime = (Map<String, Object>) runtimeValue;
+        runtime.put("executionModel", runtimeExecutionModel);
+        require(runtimeExecutionModel.equals(text(runtime.get("executionModel"))),
+                "Artifact and runtime contract execution models are inconsistent.");
+        return copy;
+    }
+
+    private Map<String, Object> deepCopyMap(Map<String, Object> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(key, deepCopyValue(value)));
+        return copy;
+    }
+
+    private Object deepCopyValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((key, nested) -> copy.put(String.valueOf(key), deepCopyValue(nested)));
+            return copy;
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().map(this::deepCopyValue).toList();
+        }
+        return value;
     }
 
     private List<AgentRuntimeSubmission.RuntimeToolReference> allowedTools(

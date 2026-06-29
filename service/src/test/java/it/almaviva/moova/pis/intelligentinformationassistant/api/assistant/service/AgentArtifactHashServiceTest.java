@@ -1,7 +1,10 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import org.junit.jupiter.api.Test;
+import org.erdtman.jcs.JsonCanonicalizer;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,5 +68,21 @@ class AgentArtifactHashServiceTest {
         AgentArtifactHashResult changedHash = service.hashDslArtifact("AGDF1", "AGCP1", changed);
 
         assertThat(baseHash.artifactHash()).isNotEqualTo(changedHash.artifactHash());
+    }
+
+    @Test
+    void usesExactRfc8785BytesForNestedUnicodeEscapesArraysAndNumbers() throws Exception {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("z", List.of(3, 1.0, Map.of("β", "€\n", "a", "quote\"slash\\")));
+        value.put("a", Map.of("nested", true, "number", 1.0e-7));
+
+        AgentArtifactHashResult result = service.hashDslArtifact("AGDF1", "AGCP1", value);
+        byte[] expectedBytes = new JsonCanonicalizer(
+                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(value)).getEncodedUTF8();
+
+        assertThat(result.canonicalJson()).isEqualTo(new String(expectedBytes, StandardCharsets.UTF_8));
+        assertThat(result.artifactSizeBytes()).isEqualTo(expectedBytes.length);
+        assertThat(result.artifactHash()).isEqualTo("sha256:" + java.util.HexFormat.of()
+                .formatHex(MessageDigest.getInstance("SHA-256").digest(expectedBytes)));
     }
 }
