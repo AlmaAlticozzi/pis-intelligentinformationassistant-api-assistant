@@ -41,6 +41,8 @@ quarkus:
     agent-orchestrator:
       client-enabled: ${IIA_ASSISTANT_OIDC_CLIENT_ENABLED:false}
       auth-server-url: ${IIA_ASSISTANT_OIDC_AUTH_SERVER_URL:}
+      discovery-enabled: ${IIA_ASSISTANT_OIDC_DISCOVERY_ENABLED:false}
+      token-path: ${IIA_ASSISTANT_OIDC_TOKEN_PATH:/oauth2/token}
       client-id: ${IIA_ASSISTANT_OIDC_CLIENT_ID:}
       credentials:
         secret: ${IIA_ASSISTANT_OIDC_CLIENT_SECRET:}

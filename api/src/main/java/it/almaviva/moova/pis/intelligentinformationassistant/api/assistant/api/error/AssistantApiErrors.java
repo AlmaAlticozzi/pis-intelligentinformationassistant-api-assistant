@@ -700,17 +700,25 @@ public final class AssistantApiErrors {
     }
 
     public static Error agentDefinitionActivateServiceUnavailable() {
+        return agentDefinitionActivateServiceUnavailable("The Agent Definition is valid and compiled, but it could not be delivered to the Agent Orchestrator. Activation did not occur and the Agent Definition state is unchanged.");
+    }
+
+    public static Error agentDefinitionActivateServiceUnavailable(String detail) {
         return new Error()
                 .code("IIA-AGD-ACT-503-001")
                 .title("Agent Orchestrator unavailable")
-                .detail("The Agent Definition is valid and compiled, but it could not be delivered to the Agent Orchestrator. Activation did not occur and the Agent Definition state is unchanged.");
+                .detail(detail);
     }
 
     public static Error agentDefinitionActivateUnexpectedError() {
+        return agentDefinitionActivateUnexpectedError("An unexpected error occurred while activating the Agent Definition.");
+    }
+
+    public static Error agentDefinitionActivateUnexpectedError(String detail) {
         return new Error()
                 .code("IIA-AGD-ACT-500-001")
                 .title("Unexpected error")
-                .detail("An unexpected error occurred while activating the Agent Definition.");
+                .detail(detail);
     }
 
     public static Error agentDefinitionDisableInvalidRequest(String source, String detail) {

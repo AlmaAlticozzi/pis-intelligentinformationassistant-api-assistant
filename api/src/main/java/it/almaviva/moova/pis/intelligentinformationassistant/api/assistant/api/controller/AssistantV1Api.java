@@ -12,6 +12,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationRuntimeAcceptanceNotSupportedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationTechnicalException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentActivationDownstreamException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentCompilationRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionCreateRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDefinitionInvalidRequestException;
@@ -87,6 +88,14 @@ public class AssistantV1Api implements IAssistantV1Api {
             throw new WebApplicationException(Response.status(422)
                     .entity(AssistantApiErrors.agentDefinitionActivateUnprocessable(ex.getMessage()))
                     .build());
+        } catch (AgentActivationDownstreamException ex) {
+            Object error = switch (ex.assistantHttpStatus()) {
+                case 409 -> AssistantApiErrors.agentDefinitionActivateConflict(ex.getMessage());
+                case 422 -> AssistantApiErrors.agentDefinitionActivateUnprocessable(ex.getMessage());
+                case 503 -> AssistantApiErrors.agentDefinitionActivateServiceUnavailable(ex.getMessage());
+                default -> AssistantApiErrors.agentDefinitionActivateUnexpectedError(ex.getMessage());
+            };
+            throw new WebApplicationException(Response.status(ex.assistantHttpStatus()).entity(error).build());
         } catch (AgentOrchestratorUnavailableException ex) {
             throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(AssistantApiErrors.agentDefinitionActivateServiceUnavailable())

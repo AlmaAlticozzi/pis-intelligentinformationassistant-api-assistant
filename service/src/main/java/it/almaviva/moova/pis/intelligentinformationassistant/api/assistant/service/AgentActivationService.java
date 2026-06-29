@@ -46,6 +46,12 @@ public class AgentActivationService {
     RuntimePackageIdentityService runtimePackageIdentityService;
 
     @Inject
+    PersistedRuntimePackageReader persistedRuntimePackageReader;
+
+    @Inject
+    AgentOrchestratorActivationResultInterpreter activationResultInterpreter;
+
+    @Inject
     AgentActivationFinalizationService activationFinalizationService;
 
     @Inject
@@ -121,18 +127,32 @@ public class AgentActivationService {
         AgentRuntimePackage runtimePackage = runtimePackageIdentityService.materializeOrReuse(
                 command.agentDefinitionId(),
                 command);
-        AgentRuntimeSubmission submission = persistedSubmission(runtimePackage.getJsnRuntimepackage());
+        PersistedRuntimePackageSnapshot persistedPackage = persistedRuntimePackageReader.read(
+                runtimePackage.getCodRuntimepackage(), command.agentDefinitionId());
+        AgentRuntimeSubmission submission = persistedSubmission(persistedPackage.payload());
         AgentOrchestratorActivationRequest gatewayRequest = new AgentOrchestratorActivationRequest(
                 command.agentDefinitionId(),
                 submission,
-                "sha256:" + runtimePackage.getDscPackagefingerprint(),
-                runtimePackage.getCodRuntimepackage(),
-                null);
+                "sha256:" + persistedPackage.packageFingerprint(),
+                persistedPackage.runtimePackageId(),
+                persistedPackage.payload());
         try {
-            orchestratorGateway.activate(gatewayRequest);
-            throw new AgentOrchestratorUnavailableException(
-                    AgentOrchestratorOperation.ACTIVATE, command.agentDefinitionId(), "PUT",
-                    "/v1/runtime-agent-definitions/" + command.agentDefinitionId(), true);
+            AgentOrchestratorRuntimeAgentResult transportResult = orchestratorGateway.activate(gatewayRequest);
+            AgentOrchestratorActivationResultInterpreter.ValidatedActivationAcceptance acceptance =
+                    activationResultInterpreter.validate(gatewayRequest, transportResult);
+            activationFinalizationService.finalizeAcceptedActivation(
+                    command.agentDefinitionId(),
+                    persistedPackage.runtimePackageId(),
+                    persistedPackage.packageVersion(),
+                    persistedPackage.submissionId(),
+                    persistedPackage.packageFingerprint(),
+                    OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC));
+            System.out.println("[IIA][AGENT_ACTIVATION] completed agentDefinitionId=" + command.agentDefinitionId()
+                    + " runtimePackageId=" + persistedPackage.runtimePackageId()
+                    + " packageVersion=" + persistedPackage.packageVersion()
+                    + " downstreamRuntimeStatus=" + acceptance.runtimeStatus()
+                    + " stateChangeApplied=true");
+            return agentDefinitionService.getAgentDefinition(command.agentDefinitionId());
         } catch (AgentOrchestratorUnavailableException ex) {
             System.out.println("[IIA][AGENT_ACTIVATION] failed agentDefinitionId=" + command.agentDefinitionId()
                     + " outcome=ORCHESTRATOR_UNAVAILABLE httpStatus=503 stateChangeApplied=false");

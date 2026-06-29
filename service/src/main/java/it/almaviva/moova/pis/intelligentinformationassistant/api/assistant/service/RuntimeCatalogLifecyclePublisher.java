@@ -39,9 +39,19 @@ public class RuntimeCatalogLifecyclePublisher {
             AgentRuntimePackage runtimePackage,
             OffsetDateTime sourceUpdatedAt) {
         String deduplicationKey = "UPSERT:" + agentDefinitionId + ":" + runtimePackage.getNumPackageversion()
-                + ":" + normalized(sourceUpdatedAt);
+                + ":" + runtimePackage.getDscPackagefingerprint();
         AgentRuntimeCatalogChange existing = catalogChangeRepository.findByDeduplicationKey(deduplicationKey).orElse(null);
         if (existing != null) {
+            boolean equivalent = existing.getSglAction() == it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.RuntimeCatalogAction.UPSERT
+                    && existing.getCodAgentdefinition().getCodAgentdefinition().equals(agentDefinitionId)
+                    && existing.getCodRuntimepackage() != null
+                    && existing.getCodRuntimepackage().getCodRuntimepackage().equals(runtimePackage.getCodRuntimepackage())
+                    && existing.getNumPackageversion().equals(runtimePackage.getNumPackageversion())
+                    && existing.getDscPackagefingerprint().equals(runtimePackage.getDscPackagefingerprint())
+                    && "ACTIVE".equals(existing.getSglSourceagentstatus());
+            if (!equivalent) {
+                throw new AgentActivationTechnicalException("Runtime catalog UPSERT deduplication identity conflicts with existing data.");
+            }
             return existing;
         }
         AgentRuntimeCatalogChange change = AgentRuntimeCatalogChange.upsert(
