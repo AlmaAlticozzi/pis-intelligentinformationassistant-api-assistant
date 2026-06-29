@@ -1,6 +1,9 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import it.almaviva.fnd.core.lib.quarkuscommon.http.rest.FNDRestClient;
 import it.almaviva.fnd.core.lib.quarkuscommon.http.rest.util.FNDRequestForResponse;
 import jakarta.ws.rs.core.Response;
@@ -19,11 +22,16 @@ import static org.mockito.Mockito.when;
 
 class FndAgentOrchestratorGatewayTest {
 
+    private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
+            .addModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .build();
+
     @Test
     void preservesAcceptedAndValidationErrorResponsesAndBuildsFoundationPutFromPersistedPayload() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway gateway = new FndAgentOrchestratorGateway(
-                client, new ObjectMapper(), null, "https://orchestrator.example/", "/api/", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "https://orchestrator.example/", "/api/", "agent-orchestrator");
         Map<String, Object> payload = payload();
         AgentOrchestratorActivationRequest activation = request(payload);
         Response created = mock(Response.class);
@@ -65,7 +73,7 @@ class FndAgentOrchestratorGatewayTest {
     void runtimeSelectionPreservesUnavailableBehaviorWhenDisabled() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, new ObjectMapper(), null, "", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "", "", "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 false, fndGateway, new UnavailableAgentOrchestratorGateway());
 
@@ -84,7 +92,7 @@ class FndAgentOrchestratorGatewayTest {
         when(created.readEntity(String.class)).thenReturn("{\"runtimeStatus\":\"LOADED\"}");
         when(client.requestForResponse(org.mockito.ArgumentMatchers.any())).thenReturn(created);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, new ObjectMapper(), null, "https://orchestrator.example", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "https://orchestrator.example", "", "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 true, fndGateway, new UnavailableAgentOrchestratorGateway());
 
@@ -102,7 +110,7 @@ class FndAgentOrchestratorGatewayTest {
     void enabledClientRejectsMissingBaseUrlBeforeHttpCall() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, new ObjectMapper(), null, " ", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, " ", "", "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 true, fndGateway, new UnavailableAgentOrchestratorGateway());
 
@@ -113,7 +121,18 @@ class FndAgentOrchestratorGatewayTest {
     }
 
     private AgentOrchestratorActivationRequest request(Map<String, Object> payload) {
-        AgentRuntimeSubmission submission = new ObjectMapper().convertValue(payload, AgentRuntimeSubmission.class);
+        Map<String, Object> submissionFields = new LinkedHashMap<>();
+        submissionFields.put("packageVersion", payload.get("packageVersion"));
+        submissionFields.put("submissionId", payload.get("submissionId"));
+        submissionFields.put("agentDefinition", payload.get("agentDefinition"));
+        submissionFields.put("desiredStatus", payload.get("desiredStatus"));
+        submissionFields.put("submittedAt", payload.get("submittedAt"));
+        submissionFields.put("startImmediatelyIfAllowed", false);
+        submissionFields.put("submittedBy", payload.get("submittedBy"));
+        submissionFields.put("note", null);
+        AgentRuntimeSubmission submission = OBJECT_MAPPER.convertValue(
+                submissionFields,
+                AgentRuntimeSubmission.class);
         return new AgentOrchestratorActivationRequest(
                 "AGDF1", submission, "sha256:" + "a".repeat(64), "RTPK1", payload);
     }

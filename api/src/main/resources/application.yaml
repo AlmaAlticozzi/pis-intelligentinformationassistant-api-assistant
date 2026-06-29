@@ -39,18 +39,18 @@ quarkus:
     provider-autodiscovery: false
   oidc-client:
     agent-orchestrator:
-      client-enabled: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ENABLED:false}
-      auth-server-url: ${IIA_AGENT_ORCHESTRATOR_OIDC_AUTH_SERVER_URL:}
-      client-id: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ID:}
+      client-enabled: ${IIA_ASSISTANT_OIDC_CLIENT_ENABLED:false}
+      auth-server-url: ${IIA_ASSISTANT_OIDC_AUTH_SERVER_URL:}
+      client-id: ${IIA_ASSISTANT_OIDC_CLIENT_ID:}
       credentials:
-        secret: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_SECRET:}
+        secret: ${IIA_ASSISTANT_OIDC_CLIENT_SECRET:}
       grant:
-        type: ${IIA_AGENT_ORCHESTRATOR_OIDC_GRANT_TYPE:client}
+        type: ${IIA_ASSISTANT_OIDC_GRANT_TYPE:password}
       grant-options:
         password:
-          username: ${IIA_AGENT_ORCHESTRATOR_OIDC_USERNAME:}
-          password: ${IIA_AGENT_ORCHESTRATOR_OIDC_PASSWORD:}
-          profile: ${IIA_AGENT_ORCHESTRATOR_OIDC_PROFILE:}
+          username: ${IIA_ASSISTANT_OIDC_USERNAME:}
+          password: ${IIA_ASSISTANT_OIDC_PASSWORD:}
+          profile: ${IIA_ASSISTANT_OIDC_PROFILE:}
   http:
     root-path: /pis/intelligentinformationassistant/assistant/api
     enable-compression: false
