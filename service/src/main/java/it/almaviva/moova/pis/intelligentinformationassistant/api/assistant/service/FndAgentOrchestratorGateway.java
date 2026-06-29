@@ -23,6 +23,7 @@ public class FndAgentOrchestratorGateway {
     private final PersistedRuntimePackageReader persistedRuntimePackageReader;
     private final String baseUrl;
     private final String apiBasePath;
+    private final boolean oidcEnabled;
     private final String oidcClientId;
 
     @Inject
@@ -32,13 +33,25 @@ public class FndAgentOrchestratorGateway {
             PersistedRuntimePackageReader persistedRuntimePackageReader,
             @ConfigProperty(name = "iia.agent-orchestrator.client.base-url", defaultValue = "") String baseUrl,
             @ConfigProperty(name = "iia.agent-orchestrator.client.api-base-path", defaultValue = "") String apiBasePath,
+            @ConfigProperty(name = "iia.agent-orchestrator.client.oidc-enabled", defaultValue = "true") boolean oidcEnabled,
             @ConfigProperty(name = "iia.agent-orchestrator.client.oidc-client-id", defaultValue = "agent-orchestrator") String oidcClientId) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.persistedRuntimePackageReader = persistedRuntimePackageReader;
         this.baseUrl = baseUrl;
         this.apiBasePath = apiBasePath == null ? "" : apiBasePath.trim();
+        this.oidcEnabled = oidcEnabled;
         this.oidcClientId = oidcClientId;
+    }
+
+    FndAgentOrchestratorGateway(
+            FNDRestClient restClient,
+            ObjectMapper objectMapper,
+            PersistedRuntimePackageReader persistedRuntimePackageReader,
+            String baseUrl,
+            String apiBasePath,
+            String oidcClientId) {
+        this(restClient, objectMapper, persistedRuntimePackageReader, baseUrl, apiBasePath, true, oidcClientId);
     }
 
     public AgentOrchestratorRuntimeAgentResult activate(AgentOrchestratorActivationRequest request) {
@@ -46,13 +59,15 @@ public class FndAgentOrchestratorGateway {
         request = withPersistedPayload(request);
         validateIdentity(request);
         String url = joinUrl(validatedBaseUrl, apiBasePath, RESOURCE_PATH);
-        FNDRequestForResponse foundationRequest = FNDRequestForResponse.builder()
+        FNDRequestForResponse.Builder requestBuilder = FNDRequestForResponse.builder()
                 .put()
                 .url(url)
                 .addPathParam("agentDefinitionId", request.agentDefinitionId())
-                .body(request.persistedPayload())
-                .oidcClientId(oidcClientId)
-                .build();
+                .body(request.persistedPayload());
+        if (oidcEnabled) {
+            requestBuilder.oidcClientId(oidcClientId);
+        }
+        FNDRequestForResponse foundationRequest = requestBuilder.build();
         try {
             Response response = restClient.requestForResponse(foundationRequest);
             if (response == null) {
@@ -151,7 +166,8 @@ public class FndAgentOrchestratorGateway {
                 + " runtimePackageId=" + request.runtimePackageId()
                 + " submissionId=" + request.submission().submissionId()
                 + " packageVersion=" + request.submission().packageVersion()
-                + " method=PUT httpCallExecuted=true httpStatus=" + result.httpStatus()
+                + " method=PUT oidcEnabled=" + oidcEnabled
+                + " httpCallExecuted=true httpStatus=" + result.httpStatus()
                 + " responseReceived=" + result.responseReceived()
                 + " outcome=" + result.outcomeCategory());
     }

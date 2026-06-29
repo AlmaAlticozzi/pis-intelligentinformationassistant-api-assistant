@@ -214,6 +214,8 @@ public class AgentRuntimePackageBuilder {
         Map<String, Object> dslArtifact = requireMap(snapshot.dslArtifact(), "DSL artifact is required.");
         AgentCanonicalJsonHashResult dslHash = canonicalJsonService.hash(dslArtifact);
         String persistedHash = requireText(artifact.artifactHash(), "Artifact hash is required.");
+        String signatureStatus = requireText(artifact.signatureStatus(), "Artifact signatureStatus is required.");
+        require("SIGNED".equals(signatureStatus), "Artifact signatureStatus must be SIGNED.");
         String hashHex = stripSha256Prefix(persistedHash);
         String schemaVersion = firstText(text(dslArtifact.get("schemaVersion")), artifact.sdkVersion());
         return new AgentRuntimeSubmission.AgentRuntimeArtifact(
@@ -228,6 +230,7 @@ public class AgentRuntimePackageBuilder {
                         nestedText(runtimeContract, "orchestratorCompatibility", "canonicalization"),
                         nestedText(runtimeContract, "compatibility", "canonicalization"),
                         configuration.artifactCanonicalization()),
+                signatureStatus,
                 new AgentRuntimeSubmission.AgentRuntimeArtifactSignature(
                         SIGNATURE_TYPE,
                         SIGNATURE_ALGORITHM,

@@ -118,7 +118,7 @@ class AgentRuntimePackageBuilderTest {
     }
 
     @Test
-    void artifactMapsHashSchemaVersionSizeSignatureAndDoesNotUseDslPreview() {
+    void artifactMapsHashSchemaVersionSizeSignatureAndDoesNotUseDslPreview() throws Exception {
         AgentRuntimePackageBuildResult result = builder.build(
                 fixture().build(),
                 new AgentActivationCommand("AGDF1", null, true),
@@ -130,9 +130,39 @@ class AgentRuntimePackageBuilderTest {
         assertThat(artifact.schemaVersion()).isEqualTo("iia.agent.dsl/v1");
         assertThat(artifact.sizeBytes()).isPositive();
         assertThat(artifact.canonicalization()).isEqualTo("JACKSON_SORT_PROPERTIES_AND_MAP_ENTRIES");
+        assertThat(artifact.signatureStatus()).isEqualTo("SIGNED");
         assertThat(artifact.signature().algorithm()).isEqualTo("SHA256_WITH_CONTROL_PLANE_ATTESTATION");
         assertThat(artifact.content()).containsEntry("agentDefinitionId", "AGDF1");
         assertThat(artifact.content()).doesNotContainKey("dslPreviewOnly");
+
+        JsonNode json = OBJECT_MAPPER.valueToTree(result.submission());
+        JsonNode artifactJson = json.path("agentDefinition").path("artifact");
+        assertThat(artifactJson.path("signatureStatus").asText()).isEqualTo("SIGNED");
+        assertThat(artifactJson.path("signature").has("signatureStatus")).isFalse();
+        assertThat(artifactJson.path("signature")).isEqualTo(OBJECT_MAPPER.valueToTree(artifact.signature()));
+
+        JsonNode legacyPayload = OBJECT_MAPPER.readTree(result.canonicalPackageJson());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyPayload.path("agentDefinition").path("artifact"))
+                .remove("signatureStatus");
+        assertThat(new AgentCanonicalJsonService().hash(legacyPayload).hash())
+                .isNotEqualTo(result.canonicalPackageHash());
+    }
+
+    @Test
+    void artifactSignatureStatusMustComeFromAuthoritativeSnapshotAndCannotDefault() {
+        assertThatThrownBy(() -> builder.build(
+                fixture().signatureStatus(null).build(),
+                new AgentActivationCommand("AGDF1", null, true),
+                context(1)))
+                .isInstanceOf(AgentRuntimePackageBuildException.class)
+                .hasMessageContaining("signatureStatus is required");
+
+        assertThatThrownBy(() -> builder.build(
+                fixture().signatureStatus("NOT_SIGNED").build(),
+                new AgentActivationCommand("AGDF1", null, true),
+                context(1)))
+                .isInstanceOf(AgentRuntimePackageBuildException.class)
+                .hasMessageContaining("must be SIGNED");
     }
 
     @Test
@@ -236,6 +266,7 @@ class AgentRuntimePackageBuilderTest {
         private List<AgentActivationSnapshot.AgentActivationAllowedToolSnapshot> tools = List.of();
         private AgentRuntimePackageConfiguration configuration = AgentRuntimePackageConfiguration.defaults();
         private Integer cpuRequest = 250;
+        private String signatureStatus = "SIGNED";
 
         Fixture scheduled() {
             interpreterType = "SCHEDULED_INTERPRETER";
@@ -269,6 +300,11 @@ class AgentRuntimePackageBuilderTest {
         Fixture dslExtra(String key, Object value) {
             dsl = new LinkedHashMap<>(dsl);
             dsl.put(key, value);
+            return this;
+        }
+
+        Fixture signatureStatus(String value) {
+            signatureStatus = value;
             return this;
         }
 
@@ -315,7 +351,7 @@ class AgentRuntimePackageBuilderTest {
                             "DSL",
                             "iia-agent-artifact://agent-definitions/AGDF1/compilations/AGCP1/dsl",
                             artifactHash,
-                            "SIGNED",
+                            signatureStatus,
                             "STANDARD_AGENT_DSL_EVALUATOR",
                             "iia.agent.dsl/v1",
                             "Compiled DSL."),

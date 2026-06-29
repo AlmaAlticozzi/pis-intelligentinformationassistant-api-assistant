@@ -31,7 +31,7 @@ class FndAgentOrchestratorGatewayTest {
     void preservesAcceptedAndValidationErrorResponsesAndBuildsFoundationPutFromPersistedPayload() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway gateway = new FndAgentOrchestratorGateway(
-                client, OBJECT_MAPPER, null, "https://orchestrator.example/", "/api/", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "https://orchestrator.example/", "/api/", true, "agent-orchestrator");
         Map<String, Object> payload = payload();
         AgentOrchestratorActivationRequest activation = request(payload);
         Response created = mock(Response.class);
@@ -73,7 +73,7 @@ class FndAgentOrchestratorGatewayTest {
     void runtimeSelectionPreservesUnavailableBehaviorWhenDisabled() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, OBJECT_MAPPER, null, "", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "", "", true, "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 false, fndGateway, new UnavailableAgentOrchestratorGateway());
 
@@ -92,7 +92,7 @@ class FndAgentOrchestratorGatewayTest {
         when(created.readEntity(String.class)).thenReturn("{\"runtimeStatus\":\"LOADED\"}");
         when(client.requestForResponse(org.mockito.ArgumentMatchers.any())).thenReturn(created);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, OBJECT_MAPPER, null, "https://orchestrator.example", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, "https://orchestrator.example", "", true, "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 true, fndGateway, new UnavailableAgentOrchestratorGateway());
 
@@ -107,10 +107,33 @@ class FndAgentOrchestratorGatewayTest {
     }
 
     @Test
+    void oidcDisabledStillExecutesUnchangedFoundationPutWithoutClientSelection() {
+        FNDRestClient client = mock(FNDRestClient.class);
+        Response created = mock(Response.class);
+        when(created.getStatus()).thenReturn(201);
+        when(created.hasEntity()).thenReturn(true);
+        when(created.readEntity(String.class)).thenReturn("{\"runtimeStatus\":\"LOADED\"}");
+        when(client.requestForResponse(org.mockito.ArgumentMatchers.any())).thenReturn(created);
+        FndAgentOrchestratorGateway gateway = new FndAgentOrchestratorGateway(
+                client, OBJECT_MAPPER, null, "http://localhost:8081/", "/api/", false, "agent-orchestrator");
+        AgentOrchestratorActivationRequest activation = request(payload());
+
+        gateway.activate(activation);
+
+        ArgumentCaptor<FNDRequestForResponse> requestCaptor = ArgumentCaptor.forClass(FNDRequestForResponse.class);
+        verify(client).requestForResponse(requestCaptor.capture());
+        FNDRequestForResponse sent = requestCaptor.getValue();
+        assertThat(sent.getHttpMethod().name()).isEqualTo("PUT");
+        assertThat(sent.getUrl()).isEqualTo("http://localhost:8081/api/v1/runtime-agent-definitions/{agentDefinitionId}");
+        assertThat(sent.getBody()).isSameAs(activation.persistedPayload());
+        assertThat(sent.getOidcClientId()).isNull();
+    }
+
+    @Test
     void enabledClientRejectsMissingBaseUrlBeforeHttpCall() {
         FNDRestClient client = mock(FNDRestClient.class);
         FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
-                client, OBJECT_MAPPER, null, " ", "", "agent-orchestrator");
+                client, OBJECT_MAPPER, null, " ", "", true, "agent-orchestrator");
         RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
                 true, fndGateway, new UnavailableAgentOrchestratorGateway());
 

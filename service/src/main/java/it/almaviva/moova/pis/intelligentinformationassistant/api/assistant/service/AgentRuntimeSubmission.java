@@ -139,9 +139,18 @@ public record AgentRuntimeSubmission(
             String hashAlgorithm,
             String hash,
             String canonicalization,
+            String signatureStatus,
             AgentRuntimeArtifactSignature signature,
             OffsetDateTime createdAt,
             Integer sizeBytes) {
+
+        public AgentRuntimeArtifact(
+                String artifactType, String deliveryMode, String mediaType, String schemaVersion,
+                Map<String, Object> content, String hashAlgorithm, String hash, String canonicalization,
+                AgentRuntimeArtifactSignature signature, OffsetDateTime createdAt, Integer sizeBytes) {
+            this(artifactType, deliveryMode, mediaType, schemaVersion, content, hashAlgorithm, hash,
+                    canonicalization, null, signature, createdAt, sizeBytes);
+        }
 
         public AgentRuntimeArtifact {
             content = immutableMap(content);
