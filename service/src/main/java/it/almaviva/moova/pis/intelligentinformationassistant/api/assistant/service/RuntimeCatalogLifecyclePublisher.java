@@ -52,9 +52,15 @@ public class RuntimeCatalogLifecyclePublisher {
             if (!equivalent) {
                 throw new AgentActivationTechnicalException("Runtime catalog UPSERT deduplication identity conflicts with existing data.");
             }
+            System.out.println("[IIA][RUNTIME_CATALOG_CHANGE] agentDefinitionId=" + agentDefinitionId
+                    + " runtimePackageId=" + runtimePackage.getCodRuntimepackage()
+                    + " packageVersion=" + runtimePackage.getNumPackageversion()
+                    + " catalogChangeId=" + existing.getCodCatalogchange()
+                    + " decision=REUSED");
             return existing;
         }
         AgentRuntimeCatalogChange change = AgentRuntimeCatalogChange.upsert(
+                catalogChangeRepository.nextCatalogChangeId(),
                 entityManager.getReference(AgentDefinition.class, agentDefinitionId),
                 entityManager.getReference(AgentRuntimePackage.class, runtimePackage.getCodRuntimepackage()),
                 deduplicationKey,
@@ -63,8 +69,10 @@ public class RuntimeCatalogLifecyclePublisher {
                 Map.of());
         catalogChangeRepository.append(change);
         System.out.println("[IIA][RUNTIME_CATALOG_CHANGE] action=UPSERT agentDefinitionId=" + agentDefinitionId
+                + " runtimePackageId=" + runtimePackage.getCodRuntimepackage()
                 + " packageVersion=" + runtimePackage.getNumPackageversion()
-                + " changeSequence=" + change.getNumChangesequence());
+                + " catalogChangeId=" + change.getCodCatalogchange()
+                + " decision=CREATED changeSequence=" + change.getNumChangesequence());
         return change;
     }
 
@@ -79,6 +87,7 @@ public class RuntimeCatalogLifecyclePublisher {
             return existing;
         }
         AgentRuntimeCatalogChange change = AgentRuntimeCatalogChange.remove(
+                catalogChangeRepository.nextCatalogChangeId(),
                 entityManager.getReference(AgentDefinition.class, agentDefinitionId),
                 sourceAgentStatus,
                 RuntimeCatalogRemovalReason.NOT_ACTIVE,

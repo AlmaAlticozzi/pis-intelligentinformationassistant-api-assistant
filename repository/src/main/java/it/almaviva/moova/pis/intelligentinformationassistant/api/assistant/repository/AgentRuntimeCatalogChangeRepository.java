@@ -26,6 +26,13 @@ public class AgentRuntimeCatalogChangeRepository implements PanacheRepositoryBas
                 .findFirst();
     }
 
+    public String nextCatalogChangeId() {
+        return (String) entityManager.createNativeQuery(
+                        "select pis_intelligentinformationassistant.generate_cod_id(:prefix)", String.class)
+                .setParameter("prefix", "RTCH")
+                .getSingleResult();
+    }
+
     @Transactional
     public AgentRuntimeCatalogChange append(AgentRuntimeCatalogChange change) {
         entityManager.persist(change);

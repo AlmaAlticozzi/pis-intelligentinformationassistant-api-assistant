@@ -93,6 +93,7 @@ public class AgentRuntimeCatalogChange {
     }
 
     public static AgentRuntimeCatalogChange upsert(
+            String catalogChangeId,
             AgentDefinition agentDefinition,
             AgentRuntimePackage runtimePackage,
             String deduplicationKey,
@@ -100,6 +101,7 @@ public class AgentRuntimeCatalogChange {
             OffsetDateTime effectiveAt,
             Map<String, Object> details) {
         AgentRuntimeCatalogChange entity = new AgentRuntimeCatalogChange();
+        entity.codCatalogchange = catalogChangeId;
         entity.codAgentdefinition = agentDefinition;
         entity.sglAction = RuntimeCatalogAction.UPSERT;
         entity.codRuntimepackage = runtimePackage;
@@ -114,6 +116,7 @@ public class AgentRuntimeCatalogChange {
     }
 
     public static AgentRuntimeCatalogChange remove(
+            String catalogChangeId,
             AgentDefinition agentDefinition,
             String sourceAgentStatus,
             RuntimeCatalogRemovalReason removalReason,
@@ -122,6 +125,7 @@ public class AgentRuntimeCatalogChange {
             OffsetDateTime effectiveAt,
             Map<String, Object> details) {
         AgentRuntimeCatalogChange entity = new AgentRuntimeCatalogChange();
+        entity.codCatalogchange = catalogChangeId;
         entity.codAgentdefinition = agentDefinition;
         entity.sglAction = RuntimeCatalogAction.REMOVE;
         entity.sglSourceagentstatus = sourceAgentStatus;
