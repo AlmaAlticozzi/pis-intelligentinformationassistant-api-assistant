@@ -7,7 +7,23 @@ public record AgentRuntimePackageConfiguration(
         String artifactMediaType,
         String bindingSchemaVersion,
         ConnectorConfiguration eventServiceDataConnector,
-        ConnectorConfiguration scheduledServiceDataConnector) {
+        ConnectorConfiguration scheduledServiceDataConnector,
+        String minimumRuntimeVersion,
+        String sdkVersion,
+        String networkPolicy) {
+
+    public AgentRuntimePackageConfiguration(
+            String controlPlaneComponent,
+            String defaultRuntimeClass,
+            String artifactCanonicalization,
+            String artifactMediaType,
+            String bindingSchemaVersion,
+            ConnectorConfiguration eventServiceDataConnector,
+            ConnectorConfiguration scheduledServiceDataConnector) {
+        this(controlPlaneComponent, defaultRuntimeClass, artifactCanonicalization, artifactMediaType,
+                bindingSchemaVersion, eventServiceDataConnector, scheduledServiceDataConnector,
+                "0.0.2", "1.0.0", "REGISTERED_DATA_SOURCES_ONLY");
+    }
 
     public static AgentRuntimePackageConfiguration defaults() {
         return new AgentRuntimePackageConfiguration(
@@ -31,7 +47,10 @@ public record AgentRuntimePackageConfiguration(
                         "ServiceDataStopPointJourneysV2",
                         "v2",
                         "searchStopPointJourneysV2",
-                        "SERVICEDATA_STOPPOINTJOURNEYS"));
+                        "SERVICEDATA_STOPPOINTJOURNEYS"),
+                "0.0.2",
+                "1.0.0",
+                "REGISTERED_DATA_SOURCES_ONLY");
     }
 
     public AgentRuntimePackageConfiguration {
@@ -40,6 +59,15 @@ public record AgentRuntimePackageConfiguration(
         require(artifactCanonicalization, "artifactCanonicalization");
         require(artifactMediaType, "artifactMediaType");
         require(bindingSchemaVersion, "bindingSchemaVersion");
+        require(minimumRuntimeVersion, "minimumRuntimeVersion");
+        if (!minimumRuntimeVersion.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) {
+            throw new AgentRuntimePackageBuildException("minimumRuntimeVersion must use MAJOR.MINOR.PATCH format.");
+        }
+        require(sdkVersion, "sdkVersion");
+        require(networkPolicy, "networkPolicy");
+        if (!"REGISTERED_DATA_SOURCES_ONLY".equals(networkPolicy)) {
+            throw new AgentRuntimePackageBuildException("Unsupported runtime networkPolicy " + networkPolicy + ".");
+        }
         if (eventServiceDataConnector == null) {
             throw new AgentRuntimePackageBuildException("Event ServiceData connector configuration is missing.");
         }

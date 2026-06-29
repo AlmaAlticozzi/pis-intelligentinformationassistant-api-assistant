@@ -172,7 +172,7 @@ public class AgentRuntimePackageBuilder {
                 profile.cpuLimitMillicores(),
                 profile.memoryRequestMiB(),
                 profile.memoryLimitMiB(),
-                profile.networkPolicy(),
+                configuration.networkPolicy(),
                 runtimeClass,
                 profile.maxRuntimeConcurrency());
     }
@@ -254,9 +254,8 @@ public class AgentRuntimePackageBuilder {
         List<AgentRuntimeSubmission.RuntimeToolReference> tools = allowedTools(snapshot, runtimeContract);
         return new AgentRuntimeSubmission.AgentRuntimeContractPackage(
                 snapshot.artifact() == null ? null : snapshot.artifact().runtimeImage(),
-                snapshot.artifact() == null ? null : snapshot.artifact().sdkVersion(),
-                firstText(nestedText(runtimeContract, "orchestratorCompatibility", "minimumRuntimeVersion"),
-                        nestedText(runtimeContract, "compatibility", "minimumRuntimeVersion")),
+                configuration.sdkVersion(),
+                configuration.minimumRuntimeVersion(),
                 governedRuntimeExecutionModel(runtimeContract),
                 snapshot.interpreterType(),
                 snapshot.triggerType(),
@@ -265,7 +264,7 @@ public class AgentRuntimePackageBuilder {
                 firstText(text(runtimeContract.get("evaluationMode")), nestedText(snapshot.dslArtifact(), "runtime", "evaluationMode")),
                 operatorExtractor.extract(snapshot.dslArtifact()),
                 tools,
-                profile.networkPolicy(),
+                configuration.networkPolicy(),
                 distinctStrings(runtimeContract.get("forbiddenCapabilities")),
                 compatibility,
                 bindings.stream().map(AgentRuntimeSubmission.AgentRuntimeDataSourceBinding::accessMode).distinct().toList(),

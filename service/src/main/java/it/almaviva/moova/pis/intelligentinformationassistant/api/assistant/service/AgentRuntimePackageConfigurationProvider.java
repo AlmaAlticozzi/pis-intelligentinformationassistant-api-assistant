@@ -21,6 +21,15 @@ public class AgentRuntimePackageConfigurationProvider {
     @ConfigProperty(name = "iia.agent-runtime-package.binding-schema-version", defaultValue = "iia.runtime.data-source-binding/v1")
     String bindingSchemaVersion;
 
+    @ConfigProperty(name = "iia.agent-orchestrator.runtime-contract.minimum-runtime-version", defaultValue = "0.0.2")
+    String minimumRuntimeVersion;
+
+    @ConfigProperty(name = "iia.agent-orchestrator.runtime-contract.sdk-version", defaultValue = "1.0.0")
+    String sdkVersion;
+
+    @ConfigProperty(name = "iia.agent-orchestrator.runtime-contract.network-policy", defaultValue = "REGISTERED_DATA_SOURCES_ONLY")
+    String networkPolicy;
+
     @ConfigProperty(name = "iia.agent-runtime-package.event-service-data.connector-ref", defaultValue = "servicedata-realtime-v2")
     String eventConnectorRef;
 
@@ -82,6 +91,9 @@ public class AgentRuntimePackageConfigurationProvider {
                         scheduledInputModel,
                         scheduledInputSchemaVersion,
                         scheduledOperationRef,
-                        scheduledSubscriptionProfile));
+                        scheduledSubscriptionProfile),
+                minimumRuntimeVersion,
+                sdkVersion,
+                networkPolicy);
     }
 }

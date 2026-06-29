@@ -42,6 +42,7 @@ class AgentRuntimePackageBuilderTest {
                 .isEqualTo("pis-intelligentinformationassistant-api-assistant");
         assertThat(submission.agentDefinition().source().agentCompilationId()).isEqualTo("AGCP1");
         assertThat(submission.agentDefinition().profile().runtimeClass()).isEqualTo("STANDARD_DSL_RUNTIME");
+        assertThat(submission.agentDefinition().profile().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
         assertThat(submission.agentDefinition().activationPolicy().type()).isEqualTo("CONTINUOUS");
         assertThat(submission.agentDefinition().runtimeContract().runtimeExecutionModel())
                 .isEqualTo("STANDARD_DSL_EVALUATOR");
@@ -50,6 +51,9 @@ class AgentRuntimePackageBuilderTest {
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
                 .containsEntry("executionModel", "STANDARD_DSL_EVALUATOR");
         assertThat(submission.agentDefinition().runtimeContract().requiredOperators()).containsExactly("CONTAINS");
+        assertThat(submission.agentDefinition().runtimeContract().minimumRuntimeVersion()).isEqualTo("0.0.2");
+        assertThat(submission.agentDefinition().runtimeContract().sdkVersion()).isEqualTo("1.0.0");
+        assertThat(submission.agentDefinition().runtimeContract().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
         assertThat(submission.agentDefinition().runtimeContract().compatibility())
                 .containsEntry("canonicalization", "RFC8785_JSON");
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
@@ -62,6 +66,8 @@ class AgentRuntimePackageBuilderTest {
         assertThat(submission.agentDefinition().artifact().deliveryMode()).isEqualTo("INLINE");
         assertThat(submission.agentDefinition().artifact().mediaType()).isEqualTo("application/json");
         assertThat(submission.agentDefinition().artifact().signature().type()).isEqualTo("LOGICAL_MVP");
+        assertThat(submission.agentDefinition().artifact().schemaVersion()).isEqualTo("iia.agent.dsl/v1");
+        assertThat(submission.agentDefinition().artifact().content()).containsEntry("schemaVersion", "iia.agent.dsl/v1");
 
         JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(submission));
         assertThat(json.get("agentDefinition").get("activationPolicy").get("type").asText()).isEqualTo("CONTINUOUS");
@@ -87,6 +93,10 @@ class AgentRuntimePackageBuilderTest {
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
                 .containsEntry("executionModel", "STANDARD_DSL_EVALUATOR");
         assertThat(submission.agentDefinition().runtimeContract().requiredOperators()).containsExactly("EXISTS");
+        assertThat(submission.agentDefinition().profile().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
+        assertThat(submission.agentDefinition().runtimeContract().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
+        assertThat(submission.agentDefinition().runtimeContract().minimumRuntimeVersion()).isEqualTo("0.0.2");
+        assertThat(submission.agentDefinition().runtimeContract().sdkVersion()).isEqualTo("1.0.0");
         assertThat(submission.agentDefinition().runtimeContract().allowedTools()).extracting(
                 AgentRuntimeSubmission.RuntimeToolReference::name).containsExactly(TOOL);
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
@@ -140,6 +150,11 @@ class AgentRuntimePackageBuilderTest {
                 (com.fasterxml.jackson.databind.node.ObjectNode) legacyPayload.path("agentDefinition");
         com.fasterxml.jackson.databind.node.ObjectNode contract =
                 (com.fasterxml.jackson.databind.node.ObjectNode) definition.path("runtimeContract");
+        contract.put("minimumRuntimeVersion", "1.0.0");
+        contract.put("sdkVersion", "iia.agent.dsl/v1");
+        contract.put("networkPolicy", "TOOL_GATEWAY_ONLY");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) definition.path("profile"))
+                .put("networkPolicy", "TOOL_GATEWAY_ONLY");
         contract.put("runtimeExecutionModel", "KAFKA_EVENT");
         contract.putArray("requiredOperators");
         ((com.fasterxml.jackson.databind.node.ObjectNode) contract.path("compatibility"))
@@ -156,6 +171,41 @@ class AgentRuntimePackageBuilderTest {
                 .isEqualTo(corrected.submission().agentDefinition().artifact().content()
                         .get("runtime") instanceof Map<?, ?> runtime ? runtime.get("executionModel") : null);
         assertThat(corrected.submission().agentDefinition().artifact().signatureStatus()).isEqualTo("SIGNED");
+    }
+
+    @Test
+    void configuredRuntimeCapabilitiesOverrideSnapshotProjectionConsistently() {
+        AgentRuntimePackageBuildResult result = fixture()
+                .runtimeCapabilities("2.3.4", "5.6.7", "REGISTERED_DATA_SOURCES_ONLY")
+                .buildWithLocalBuilder();
+
+        assertThat(result.submission().agentDefinition().runtimeContract().minimumRuntimeVersion()).isEqualTo("2.3.4");
+        assertThat(result.submission().agentDefinition().runtimeContract().sdkVersion()).isEqualTo("5.6.7");
+        assertThat(result.submission().agentDefinition().profile().networkPolicy())
+                .isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
+        assertThat(result.submission().agentDefinition().runtimeContract().networkPolicy())
+                .isEqualTo(result.submission().agentDefinition().profile().networkPolicy());
+        assertThat(result.submission().agentDefinition().artifact().schemaVersion()).isEqualTo("iia.agent.dsl/v1");
+    }
+
+    @Test
+    void invalidRuntimeCapabilityConfigurationIsRejected() {
+        assertInvalidCapabilities(" ", "1.0.0", "REGISTERED_DATA_SOURCES_ONLY", "minimumRuntimeVersion");
+        assertInvalidCapabilities("0.2", "1.0.0", "REGISTERED_DATA_SOURCES_ONLY", "MAJOR.MINOR.PATCH");
+        assertInvalidCapabilities("0.x.2", "1.0.0", "REGISTERED_DATA_SOURCES_ONLY", "MAJOR.MINOR.PATCH");
+        assertInvalidCapabilities("0.0.2", " ", "REGISTERED_DATA_SOURCES_ONLY", "sdkVersion");
+        assertInvalidCapabilities("0.0.2", "1.0.0", " ", "networkPolicy");
+        assertInvalidCapabilities("0.0.2", "1.0.0", "TOOL_GATEWAY_ONLY", "Unsupported runtime networkPolicy");
+    }
+
+    private void assertInvalidCapabilities(String minimum, String sdk, String policy, String message) {
+        AgentRuntimePackageConfiguration defaults = AgentRuntimePackageConfiguration.defaults();
+        assertThatThrownBy(() -> new AgentRuntimePackageConfiguration(
+                defaults.controlPlaneComponent(), defaults.defaultRuntimeClass(), defaults.artifactCanonicalization(),
+                defaults.artifactMediaType(), defaults.bindingSchemaVersion(), defaults.eventServiceDataConnector(),
+                defaults.scheduledServiceDataConnector(), minimum, sdk, policy))
+                .isInstanceOf(AgentRuntimePackageBuildException.class)
+                .hasMessageContaining(message);
     }
 
     @Test
@@ -358,6 +408,15 @@ class AgentRuntimePackageBuilderTest {
                     "iia.runtime.data-source-binding/v1",
                     new AgentRuntimePackageConfiguration.ConnectorConfiguration(value, "KAFKA", "EVENT_STREAM", "ServiceDataV2", "v2", null, "SERVICEDATA_EVENTS"),
                     AgentRuntimePackageConfiguration.defaults().scheduledServiceDataConnector());
+            return this;
+        }
+
+        Fixture runtimeCapabilities(String minimum, String sdk, String policy) {
+            AgentRuntimePackageConfiguration current = configuration;
+            configuration = new AgentRuntimePackageConfiguration(
+                    current.controlPlaneComponent(), current.defaultRuntimeClass(), current.artifactCanonicalization(),
+                    current.artifactMediaType(), current.bindingSchemaVersion(), current.eventServiceDataConnector(),
+                    current.scheduledServiceDataConnector(), minimum, sdk, policy);
             return this;
         }
 
