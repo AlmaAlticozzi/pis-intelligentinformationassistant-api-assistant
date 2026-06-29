@@ -2,7 +2,6 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.quarkus.arc.properties.IfBuildProperty;
 import it.almaviva.fnd.core.lib.quarkuscommon.http.rest.FNDRestClient;
 import it.almaviva.fnd.core.lib.quarkuscommon.http.rest.util.FNDRequestForResponse;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -15,8 +14,7 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 @ApplicationScoped
-@IfBuildProperty(name = "iia.agent-orchestrator.client.enabled", stringValue = "true")
-public class FndAgentOrchestratorGateway implements AgentOrchestratorGateway {
+public class FndAgentOrchestratorGateway {
 
     private static final String RESOURCE_PATH = "/v1/runtime-agent-definitions/{agentDefinitionId}";
 
@@ -38,16 +36,16 @@ public class FndAgentOrchestratorGateway implements AgentOrchestratorGateway {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.persistedRuntimePackageReader = persistedRuntimePackageReader;
-        this.baseUrl = requireBaseUrl(baseUrl);
+        this.baseUrl = baseUrl;
         this.apiBasePath = apiBasePath == null ? "" : apiBasePath.trim();
         this.oidcClientId = oidcClientId;
     }
 
-    @Override
     public AgentOrchestratorRuntimeAgentResult activate(AgentOrchestratorActivationRequest request) {
+        String validatedBaseUrl = requireBaseUrl(baseUrl);
         request = withPersistedPayload(request);
         validateIdentity(request);
-        String url = joinUrl(baseUrl, apiBasePath, RESOURCE_PATH);
+        String url = joinUrl(validatedBaseUrl, apiBasePath, RESOURCE_PATH);
         FNDRequestForResponse foundationRequest = FNDRequestForResponse.builder()
                 .put()
                 .url(url)
@@ -97,11 +95,6 @@ public class FndAgentOrchestratorGateway implements AgentOrchestratorGateway {
         return new AgentOrchestratorActivationRequest(
                 request.agentDefinitionId(), request.submission(), request.canonicalPackageHash(),
                 snapshot.runtimePackageId(), snapshot.payload());
-    }
-
-    @Override
-    public AgentOrchestratorRuntimeAgentResult disable(AgentOrchestratorDisableRequest request) {
-        return new UnavailableAgentOrchestratorGateway().disable(request);
     }
 
     private void validateIdentity(AgentOrchestratorActivationRequest request) {
@@ -175,7 +168,9 @@ public class FndAgentOrchestratorGateway implements AgentOrchestratorGateway {
     }
 
     private static String requireBaseUrl(String value) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException("Agent Orchestrator base URL is required.");
+        if (value == null || value.isBlank()) {
+            throw new AgentActivationTechnicalException("Agent Orchestrator base URL is required when its client is enabled.");
+        }
         return value.trim();
     }
 

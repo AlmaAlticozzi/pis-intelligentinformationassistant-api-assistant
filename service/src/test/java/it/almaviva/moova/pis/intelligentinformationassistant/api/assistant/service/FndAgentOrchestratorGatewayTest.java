@@ -14,6 +14,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class FndAgentOrchestratorGatewayTest {
@@ -58,6 +59,57 @@ class FndAgentOrchestratorGatewayTest {
         assertThat(rejected.outcomeCategory()).isEqualTo("HTTP_422");
         assertThat(rejected.rawResponseBody()).contains("INVALID_PACKAGE");
         verify(invalid).close();
+    }
+
+    @Test
+    void runtimeSelectionPreservesUnavailableBehaviorWhenDisabled() {
+        FNDRestClient client = mock(FNDRestClient.class);
+        FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
+                client, new ObjectMapper(), null, "", "", "agent-orchestrator");
+        RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
+                false, fndGateway, new UnavailableAgentOrchestratorGateway());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> gateway.activate(request(payload())))
+                .isInstanceOf(AgentOrchestratorUnavailableException.class)
+                .satisfies(error -> assertThat(((AgentOrchestratorUnavailableException) error).httpCallExecuted()).isFalse());
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void runtimeSelectionUsesFoundationGatewayWhenEnabled() {
+        FNDRestClient client = mock(FNDRestClient.class);
+        Response created = mock(Response.class);
+        when(created.getStatus()).thenReturn(201);
+        when(created.hasEntity()).thenReturn(true);
+        when(created.readEntity(String.class)).thenReturn("{\"runtimeStatus\":\"LOADED\"}");
+        when(client.requestForResponse(org.mockito.ArgumentMatchers.any())).thenReturn(created);
+        FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
+                client, new ObjectMapper(), null, "https://orchestrator.example", "", "agent-orchestrator");
+        RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
+                true, fndGateway, new UnavailableAgentOrchestratorGateway());
+
+        AgentOrchestratorRuntimeAgentResult result = gateway.activate(request(payload()));
+
+        assertThat(result.httpStatus()).isEqualTo(201);
+        assertThat(result.rawResponseBody()).contains("LOADED");
+        ArgumentCaptor<FNDRequestForResponse> requestCaptor = ArgumentCaptor.forClass(FNDRequestForResponse.class);
+        verify(client).requestForResponse(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getHttpMethod().name()).isEqualTo("PUT");
+        assertThat(requestCaptor.getValue().getOidcClientId()).isEqualTo("agent-orchestrator");
+    }
+
+    @Test
+    void enabledClientRejectsMissingBaseUrlBeforeHttpCall() {
+        FNDRestClient client = mock(FNDRestClient.class);
+        FndAgentOrchestratorGateway fndGateway = new FndAgentOrchestratorGateway(
+                client, new ObjectMapper(), null, " ", "", "agent-orchestrator");
+        RuntimeSelectingAgentOrchestratorGateway gateway = new RuntimeSelectingAgentOrchestratorGateway(
+                true, fndGateway, new UnavailableAgentOrchestratorGateway());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> gateway.activate(request(payload())))
+                .isInstanceOf(AgentActivationTechnicalException.class)
+                .hasMessageContaining("base URL");
+        verifyNoInteractions(client);
     }
 
     private AgentOrchestratorActivationRequest request(Map<String, Object> payload) {

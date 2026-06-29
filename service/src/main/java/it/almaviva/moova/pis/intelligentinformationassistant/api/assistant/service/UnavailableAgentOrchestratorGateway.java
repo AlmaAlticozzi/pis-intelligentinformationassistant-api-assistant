@@ -1,20 +1,17 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
-import io.quarkus.arc.DefaultBean;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.Objects;
 
 @ApplicationScoped
-@DefaultBean
-public class UnavailableAgentOrchestratorGateway implements AgentOrchestratorGateway {
+public class UnavailableAgentOrchestratorGateway {
 
     private static final String ACTIVATE_METHOD = "PUT";
     private static final String DISABLE_METHOD = "POST";
     private static final String RUNTIME_AGENT_DEFINITIONS_PATH = "/v1/runtime-agent-definitions/";
     private static final boolean HTTP_CALL_EXECUTED = false;
 
-    @Override
     public AgentOrchestratorRuntimeAgentResult activate(AgentOrchestratorActivationRequest request) {
         Objects.requireNonNull(request, "request is required");
         String targetPath = RUNTIME_AGENT_DEFINITIONS_PATH + request.agentDefinitionId();
@@ -23,7 +20,6 @@ public class UnavailableAgentOrchestratorGateway implements AgentOrchestratorGat
         throw unavailable(AgentOrchestratorOperation.ACTIVATE, request.agentDefinitionId(), ACTIVATE_METHOD, targetPath);
     }
 
-    @Override
     public AgentOrchestratorRuntimeAgentResult disable(AgentOrchestratorDisableRequest request) {
         Objects.requireNonNull(request, "request is required");
         String targetPath = RUNTIME_AGENT_DEFINITIONS_PATH + request.agentDefinitionId() + "/disable";

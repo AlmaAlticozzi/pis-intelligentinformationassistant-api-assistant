@@ -37,6 +37,20 @@ quarkus:
     # outbound clients such as LangChain4j OpenAI. The FND ResponseBodyInterceptor depends on
     # HTTP request-scoped state and must not run on external OpenAI client calls.
     provider-autodiscovery: false
+  oidc-client:
+    agent-orchestrator:
+      client-enabled: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ENABLED:false}
+      auth-server-url: ${IIA_AGENT_ORCHESTRATOR_OIDC_AUTH_SERVER_URL:}
+      client-id: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ID:}
+      credentials:
+        secret: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_SECRET:}
+      grant:
+        type: ${IIA_AGENT_ORCHESTRATOR_OIDC_GRANT_TYPE:client}
+      grant-options:
+        password:
+          username: ${IIA_AGENT_ORCHESTRATOR_OIDC_USERNAME:}
+          password: ${IIA_AGENT_ORCHESTRATOR_OIDC_PASSWORD:}
+          profile: ${IIA_AGENT_ORCHESTRATOR_OIDC_PROFILE:}
   http:
     root-path: /pis/intelligentinformationassistant/assistant/api
     enable-compression: false
@@ -55,7 +69,7 @@ iia:
       enabled: ${IIA_AGENT_ORCHESTRATOR_CLIENT_ENABLED:false}
       base-url: ${IIA_AGENT_ORCHESTRATOR_BASE_URL:}
       api-base-path: ${IIA_AGENT_ORCHESTRATOR_API_BASE_PATH:}
-      oidc-client-id: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ID:agent-orchestrator}
+      oidc-client-id: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_NAME:agent-orchestrator}
   temporal:
     default-zone: ${IIA_TEMPORAL_DEFAULT_ZONE:Europe/Rome}
   alert-verification:
