@@ -254,7 +254,7 @@ public class AgentRuntimePackageBuilder {
                 snapshot.artifact() == null ? null : snapshot.artifact().sdkVersion(),
                 firstText(nestedText(runtimeContract, "orchestratorCompatibility", "minimumRuntimeVersion"),
                         nestedText(runtimeContract, "compatibility", "minimumRuntimeVersion")),
-                text(runtimeContract.get("executionModel")),
+                governedRuntimeExecutionModel(runtimeContract),
                 snapshot.interpreterType(),
                 snapshot.triggerType(),
                 snapshot.inputModel(),
@@ -268,6 +268,15 @@ public class AgentRuntimePackageBuilder {
                 bindings.stream().map(AgentRuntimeSubmission.AgentRuntimeDataSourceBinding::accessMode).distinct().toList(),
                 bindings.stream().map(AgentRuntimeSubmission.AgentRuntimeDataSourceBinding::connectorType).distinct().toList(),
                 bindings.stream().map(AgentRuntimeSubmission.AgentRuntimeDataSourceBinding::connectorRef).distinct().toList());
+    }
+
+    private String governedRuntimeExecutionModel(Map<String, Object> runtimeContract) {
+        String value = requireText(
+                text(runtimeContract.get("runtimeExecutionModel")),
+                "Runtime contract runtimeExecutionModel is required.");
+        require("STANDARD_DSL_EVALUATOR".equals(value) || "APPROVED_TEMPLATE_RUNTIME".equals(value),
+                "Runtime contract runtimeExecutionModel is unsupported.");
+        return value;
     }
 
     private Map<String, Object> compatibility(Map<String, Object> runtimeContract, String runtimeClass) {

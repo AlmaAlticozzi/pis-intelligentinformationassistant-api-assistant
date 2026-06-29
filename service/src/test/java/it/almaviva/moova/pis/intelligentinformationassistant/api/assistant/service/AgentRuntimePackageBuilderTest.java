@@ -43,7 +43,12 @@ class AgentRuntimePackageBuilderTest {
         assertThat(submission.agentDefinition().source().agentCompilationId()).isEqualTo("AGCP1");
         assertThat(submission.agentDefinition().profile().runtimeClass()).isEqualTo("STANDARD_DSL_RUNTIME");
         assertThat(submission.agentDefinition().activationPolicy().type()).isEqualTo("CONTINUOUS");
-        assertThat(submission.agentDefinition().runtimeContract().runtimeExecutionModel()).isEqualTo("KAFKA_EVENT");
+        assertThat(submission.agentDefinition().runtimeContract().runtimeExecutionModel())
+                .isEqualTo("STANDARD_DSL_EVALUATOR");
+        assertThat(submission.agentDefinition().artifact().content())
+                .extractingByKey("runtime")
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("executionModel", "KAFKA_EVENT");
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
                 .satisfies(binding -> {
                     assertThat(binding.accessMode()).isEqualTo("EVENT_STREAM");
@@ -72,7 +77,12 @@ class AgentRuntimePackageBuilderTest {
         assertThat(submission.note()).isNull();
         assertThat(submission.agentDefinition().interpreterType()).isEqualTo("SCHEDULED_INTERPRETER");
         assertThat(submission.agentDefinition().activationPolicy().daysOfWeek()).containsExactly("MONDAY", "WEDNESDAY");
-        assertThat(submission.agentDefinition().runtimeContract().runtimeExecutionModel()).isEqualTo("SCHEDULED_POLLING");
+        assertThat(submission.agentDefinition().runtimeContract().runtimeExecutionModel())
+                .isEqualTo("STANDARD_DSL_EVALUATOR");
+        assertThat(submission.agentDefinition().artifact().content())
+                .extractingByKey("runtime")
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("executionModel", "SCHEDULED_POLLING");
         assertThat(submission.agentDefinition().runtimeContract().allowedTools()).extracting(
                 AgentRuntimeSubmission.RuntimeToolReference::name).containsExactly(TOOL);
         assertThat(submission.agentDefinition().dataSourceBindings()).singleElement()
@@ -115,6 +125,23 @@ class AgentRuntimePackageBuilderTest {
                 .canonicalPackageHash()).isNotEqualTo(base);
         assertThat(builder.build(fixture().dslExtra("runtimeRelevant", true).build(), new AgentActivationCommand("AGDF1", null, true), context(1))
                 .canonicalPackageHash()).isNotEqualTo(base);
+    }
+
+    @Test
+    void governedRuntimeModelIsIndependentFromDslExecutionModeAndChangesLegacyFingerprint() throws Exception {
+        AgentRuntimePackageBuildResult corrected = builder.build(
+                fixture().build(), new AgentActivationCommand("AGDF1", null, true), context(1));
+        JsonNode legacyPayload = OBJECT_MAPPER.readTree(corrected.canonicalPackageJson());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyPayload
+                .path("agentDefinition").path("runtimeContract"))
+                .put("runtimeExecutionModel", "KAFKA_EVENT");
+
+        assertThat(new AgentCanonicalJsonService().hash(legacyPayload).hash())
+                .isNotEqualTo(corrected.canonicalPackageHash());
+        assertThat(corrected.submission().agentDefinition().runtimeContract().runtimeExecutionModel())
+                .isNotEqualTo(corrected.submission().agentDefinition().artifact().content()
+                        .get("runtime") instanceof Map<?, ?> runtime ? runtime.get("executionModel") : null);
+        assertThat(corrected.submission().agentDefinition().artifact().signatureStatus()).isEqualTo("SIGNED");
     }
 
     @Test
@@ -389,6 +416,7 @@ class AgentRuntimePackageBuilderTest {
         contract.put("inputModel", "ServiceDataV2");
         contract.put("outputModel", "AgentOutput.CANDIDATE_SUGGESTION");
         contract.put("evaluationMode", "STATELESS_EVENT_MATCH");
+        contract.put("runtimeExecutionModel", "STANDARD_DSL_EVALUATOR");
         contract.put("executionModel", "KAFKA_EVENT");
         contract.put("source", "SERVICE_DATA");
         contract.put("requiresState", false);
