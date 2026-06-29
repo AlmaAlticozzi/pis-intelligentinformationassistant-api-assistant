@@ -121,28 +121,18 @@ public class AgentActivationService {
         AgentRuntimePackage runtimePackage = runtimePackageIdentityService.materializeOrReuse(
                 command.agentDefinitionId(),
                 command);
-        AgentRuntimeSubmission submission = persistedSubmission(runtimePackage);
+        AgentRuntimeSubmission submission = persistedSubmission(runtimePackage.getJsnRuntimepackage());
         AgentOrchestratorActivationRequest gatewayRequest = new AgentOrchestratorActivationRequest(
                 command.agentDefinitionId(),
                 submission,
-                "sha256:" + runtimePackage.getDscPackagefingerprint());
+                "sha256:" + runtimePackage.getDscPackagefingerprint(),
+                runtimePackage.getCodRuntimepackage(),
+                null);
         try {
             orchestratorGateway.activate(gatewayRequest);
-            OffsetDateTime activatedAt = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
-            boolean finalized = activationFinalizationService.finalizeAcceptedActivation(
-                    command.agentDefinitionId(),
-                    snapshot.status(),
-                    runtimePackage,
-                    activatedAt);
-            if (!finalized) {
-                System.out.println("[IIA][AGENT_ACTIVATION] rejected agentDefinitionId=" + command.agentDefinitionId()
-                        + " outcome=LIFECYCLE_CONFLICT stateChangeApplied=false");
-                throw new AgentActivationRejectedException(snapshot.status(), "Agent Definition status changed during activation.");
-            }
-            System.out.println("[IIA][AGENT_ACTIVATION] completed agentDefinitionId=" + command.agentDefinitionId()
-                    + " packageVersion=" + runtimePackage.getNumPackageversion()
-                    + " stateChangeApplied=true");
-            return agentDefinitionService.getAgentDefinition(command.agentDefinitionId());
+            throw new AgentOrchestratorUnavailableException(
+                    AgentOrchestratorOperation.ACTIVATE, command.agentDefinitionId(), "PUT",
+                    "/v1/runtime-agent-definitions/" + command.agentDefinitionId(), true);
         } catch (AgentOrchestratorUnavailableException ex) {
             System.out.println("[IIA][AGENT_ACTIVATION] failed agentDefinitionId=" + command.agentDefinitionId()
                     + " outcome=ORCHESTRATOR_UNAVAILABLE httpStatus=503 stateChangeApplied=false");
@@ -187,9 +177,9 @@ public class AgentActivationService {
         }
     }
 
-    private AgentRuntimeSubmission persistedSubmission(AgentRuntimePackage runtimePackage) {
+    private AgentRuntimeSubmission persistedSubmission(Object persistedPayload) {
         try {
-            return JSON_MAPPER.convertValue(runtimePackage.getJsnRuntimepackage(), AgentRuntimeSubmission.class);
+            return JSON_MAPPER.convertValue(persistedPayload, AgentRuntimeSubmission.class);
         } catch (IllegalArgumentException ex) {
             throw new AgentActivationTechnicalException("Persisted runtime package snapshot is invalid.", ex);
         }

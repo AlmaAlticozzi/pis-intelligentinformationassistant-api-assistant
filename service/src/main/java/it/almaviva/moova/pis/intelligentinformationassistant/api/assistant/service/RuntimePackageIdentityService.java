@@ -13,6 +13,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 @ApplicationScoped
@@ -97,6 +99,7 @@ public class RuntimePackageIdentityService {
 
         RuntimeAgentPackageBuild finalBuild = build;
         long packageVersion = provisionalVersion;
+        Instant packageCreatedAt = finalBuild.submission().submittedAt();
         AgentRuntimePackage runtimePackage = AgentRuntimePackage.create(
                 lockedDefinition,
                 packageVersion,
@@ -109,7 +112,8 @@ public class RuntimePackageIdentityService {
                 HASH_ALGORITHM,
                 finalBuild.runtimePackageJson(),
                 snapshot.updatedAt(),
-                finalBuild.submission().submittedAt(),
+                packageCreatedAt,
+                OffsetDateTime.ofInstant(packageCreatedAt, ZoneOffset.UTC),
                 submittedBy());
         runtimePackageRepository.persistImmutablePackage(runtimePackage);
         System.out.println("[IIA][RUNTIME_PACKAGE_IDENTITY] decision=CREATED agentDefinitionId=" + agentDefinitionId

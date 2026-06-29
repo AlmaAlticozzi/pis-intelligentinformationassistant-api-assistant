@@ -49,6 +49,13 @@ quarkus:
       access-control-max-age: 24H
 
 iia:
+  agent-orchestrator:
+    client:
+      # B2 safety default: the real activation adapter is selected only when explicitly enabled.
+      enabled: ${IIA_AGENT_ORCHESTRATOR_CLIENT_ENABLED:false}
+      base-url: ${IIA_AGENT_ORCHESTRATOR_BASE_URL:}
+      api-base-path: ${IIA_AGENT_ORCHESTRATOR_API_BASE_PATH:}
+      oidc-client-id: ${IIA_AGENT_ORCHESTRATOR_OIDC_CLIENT_ID:agent-orchestrator}
   temporal:
     default-zone: ${IIA_TEMPORAL_DEFAULT_ZONE:Europe/Rome}
   alert-verification:

@@ -1,16 +1,32 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import java.util.Map;
 import java.util.Objects;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 
 public record AgentOrchestratorActivationRequest(
         String agentDefinitionId,
         AgentRuntimeSubmission submission,
-        String canonicalPackageHash) {
+        String canonicalPackageHash,
+        String runtimePackageId,
+        Map<String, Object> persistedPayload) {
+
+    public AgentOrchestratorActivationRequest(
+            String agentDefinitionId,
+            AgentRuntimeSubmission submission,
+            String canonicalPackageHash) {
+        this(agentDefinitionId, submission, canonicalPackageHash, null, null);
+    }
 
     public AgentOrchestratorActivationRequest {
         agentDefinitionId = requireText(agentDefinitionId, "agentDefinitionId is required");
         submission = Objects.requireNonNull(submission, "submission is required");
         canonicalPackageHash = requireText(canonicalPackageHash, "canonicalPackageHash is required");
+        runtimePackageId = normalizeOptionalText(runtimePackageId);
+        persistedPayload = persistedPayload == null
+                ? null
+                : Collections.unmodifiableMap(new LinkedHashMap<>(persistedPayload));
 
         String bodyAgentDefinitionId = submission.agentDefinition() == null
                 ? null

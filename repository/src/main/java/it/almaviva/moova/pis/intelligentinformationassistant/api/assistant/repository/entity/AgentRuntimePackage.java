@@ -116,6 +116,7 @@ public class AgentRuntimePackage {
             Map<String, Object> runtimePackage,
             OffsetDateTime sourceUpdatedAt,
             Instant submittedAt,
+            OffsetDateTime createdAt,
             String createdBy) {
         AgentRuntimePackage entity = new AgentRuntimePackage();
         entity.codAgentdefinition = agentDefinition;
@@ -130,6 +131,7 @@ public class AgentRuntimePackage {
         entity.jsnRuntimepackage = runtimePackage == null ? null : new LinkedHashMap<>(runtimePackage);
         entity.dtSourceupdatedat = sourceUpdatedAt;
         entity.dtSubmittedat = submittedAt;
+        entity.dtCreatedat = createdAt;
         entity.codCreatedby = createdBy;
         return entity;
     }

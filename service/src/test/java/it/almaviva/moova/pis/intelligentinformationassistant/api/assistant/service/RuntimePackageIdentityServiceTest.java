@@ -26,8 +26,10 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -116,7 +118,9 @@ class RuntimePackageIdentityServiceTest {
 
         assertThat(runtimePackage.getNumPackageversion()).isEqualTo(1);
         assertThat(runtimePackage.getCodSubmissionid()).startsWith("ACTIVATE:AGDF1:1:");
+        assertThat(runtimePackage.getDtCreatedat()).isNotNull();
         assertThat(runtimePackage.getDtSubmittedat()).isEqualTo(NOW);
+        assertThat(runtimePackage.getDtCreatedat().toInstant()).isEqualTo(runtimePackage.getDtSubmittedat());
         assertThat(runtimePackage.getDscPackagefingerprint()).matches("[0-9a-f]{64}");
         assertThat(runtimePackage.getJsnRuntimepackage()).containsKeys(
                 "submissionId", "desiredStatus", "packageVersion", "submittedAt", "submittedBy",
@@ -134,6 +138,7 @@ class RuntimePackageIdentityServiceTest {
         assertThat(second.getNumPackageversion()).isEqualTo(first.getNumPackageversion());
         assertThat(second.getCodSubmissionid()).isEqualTo(first.getCodSubmissionid());
         assertThat(second.getDscPackagefingerprint()).isEqualTo(first.getDscPackagefingerprint());
+        assertThat(second.getDtCreatedat()).isEqualTo(first.getDtCreatedat());
         assertThat(second.getDtSubmittedat()).isEqualTo(first.getDtSubmittedat());
         assertThat(packages).hasSize(1);
     }
@@ -155,6 +160,20 @@ class RuntimePackageIdentityServiceTest {
         identityService.materializeOrReuse(AGENT_ID, command(null));
 
         assertThat(packages).hasSize(1);
+        assertThat(changes).isEmpty();
+        assertThat(definition.getCodCurrentruntimepackage()).isNull();
+    }
+
+    @Test
+    void packagePersistenceFailureCreatesNoLifecycleSideEffects() {
+        doThrow(new RuntimeException("runtime package insert failed"))
+                .when(packageRepository).persistImmutablePackage(any());
+
+        assertThatThrownBy(() -> identityService.materializeOrReuse(AGENT_ID, command(null)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("runtime package insert failed");
+
+        assertThat(packages).isEmpty();
         assertThat(changes).isEmpty();
         assertThat(definition.getCodCurrentruntimepackage()).isNull();
     }
