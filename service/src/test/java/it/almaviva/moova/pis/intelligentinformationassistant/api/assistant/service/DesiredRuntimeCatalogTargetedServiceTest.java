@@ -58,6 +58,7 @@ class DesiredRuntimeCatalogTargetedServiceTest {
 
     private DesiredRuntimeCatalogRow row(String id, String action, String status) {
         return new DesiredRuntimeCatalogRow(1, "RTCH", id, action, status,
+                action.equals("REMOVE") ? "NOT_ACTIVE" : null,
                 OffsetDateTime.parse("2026-06-30T14:00:00Z"), action.equals("UPSERT") ? "RTPK" : null,
                 action.equals("UPSERT") ? 1 : 0, action.equals("UPSERT") ? "a".repeat(64) : null,
                 action.equals("UPSERT") ? id : null, action.equals("UPSERT") ? 1 : 0,

@@ -9,23 +9,33 @@ public class DesiredRuntimeCatalogRequestValidator {
 
     public int validate(DesiredRuntimeCatalogRequest request) {
         if (request.mode() == null) throw invalid("mode", "Desired Runtime Catalog mode is required.");
-        if (request.mode() == DesiredRuntimeCatalogMode.INCREMENTAL) {
-            throw invalid("mode", "Desired Runtime Catalog mode " + request.mode()
-                    + " is not implemented in phase 4.11.13-C2.");
-        }
-        if (request.changedAfter() != null) throw invalid("changedAfter", "changedAfter is not allowed for this mode.");
-        if (request.checkpoint() != null) throw invalid("checkpoint", "checkpoint is not allowed for this mode.");
         if (request.mode() == DesiredRuntimeCatalogMode.FULL) {
+            if (request.changedAfter() != null) throw invalid("changedAfter", "changedAfter is not allowed for FULL mode.");
+            if (request.checkpoint() != null) throw invalid("checkpoint", "checkpoint is not allowed for FULL mode.");
             if (request.agentDefinitionIds() != null && !request.agentDefinitionIds().isEmpty()) {
                 throw invalid("agentDefinitionId", "agentDefinitionId is not allowed for FULL mode.");
             }
-        } else {
+        } else if (request.mode() == DesiredRuntimeCatalogMode.TARGETED) {
+            if (request.changedAfter() != null) throw invalid("changedAfter", "changedAfter is not allowed for TARGETED mode.");
+            if (request.checkpoint() != null) throw invalid("checkpoint", "checkpoint is not allowed for TARGETED mode.");
             var ids = request.agentDefinitionIds();
             if (ids == null || ids.isEmpty() || ids.size() > 500) {
                 throw invalid("agentDefinitionId", "TARGETED requires between 1 and 500 Agent Definition IDs.");
             }
             if (ids.stream().anyMatch(id -> id == null || id.isBlank() || id.length() > 50)) {
                 throw invalid("agentDefinitionId", "Each Agent Definition ID must be nonblank and at most 50 characters.");
+            }
+        } else {
+            boolean checkpointPresent = request.checkpoint() != null;
+            boolean changedAfterPresent = request.changedAfter() != null;
+            if (checkpointPresent == changedAfterPresent) {
+                throw invalid("checkpoint", "INCREMENTAL requires exactly one of checkpoint or changedAfter.");
+            }
+            if (checkpointPresent && (request.checkpoint().isBlank() || request.checkpoint().length() > 2000)) {
+                throw invalid("checkpoint", "checkpoint must be nonblank and at most 2000 characters.");
+            }
+            if (request.agentDefinitionIds() != null && !request.agentDefinitionIds().isEmpty()) {
+                throw invalid("agentDefinitionId", "agentDefinitionId is not allowed for INCREMENTAL mode.");
             }
         }
         if (request.cursor() != null && request.cursor().isBlank()) throw invalid("cursor", "cursor must not be blank.");

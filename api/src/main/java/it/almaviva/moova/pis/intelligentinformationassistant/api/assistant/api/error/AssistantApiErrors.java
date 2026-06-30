@@ -911,6 +911,11 @@ public final class AssistantApiErrors {
                 .detail(detail);
     }
 
+    public static Error desiredRuntimeCatalogCheckpointIncompatible(String detail) {
+        return new Error().code("IIA-DRC-GET-422-001").title("Desired Runtime Catalog checkpoint incompatible")
+                .detail(detail).source("checkpoint");
+    }
+
     public static Error desiredRuntimeCatalogUnavailable() {
         return new Error().code("IIA-DRC-GET-503-001").title("Desired Runtime Catalog unavailable")
                 .detail("The Desired Runtime Catalog persistence dependency is temporarily unavailable.");

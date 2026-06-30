@@ -9,6 +9,7 @@ public record DesiredRuntimeCatalogRow(
         String agentDefinitionId,
         String action,
         String sourceAgentStatus,
+        String removalReason,
         OffsetDateTime sourceUpdatedAt,
         String runtimePackageId,
         long catalogPackageVersion,

@@ -87,7 +87,7 @@ class DesiredRuntimeCatalogServiceTest {
         return new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.FULL, null, null, null, cursor, limit);
     }
     private DesiredRuntimeCatalogRow row(String id, String time) {
-        return new DesiredRuntimeCatalogRow(1, "RTCH", id, "UPSERT", "ACTIVE", OffsetDateTime.parse(time),
+        return new DesiredRuntimeCatalogRow(1, "RTCH", id, "UPSERT", "ACTIVE", null, OffsetDateTime.parse(time),
                 "RTPK", 1, "a".repeat(64), id, 1, "SUB", "a".repeat(64), java.util.Map.of());
     }
     private DesiredRuntimeCatalogUpsertItem item() {

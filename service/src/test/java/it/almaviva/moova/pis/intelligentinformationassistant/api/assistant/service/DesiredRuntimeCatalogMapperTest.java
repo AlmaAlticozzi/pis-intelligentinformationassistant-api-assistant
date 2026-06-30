@@ -50,7 +50,7 @@ class DesiredRuntimeCatalogMapperTest {
     }
     private DesiredRuntimeCatalogRow row(String packageOwner, long catalogVersion, String catalogFingerprint,
             Map<String, Object> json) {
-        return new DesiredRuntimeCatalogRow(10, "RTCH1", "AGDF1", "UPSERT", "ACTIVE",
+        return new DesiredRuntimeCatalogRow(10, "RTCH1", "AGDF1", "UPSERT", "ACTIVE", null,
                 OffsetDateTime.parse("2026-06-30T10:00:00Z"), "RTPK1", catalogVersion,
                 catalogFingerprint, packageOwner, 5, "SUBMISSION-5", FP, json);
     }

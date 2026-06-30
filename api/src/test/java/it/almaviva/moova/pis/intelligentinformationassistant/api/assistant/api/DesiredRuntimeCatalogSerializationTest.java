@@ -82,6 +82,25 @@ class DesiredRuntimeCatalogSerializationTest {
         assertThat(rootFieldCount(serializedItems.get(1).toString(), "action")).isEqualTo(1);
     }
 
+    @Test
+    void incrementalMixedResponsePreservesCheckpointFieldsAndSingleActions() throws Exception {
+        DesiredRuntimeCatalogResponse response = new DesiredRuntimeCatalogResponse()
+                .catalogVersion("iia.desired-runtime-catalog/v1").mode(DesiredRuntimeCatalogMode.INCREMENTAL)
+                .generatedAt(OffsetDateTime.parse("2026-06-30T13:00:00Z"))
+                .catalogAsOf(OffsetDateTime.parse("2026-06-30T13:00:00Z"))
+                .sourceCheckpoint("source-checkpoint").nextCheckpoint("next-checkpoint")
+                .items(items(List.of(upsert(), removal())))
+                .page(new DesiredRuntimeCatalogPage().limit(2).returned(2).hasMore(false));
+        String json = objectMapper.writeValueAsString(response);
+        var tree = objectMapper.readTree(json);
+        assertThat(tree.get("sourceCheckpoint").asText()).isEqualTo("source-checkpoint");
+        assertThat(tree.get("nextCheckpoint").asText()).isEqualTo("next-checkpoint");
+        assertThat(rootFieldCount(tree.get("items").get(0).toString(), "action")).isEqualTo(1);
+        assertThat(rootFieldCount(tree.get("items").get(1).toString(), "action")).isEqualTo(1);
+        assertThat(tree.get("items").get(0).get("runtimePackage").isObject()).isTrue();
+        assertThat(tree.get("items").get(1).hasNonNull("runtimePackage")).isFalse();
+    }
+
     private DesiredRuntimeCatalogUpsertItem upsert() {
         DesiredRuntimeAgentSubmission runtimePackage = new DesiredRuntimeAgentSubmission()
                 .submissionId("SUB-PERSISTED").packageVersion(1L)

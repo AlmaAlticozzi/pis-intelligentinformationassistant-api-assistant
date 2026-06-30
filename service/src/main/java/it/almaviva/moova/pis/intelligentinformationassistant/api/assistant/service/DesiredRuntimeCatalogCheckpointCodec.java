@@ -23,9 +23,26 @@ public class DesiredRuntimeCatalogCheckpointCodec {
 
     DesiredRuntimeCatalogCheckpoint decode(String encoded) {
         try {
-            return objectMapper.readValue(Base64.getUrlDecoder().decode(encoded), DesiredRuntimeCatalogCheckpoint.class);
+            if (encoded == null || encoded.isBlank() || encoded.length() > 2000) throw new IllegalArgumentException();
+            DesiredRuntimeCatalogCheckpoint value = objectMapper.readValue(
+                    Base64.getUrlDecoder().decode(encoded), DesiredRuntimeCatalogCheckpoint.class);
+            if (value == null || value.changeSequence() < 0 || value.catalogAsOf() == null) {
+                throw new IllegalArgumentException();
+            }
+            return value;
         } catch (Exception ex) {
-            throw new IllegalArgumentException("Invalid checkpoint.", ex);
+            throw new DesiredRuntimeCatalogInvalidRequestException("checkpoint", "The checkpoint is invalid.");
         }
+    }
+
+    public DesiredRuntimeCatalogCheckpoint decodeForIncremental(String encoded, long currentUpperSequence) {
+        DesiredRuntimeCatalogCheckpoint value = decode(encoded);
+        if (value.version() != 1) {
+            throw new DesiredRuntimeCatalogCheckpointIncompatibleException("The checkpoint version is unsupported.");
+        }
+        if (value.changeSequence() > currentUpperSequence) {
+            throw new DesiredRuntimeCatalogCheckpointIncompatibleException("The checkpoint is ahead of the catalog.");
+        }
+        return value;
     }
 }

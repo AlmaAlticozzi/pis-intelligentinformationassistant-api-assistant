@@ -21,8 +21,18 @@ class DesiredRuntimeCatalogRequestValidatorTest {
     @Test void fullChangedAfterIsRejected() { rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.FULL, OffsetDateTime.now(), null, null, null, null)); }
     @Test void fullCheckpointIsRejected() { rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.FULL, null, "cp", null, null, null)); }
     @Test void fullIdsAreRejected() { rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.FULL, null, null, Set.of("AGDF1"), null, null)); }
-    @Test void incrementalRemainsRejected() {
+    @Test void incrementalRequiresExactlyOneLowerBound() {
+        assertThat(validator.validate(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL,
+                null, "checkpoint", null, null, null))).isEqualTo(100);
+        assertThat(validator.validate(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL,
+                OffsetDateTime.now(), null, null, null, 1))).isEqualTo(1);
         rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL, null, null, null, null, null));
+        rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL,
+                OffsetDateTime.now(), "checkpoint", null, null, null));
+        rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL,
+                null, " ", null, null, null));
+        rejected(new DesiredRuntimeCatalogRequest(DesiredRuntimeCatalogMode.INCREMENTAL,
+                null, "checkpoint", Set.of("AGDF1"), null, null));
     }
     @Test void targetedBoundariesAreAccepted() {
         assertThat(validator.validate(targeted(Set.of("AGDF1"), null))).isEqualTo(100);

@@ -21,11 +21,54 @@ public class DesiredRuntimeCatalogRepository {
     EntityManager entityManager;
 
     public long findCurrentUpperSequence() {
-        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][FULL][SNAPSHOT_QUERY] operation=MAX_CHANGE_SEQUENCE status=STARTED");
+        return findCurrentUpperSequence("FULL");
+    }
+
+    public long findCurrentUpperSequence(String mode) {
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][" + mode
+                + "][SNAPSHOT_QUERY] operation=MAX_CHANGE_SEQUENCE status=STARTED");
         Long value = entityManager.createQuery(
                         "select max(c.numChangesequence) from AgentRuntimeCatalogChange c", Long.class)
                 .getSingleResult();
         return value == null ? 0L : value;
+    }
+
+    public List<DesiredRuntimeCatalogRow> findIncrementalPage(Long lowerSequence, OffsetDateTime changedAfter,
+            long catalogUpperSequence, OffsetDateTime lastSourceUpdatedAt, String lastAgentDefinitionId,
+            int fetchLimit) {
+        boolean checkpoint = lowerSequence != null;
+        boolean continuation = lastSourceUpdatedAt != null;
+        String eligibility = checkpoint
+                ? " c.numChangesequence > :lowerSequence "
+                : " c.dtSourceupdatedat > :changedAfter ";
+        String latestEligibility = checkpoint
+                ? " latest.numChangesequence > :lowerSequence "
+                : " latest.dtSourceupdatedat > :changedAfter ";
+        String keyset = continuation ? """
+                  and (c.dtSourceupdatedat > :lastSourceUpdatedAt
+                    or (c.dtSourceupdatedat = :lastSourceUpdatedAt
+                      and d.codAgentdefinition > :lastAgentDefinitionId))
+                """ : "";
+        TypedQuery<AgentRuntimeCatalogChange> query = entityManager.createQuery("""
+                select c from AgentRuntimeCatalogChange c
+                join fetch c.codAgentdefinition d
+                left join fetch c.codRuntimepackage p
+                where """ + eligibility + """
+                  and c.numChangesequence <= :upperSequence
+                  and c.numChangesequence = (
+                    select max(latest.numChangesequence) from AgentRuntimeCatalogChange latest
+                    where latest.codAgentdefinition = c.codAgentdefinition
+                      and """ + latestEligibility + """
+                      and latest.numChangesequence <= :upperSequence)
+                """ + keyset + """
+                order by c.dtSourceupdatedat asc, d.codAgentdefinition asc
+                """, AgentRuntimeCatalogChange.class)
+                .setParameter("upperSequence", catalogUpperSequence).setMaxResults(fetchLimit);
+        if (checkpoint) query.setParameter("lowerSequence", lowerSequence);
+        else query.setParameter("changedAfter", changedAfter);
+        if (continuation) query.setParameter("lastSourceUpdatedAt", lastSourceUpdatedAt)
+                .setParameter("lastAgentDefinitionId", lastAgentDefinitionId);
+        return query.getResultList().stream().map(this::row).toList();
     }
 
     public List<DesiredRuntimeCatalogRow> findFullSnapshotPage(
@@ -115,7 +158,8 @@ public class DesiredRuntimeCatalogRepository {
         return new DesiredRuntimeCatalogRow(
                 change.getNumChangesequence(), change.getCodCatalogchange(),
                 change.getCodAgentdefinition().getCodAgentdefinition(), change.getSglAction().name(),
-                change.getSglSourceagentstatus(), change.getDtSourceupdatedat(),
+                change.getSglSourceagentstatus(), change.getSglRemovalreason() == null ? null : change.getSglRemovalreason().name(),
+                change.getDtSourceupdatedat(),
                 runtimePackage == null ? null : runtimePackage.getCodRuntimepackage(),
                 change.getNumPackageversion() == null ? 0L : change.getNumPackageversion(),
                 change.getDscPackagefingerprint(),

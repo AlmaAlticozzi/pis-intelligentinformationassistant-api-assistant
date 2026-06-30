@@ -31,6 +31,10 @@ public class DesiredRuntimeCatalogCursorCodec {
         return decode(encoded, "TARGETED", filterFingerprint);
     }
 
+    public DesiredRuntimeCatalogCursor decodeIncremental(String encoded, String filterFingerprint) {
+        return decode(encoded, "INCREMENTAL", filterFingerprint);
+    }
+
     private DesiredRuntimeCatalogCursor decode(String encoded, String expectedMode, String filterFingerprint) {
         try {
             if (encoded == null || encoded.isBlank() || encoded.length() > 1000) throw new IllegalArgumentException();
@@ -47,11 +51,12 @@ public class DesiredRuntimeCatalogCursorCodec {
 
     private void validate(DesiredRuntimeCatalogCursor cursor, String expectedMode, String filterFingerprint) {
         boolean targeted = "TARGETED".equals(expectedMode);
+        boolean filtered = targeted || "INCREMENTAL".equals(expectedMode);
         boolean invalid = cursor == null || cursor.version() != 1 || !expectedMode.equals(cursor.mode())
                 || cursor.catalogUpperSequence() < 0 || cursor.catalogAsOf() == null
                 || (!targeted && cursor.lastSourceUpdatedAt() == null) || cursor.lastAgentDefinitionId() == null
                 || cursor.lastAgentDefinitionId().isBlank() || cursor.lastAgentDefinitionId().length() > 50;
-        if (targeted) {
+        if (filtered) {
             invalid |= cursor.filterFingerprint() == null
                     || !cursor.filterFingerprint().matches("[a-f0-9]{64}")
                     || !cursor.filterFingerprint().equals(filterFingerprint);

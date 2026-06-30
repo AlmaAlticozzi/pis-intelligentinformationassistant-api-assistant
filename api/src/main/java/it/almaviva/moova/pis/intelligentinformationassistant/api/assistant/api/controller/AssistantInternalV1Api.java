@@ -17,6 +17,7 @@ import jakarta.ws.rs.*;
 import java.time.OffsetDateTime;
 import java.util.Set;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.DesiredRuntimeCatalogConsistencyException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.DesiredRuntimeCatalogCheckpointIncompatibleException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.DesiredRuntimeCatalogInvalidRequestException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.DesiredRuntimeCatalogRequest;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.DesiredRuntimeCatalogService;
@@ -44,6 +45,9 @@ public class AssistantInternalV1Api implements IAssistantInternalV1Api {
         } catch (DesiredRuntimeCatalogConsistencyException ex) {
             throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
                     .entity(AssistantApiErrors.desiredRuntimeCatalogConflict(ex.getMessage())).build());
+        } catch (DesiredRuntimeCatalogCheckpointIncompatibleException ex) {
+            throw new WebApplicationException(Response.status(422)
+                    .entity(AssistantApiErrors.desiredRuntimeCatalogCheckpointIncompatible(ex.getMessage())).build());
         } catch (DesiredRuntimeCatalogUnavailableException ex) {
             throw new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(AssistantApiErrors.desiredRuntimeCatalogUnavailable()).build());

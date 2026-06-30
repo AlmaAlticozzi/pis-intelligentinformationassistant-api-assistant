@@ -59,6 +59,9 @@ public class DesiredRuntimeCatalogService {
                 + " checkpointPresent=" + (request.checkpoint() != null)
                 + " targetAgentCount=" + (request.agentDefinitionIds() == null ? 0 : request.agentDefinitionIds().size()));
         try {
+            if (request.mode() == DesiredRuntimeCatalogMode.INCREMENTAL) {
+                return getIncremental(request, limit);
+            }
             if (request.mode() == DesiredRuntimeCatalogMode.TARGETED) {
                 return getTargeted(request, limit);
             }
@@ -123,13 +126,99 @@ public class DesiredRuntimeCatalogService {
         }
     }
 
+    private DesiredRuntimeCatalogResponse getIncremental(DesiredRuntimeCatalogRequest request, int limit) {
+        boolean checkpointBased = request.checkpoint() != null;
+        long currentUpper = repository.findCurrentUpperSequence("INCREMENTAL");
+        DesiredRuntimeCatalogCheckpoint source = checkpointBased
+                ? checkpointCodec.decodeForIncremental(request.checkpoint(), currentUpper) : null;
+        String fingerprint = checkpointBased ? DesiredRuntimeCatalogIncrementalFilter.checkpoint(source)
+                : DesiredRuntimeCatalogIncrementalFilter.changedAfter(request.changedAfter());
+        boolean cursorPresent = request.cursor() != null;
+        DesiredRuntimeCatalogCursor cursor = cursorPresent
+                ? cursorCodec.decodeIncremental(request.cursor(), fingerprint) : null;
+        long upperSequence = cursor == null ? currentUpper : cursor.catalogUpperSequence();
+        OffsetDateTime catalogAsOf = cursor == null ? now() : cursor.catalogAsOf();
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][INCREMENTAL][LOWER_BOUND] type="
+                + (checkpointBased ? "CHECKPOINT changeSequence=" + source.changeSequence()
+                + " catalogAsOf=" + source.catalogAsOf() : "CHANGED_AFTER changedAfter=" + request.changedAfter())
+                + " filterFingerprintPrefix=" + fingerprint.substring(0, 12));
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][INCREMENTAL][SNAPSHOT] catalogUpperSequence="
+                + upperSequence + " catalogAsOf=" + catalogAsOf);
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][INCREMENTAL][QUERY] status=STARTED lowerBoundType="
+                + (checkpointBased ? "CHECKPOINT" : "CHANGED_AFTER") + " catalogUpperSequence=" + upperSequence
+                + " cursorPresent=" + cursorPresent + " fetchLimit=" + (limit + 1));
+        var rows = repository.findIncrementalPage(checkpointBased ? source.changeSequence() : null,
+                checkpointBased ? null : request.changedAfter(), upperSequence,
+                cursor == null ? null : cursor.lastSourceUpdatedAt(),
+                cursor == null ? null : cursor.lastAgentDefinitionId(), limit + 1);
+        boolean hasMore = rows.size() > limit;
+        var returned = rows.subList(0, Math.min(limit, rows.size()));
+        List<Object> items = new ArrayList<>();
+        int upsertCount = 0, removeCount = 0;
+        for (var row : returned) {
+            if ("UPSERT".equals(row.action())) {
+                if (row.removalReason() != null) inconsistent(row, "UPSERT_REMOVAL_REASON_PRESENT");
+                items.add(mapper.map(row));
+                upsertCount++;
+            } else if ("REMOVE".equals(row.action())) {
+                validateRemove(row);
+                DesiredRuntimeCatalogRemovalReason reason;
+                try { reason = DesiredRuntimeCatalogRemovalReason.fromValue(row.removalReason()); }
+                catch (RuntimeException ex) { throw inconsistent(row, "REMOVAL_REASON_INVALID"); }
+                DesiredRuntimeCatalogRemovalItem removal = new DesiredRuntimeCatalogRemovalItem()
+                        .action(DesiredRuntimeCatalogRemovalItem.ActionEnum.REMOVE)
+                        .agentDefinitionId(row.agentDefinitionId()).removalReason(reason)
+                        .sourceUpdatedAt(row.sourceUpdatedAt()).evaluatedAt(catalogAsOf);
+                if (row.sourceAgentStatus() != null) {
+                    try { removal.sourceStatus(AgentDefinitionStatus.fromValue(row.sourceAgentStatus())); }
+                    catch (RuntimeException ex) { throw inconsistent(row, "SOURCE_STATUS_INVALID"); }
+                }
+                items.add(removal);
+                removeCount++;
+            } else {
+                throw inconsistent(row, "ACTION_INVALID");
+            }
+        }
+        String nextCursor = null;
+        if (hasMore) {
+            var last = returned.getLast();
+            nextCursor = cursorCodec.encode(new DesiredRuntimeCatalogCursor(1, "INCREMENTAL", upperSequence,
+                    catalogAsOf, last.sourceUpdatedAt(), last.agentDefinitionId(), fingerprint));
+        }
+        String nextCheckpoint = hasMore ? null : checkpointCodec.encode(
+                new DesiredRuntimeCatalogCheckpoint(1, upperSequence, catalogAsOf));
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][INCREMENTAL][RESULT] upsertCount=" + upsertCount
+                + " removeCount=" + removeCount + " returned=" + items.size() + " hasMore=" + hasMore
+                + " nextCursorPresent=" + (nextCursor != null)
+                + " sourceCheckpointPresent=" + checkpointBased
+                + " nextCheckpointPresent=" + (nextCheckpoint != null));
+        return new DesiredRuntimeCatalogResponse().catalogVersion(CATALOG_VERSION)
+                .mode(DesiredRuntimeCatalogMode.INCREMENTAL).generatedAt(now()).catalogAsOf(catalogAsOf)
+                .sourceCheckpoint(checkpointBased ? request.checkpoint() : null).nextCheckpoint(nextCheckpoint)
+                .items(asCatalogItemsMixed(items)).page(new DesiredRuntimeCatalogPage().limit(limit)
+                        .returned(items.size()).hasMore(hasMore).nextCursor(nextCursor));
+    }
+
+    private void validateRemove(it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.DesiredRuntimeCatalogRow row) {
+        if (row.runtimePackageId() != null || row.catalogPackageVersion() != 0
+                || row.catalogPackageFingerprint() != null || row.persistedRuntimePackage() != null
+                || row.removalReason() == null) throw inconsistent(row, "REMOVE_PAYLOAD_INVALID");
+    }
+
+    private DesiredRuntimeCatalogConsistencyException inconsistent(
+            it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.DesiredRuntimeCatalogRow row,
+            String reason) {
+        return new DesiredRuntimeCatalogConsistencyException("Desired Runtime Catalog change "
+                + row.catalogChangeId() + " is inconsistent: " + reason + ".");
+    }
+
     private DesiredRuntimeCatalogResponse getTargeted(DesiredRuntimeCatalogRequest request, int limit) {
         List<String> sortedIds = DesiredRuntimeCatalogTargetFilter.sorted(request.agentDefinitionIds());
         String fingerprint = DesiredRuntimeCatalogTargetFilter.fingerprint(sortedIds);
         boolean cursorPresent = request.cursor() != null;
         DesiredRuntimeCatalogCursor cursor = cursorPresent
                 ? cursorCodec.decodeTargeted(request.cursor(), fingerprint) : null;
-        long upperSequence = cursor == null ? repository.findCurrentUpperSequence() : cursor.catalogUpperSequence();
+        long upperSequence = cursor == null ? repository.findCurrentUpperSequence("TARGETED") : cursor.catalogUpperSequence();
         OffsetDateTime catalogAsOf = cursor == null ? now() : cursor.catalogAsOf();
         OffsetDateTime evaluatedAt = now();
         int start = 0;

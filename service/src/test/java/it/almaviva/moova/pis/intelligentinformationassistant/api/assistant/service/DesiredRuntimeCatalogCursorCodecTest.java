@@ -39,6 +39,18 @@ class DesiredRuntimeCatalogCursorCodecTest {
                 DesiredRuntimeCatalogTargetFilter.sorted(java.util.Set.of("B", "A"))))
                 .isEqualTo(DesiredRuntimeCatalogTargetFilter.fingerprint(java.util.List.of("A", "B")));
     }
+    @Test void incrementalCursorPreservesStablePositionAndRejectsOtherModesOrFilters() {
+        String fingerprint = "c".repeat(64);
+        var value = new DesiredRuntimeCatalogCursor(1, "INCREMENTAL", 99L,
+                OffsetDateTime.parse("2026-06-30T15:00:00Z"),
+                OffsetDateTime.parse("2026-06-30T14:59:00Z"), "AGDF9", fingerprint);
+        String encoded = codec.encode(value);
+        assertThat(codec.decodeIncremental(encoded, fingerprint)).isEqualTo(value);
+        assertThatThrownBy(() -> codec.decodeIncremental(encoded, "d".repeat(64)))
+                .isInstanceOf(DesiredRuntimeCatalogInvalidRequestException.class);
+        assertThatThrownBy(() -> codec.decode(encoded))
+                .isInstanceOf(DesiredRuntimeCatalogInvalidRequestException.class);
+    }
     @Test void checkpointHasStableFutureFormat() {
         var mapper = JsonMapper.builder().findAndAddModules().build();
         var checkpointCodec = new DesiredRuntimeCatalogCheckpointCodec(mapper);
