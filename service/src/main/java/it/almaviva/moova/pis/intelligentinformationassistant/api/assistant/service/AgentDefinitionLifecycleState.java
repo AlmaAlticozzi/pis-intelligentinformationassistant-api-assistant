@@ -5,5 +5,9 @@ import java.time.Instant;
 public record AgentDefinitionLifecycleState(
         String agentDefinitionId,
         String status,
-        Instant updatedAt) {
+        Instant updatedAt,
+        String currentRuntimePackageId) {
+    public AgentDefinitionLifecycleState(String agentDefinitionId, String status, Instant updatedAt) {
+        this(agentDefinitionId, status, updatedAt, null);
+    }
 }

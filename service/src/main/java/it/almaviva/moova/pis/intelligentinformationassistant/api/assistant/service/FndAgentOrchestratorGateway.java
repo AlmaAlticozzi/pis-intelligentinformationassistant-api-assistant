@@ -11,6 +11,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.net.SocketTimeoutException;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.concurrent.TimeoutException;
 
 @ApplicationScoped
@@ -96,6 +97,56 @@ public class FndAgentOrchestratorGateway {
         }
     }
 
+    public AgentOrchestratorRuntimeAgentResult disable(AgentOrchestratorDisableRequest request) {
+        String url = joinUrl(requireBaseUrl(baseUrl), apiBasePath, RESOURCE_PATH + "/disable");
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (request.reason() != null) body.put("reason", request.reason());
+        body.put("stopRunningAgents", request.stopRunningAgents());
+        body.put("gracePeriodSeconds", request.gracePeriodSeconds());
+        body.put("requestedAt", request.requestedAt().toString());
+        FNDRequestForResponse.Builder builder = FNDRequestForResponse.builder().post().url(url)
+                .addPathParam("agentDefinitionId", request.agentDefinitionId()).body(body);
+        if (oidcEnabled) builder.oidcClientId(oidcClientId);
+        try {
+            Response response = restClient.requestForResponse(builder.build());
+            if (response == null) return disableOutcome(request, 0, false, null, null, "CONNECTION_FAILURE");
+            try (response) {
+                int status = response.getStatus();
+                String raw;
+                try { raw = response.hasEntity() ? response.readEntity(String.class) : ""; }
+                catch (RuntimeException ex) { return disableOutcome(request, status, true, null, null, "RESPONSE_DECODING_FAILURE"); }
+                AgentOrchestratorRuntimeAgentResult result = disableOutcome(request, status, true, raw, parseJson(raw), category(status));
+                logDisable(request, result);
+                return result;
+            }
+        } catch (RuntimeException ex) {
+            String category = hasCause(ex, SocketTimeoutException.class) || hasCause(ex, TimeoutException.class)
+                    ? "TIMEOUT" : "CONNECTION_FAILURE";
+            AgentOrchestratorRuntimeAgentResult result = disableOutcome(request, 0, false, null, null, category);
+            logDisable(request, result);
+            return result;
+        }
+    }
+
+    private AgentOrchestratorRuntimeAgentResult disableOutcome(AgentOrchestratorDisableRequest request, int status,
+            boolean received, String raw, JsonNode parsed, String category) {
+        return new AgentOrchestratorRuntimeAgentResult(request.agentDefinitionId(), "DISABLED", null, 0, null,
+                null, null, null, null, status, received, raw, parsed, category);
+    }
+
+    private void logDisable(AgentOrchestratorDisableRequest request, AgentOrchestratorRuntimeAgentResult result) {
+        JsonNode body = result.parsedResponseBody();
+        System.out.println("[IIA][AGENT_ORCHESTRATOR][DISABLE_HTTP] agentDefinitionId=" + request.agentDefinitionId()
+                + " stopRunningAgents=" + request.stopRunningAgents() + " gracePeriodSeconds=" + request.gracePeriodSeconds()
+                + " method=POST oidcEnabled=" + oidcEnabled + " httpCallExecuted=true httpStatus=" + result.httpStatus()
+                + " responseReceived=" + result.responseReceived() + " desiredStatus=" + safeField(body, "desiredStatus")
+                + " runtimeStatus=" + safeField(body, "runtimeStatus") + " outcome=" + result.outcomeCategory());
+    }
+
+    private String safeField(JsonNode body, String name) {
+        return body != null && body.path(name).isTextual() ? body.path(name).textValue() : null;
+    }
+
     private AgentOrchestratorActivationRequest withPersistedPayload(AgentOrchestratorActivationRequest request) {
         if (request.persistedPayload() != null) return request;
         if (request.runtimePackageId() == null) {
@@ -156,7 +207,7 @@ public class FndAgentOrchestratorGateway {
     private String category(int status) {
         if (status >= 200 && status < 300) return "ACCEPTED";
         return switch (status) {
-            case 400, 401, 403, 409, 422, 429, 500, 503 -> "HTTP_" + status;
+            case 400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504 -> "HTTP_" + status;
             default -> "HTTP_OTHER";
         };
     }

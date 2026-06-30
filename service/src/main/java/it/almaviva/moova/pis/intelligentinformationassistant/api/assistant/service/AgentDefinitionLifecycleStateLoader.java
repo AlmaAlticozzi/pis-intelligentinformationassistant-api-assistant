@@ -19,6 +19,7 @@ public class AgentDefinitionLifecycleStateLoader {
                 .map(row -> new AgentDefinitionLifecycleState(
                         row.agentDefinitionId(),
                         row.status(),
-                        row.updatedAt() == null ? null : row.updatedAt().toInstant()));
+                        row.updatedAt() == null ? null : row.updatedAt().toInstant(),
+                        row.currentRuntimePackageId()));
     }
 }

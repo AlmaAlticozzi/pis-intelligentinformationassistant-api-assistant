@@ -130,7 +130,8 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
                         select new it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository$AgentDefinitionLifecycleRow(
                             d.codAgentdefinition,
                             d.sglStatus.sglStatus,
-                            d.dtUpdatedat
+                            d.dtUpdatedat,
+                            d.codCurrentruntimepackage
                         )
                         from AgentDefinition d
                         join d.sglStatus
@@ -356,7 +357,8 @@ public class AgentDefinitionRepository implements PanacheRepositoryBase<AgentDef
     public record AgentDefinitionLifecycleRow(
             String agentDefinitionId,
             String status,
-            OffsetDateTime updatedAt) {
+            OffsetDateTime updatedAt,
+            String currentRuntimePackageId) {
     }
 
     public AgentGenerationMode generationModeReference(String generationMode) {

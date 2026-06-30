@@ -752,17 +752,25 @@ public final class AssistantApiErrors {
     }
 
     public static Error agentDefinitionDisableServiceUnavailable() {
+        return agentDefinitionDisableServiceUnavailable("The Agent Definition is ACTIVE, but the disable command could not be delivered to the Agent Orchestrator. Disable did not occur and the Agent Definition state is unchanged.");
+    }
+
+    public static Error agentDefinitionDisableServiceUnavailable(String detail) {
         return new Error()
                 .code("IIA-AGD-DIS-503-001")
                 .title("Agent Orchestrator unavailable")
-                .detail("The Agent Definition is ACTIVE, but the disable command could not be delivered to the Agent Orchestrator. Disable did not occur and the Agent Definition state is unchanged.");
+                .detail(detail);
     }
 
     public static Error agentDefinitionDisableUnexpectedError() {
+        return agentDefinitionDisableUnexpectedError("An unexpected error occurred while disabling the Agent Definition.");
+    }
+
+    public static Error agentDefinitionDisableUnexpectedError(String detail) {
         return new Error()
                 .code("IIA-AGD-DIS-500-001")
                 .title("Unexpected error")
-                .detail("An unexpected error occurred while disabling the Agent Definition.");
+                .detail(detail);
     }
 
     public static Error agentDefinitionGetInvalidRequest(String source, String detail) {

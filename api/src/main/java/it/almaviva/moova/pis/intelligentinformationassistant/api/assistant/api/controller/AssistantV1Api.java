@@ -23,6 +23,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableRuntimeAcceptanceNotSupportedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableTechnicalException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentDisableDownstreamException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorCommandRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorUnavailableException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
@@ -287,6 +288,14 @@ public class AssistantV1Api implements IAssistantV1Api {
             throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
                     .entity(AssistantApiErrors.agentDefinitionDisableConflict(ex.getMessage()))
                     .build());
+        } catch (AgentDisableDownstreamException ex) {
+            Object error = switch (ex.assistantHttpStatus()) {
+                case 409 -> AssistantApiErrors.agentDefinitionDisableConflict(ex.getMessage());
+                case 422 -> AssistantApiErrors.agentDefinitionDisableUnprocessable(ex.getMessage());
+                case 503 -> AssistantApiErrors.agentDefinitionDisableServiceUnavailable(ex.getMessage());
+                default -> AssistantApiErrors.agentDefinitionDisableUnexpectedError(ex.getMessage());
+            };
+            throw new WebApplicationException(Response.status(ex.assistantHttpStatus()).entity(error).build());
         } catch (AgentOrchestratorCommandRejectedException ex) {
             throw new WebApplicationException(Response.status(422)
                     .entity(AssistantApiErrors.agentDefinitionDisableUnprocessable(ex.getMessage()))

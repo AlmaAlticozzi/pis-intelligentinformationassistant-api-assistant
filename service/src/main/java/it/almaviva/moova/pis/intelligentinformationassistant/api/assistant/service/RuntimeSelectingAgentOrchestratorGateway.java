@@ -28,6 +28,6 @@ public class RuntimeSelectingAgentOrchestratorGateway implements AgentOrchestrat
 
     @Override
     public AgentOrchestratorRuntimeAgentResult disable(AgentOrchestratorDisableRequest request) {
-        return unavailableGateway.disable(request);
+        return enabled ? fndGateway.disable(request) : unavailableGateway.disable(request);
     }
 }

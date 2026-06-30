@@ -35,6 +35,12 @@ public class AgentDisableService {
     @Inject
     AgentDisableFinalizationService disableFinalizationService;
 
+    @Inject
+    PersistedRuntimePackageReader persistedRuntimePackageReader;
+
+    @Inject
+    AgentOrchestratorDisableResultInterpreter disableResultInterpreter;
+
     Clock clock = Clock.systemUTC();
 
     public AgentDisableService() {
@@ -50,7 +56,18 @@ public class AgentDisableService {
         this.lifecycleStateWriter = lifecycleStateWriter;
         this.agentDefinitionService = agentDefinitionService;
         this.orchestratorGateway = orchestratorGateway;
+        this.disableFinalizationService = null;
         this.clock = clock == null ? Clock.systemUTC() : clock;
+    }
+
+    AgentDisableService(AgentDefinitionLifecycleStateLoader loader, AgentDefinitionLifecycleStateWriter writer,
+            AgentDefinitionService definitions, AgentOrchestratorGateway gateway,
+            AgentDisableFinalizationService finalizer, PersistedRuntimePackageReader packageReader,
+            AgentOrchestratorDisableResultInterpreter interpreter, Clock clock) {
+        this(loader, writer, definitions, gateway, clock);
+        this.disableFinalizationService = finalizer;
+        this.persistedRuntimePackageReader = packageReader;
+        this.disableResultInterpreter = interpreter;
     }
 
     public AgentDefinitionDetail disable(String agentDefinitionId, AgentDisableRequest request) {
@@ -143,20 +160,17 @@ public class AgentDisableService {
                 command.gracePeriodSeconds(),
                 Instant.now(clock));
         try {
-            orchestratorGateway.disable(gatewayRequest);
-            OffsetDateTime disabledAt = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
-            boolean finalized = disableFinalizationService.finalizeAcceptedDisable(
-                    command.agentDefinitionId(),
-                    ACTIVE,
-                    DISABLED,
-                    disabledAt);
-            if (!finalized) {
-                AgentDefinitionLifecycleState current = loadState(command.agentDefinitionId());
-                System.out.println("[IIA][AGENT_DISABLE] rejected agentDefinitionId=" + command.agentDefinitionId()
-                        + " outcome=LIFECYCLE_CONFLICT currentStatus=" + current.status()
-                        + " stateChangeApplied=false");
-                throw new AgentDisableRejectedException(current.status(), "Agent Definition status changed during disable.");
+            if (state.currentRuntimePackageId() == null) {
+                throw new AgentDisableTechnicalException("ACTIVE Agent Definition has no current Runtime Agent Package.");
             }
+            PersistedRuntimePackageSnapshot runtimePackage = persistedRuntimePackageReader.read(
+                    state.currentRuntimePackageId(), command.agentDefinitionId());
+            AgentOrchestratorRuntimeAgentResult result = orchestratorGateway.disable(gatewayRequest);
+            disableResultInterpreter.validate(gatewayRequest, result, runtimePackage);
+            OffsetDateTime disabledAt = OffsetDateTime.ofInstant(Instant.now(clock), ZoneOffset.UTC);
+            disableFinalizationService.finalizeAcceptedDisable(command.agentDefinitionId(),
+                    runtimePackage.runtimePackageId(), runtimePackage.packageVersion(), runtimePackage.submissionId(),
+                    runtimePackage.packageFingerprint(), OffsetDateTime.ofInstant(state.updatedAt(), ZoneOffset.UTC), disabledAt);
             System.out.println("[IIA][AGENT_DISABLE] completed agentDefinitionId=" + command.agentDefinitionId()
                     + " previousStatus=" + state.status()
                     + " currentStatus=" + DISABLED

@@ -81,10 +81,25 @@ public class RuntimeCatalogLifecyclePublisher {
             String agentDefinitionId,
             String sourceAgentStatus,
             OffsetDateTime sourceUpdatedAt) {
+        return appendRemoveWithDecision(agentDefinitionId, sourceAgentStatus, sourceUpdatedAt).change();
+    }
+
+    @Transactional
+    public RemoveAppendResult appendRemoveWithDecision(
+            String agentDefinitionId,
+            String sourceAgentStatus,
+            OffsetDateTime sourceUpdatedAt) {
         String deduplicationKey = "REMOVE:" + agentDefinitionId + ":" + sourceAgentStatus + ":" + normalized(sourceUpdatedAt);
         AgentRuntimeCatalogChange existing = catalogChangeRepository.findByDeduplicationKey(deduplicationKey).orElse(null);
         if (existing != null) {
-            return existing;
+            boolean equivalent = existing.getSglAction() == it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.RuntimeCatalogAction.REMOVE
+                    && existing.getCodAgentdefinition().getCodAgentdefinition().equals(agentDefinitionId)
+                    && sourceAgentStatus.equals(existing.getSglSourceagentstatus())
+                    && existing.getSglRemovalreason() == RuntimeCatalogRemovalReason.NOT_ACTIVE
+                    && existing.getCodRuntimepackage() == null && existing.getNumPackageversion() == null
+                    && existing.getDscPackagefingerprint() == null;
+            if (!equivalent) throw new AgentDisableTechnicalException("Runtime catalog REMOVE deduplication identity conflicts with existing data.");
+            return new RemoveAppendResult(existing, AgentRuntimeCatalogChangeDecision.REUSED);
         }
         AgentRuntimeCatalogChange change = AgentRuntimeCatalogChange.remove(
                 catalogChangeRepository.nextCatalogChangeId(),
@@ -99,10 +114,12 @@ public class RuntimeCatalogLifecyclePublisher {
         System.out.println("[IIA][RUNTIME_CATALOG_CHANGE] action=REMOVE agentDefinitionId=" + agentDefinitionId
                 + " sourceStatus=" + sourceAgentStatus
                 + " changeSequence=" + change.getNumChangesequence());
-        return change;
+        return new RemoveAppendResult(change, AgentRuntimeCatalogChangeDecision.CREATED);
     }
 
     private String normalized(OffsetDateTime timestamp) {
         return timestamp == null ? "null" : DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(timestamp);
     }
+
+    public record RemoveAppendResult(AgentRuntimeCatalogChange change, AgentRuntimeCatalogChangeDecision decision) { }
 }
