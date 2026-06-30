@@ -3,8 +3,11 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.serv
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogItem;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogMode;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogPage;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogRemovalItem;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogRemovalReason;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogResponse;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.DesiredRuntimeCatalogUpsertItem;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.model.assistant.AgentDefinitionStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.DesiredRuntimeCatalogRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -18,6 +21,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 @ApplicationScoped
 public class DesiredRuntimeCatalogService {
@@ -47,12 +52,16 @@ public class DesiredRuntimeCatalogService {
     public DesiredRuntimeCatalogResponse get(DesiredRuntimeCatalogRequest request) {
         int limit = requestValidator.validate(request);
         boolean cursorPresent = request.cursor() != null;
-        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][FULL][REQUEST] mode=" + request.mode()
+        String mode = request.mode().name();
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][" + mode + "][REQUEST] mode=" + request.mode()
                 + " cursorPresent=" + cursorPresent + " requestedLimit=" + request.limit()
                 + " effectiveLimit=" + limit + " changedAfterPresent=" + (request.changedAfter() != null)
                 + " checkpointPresent=" + (request.checkpoint() != null)
                 + " targetAgentCount=" + (request.agentDefinitionIds() == null ? 0 : request.agentDefinitionIds().size()));
         try {
+            if (request.mode() == DesiredRuntimeCatalogMode.TARGETED) {
+                return getTargeted(request, limit);
+            }
             DesiredRuntimeCatalogCursor cursor = cursorPresent ? cursorCodec.decode(request.cursor()) : null;
             long upperSequence = cursor == null ? repository.findCurrentUpperSequence() : cursor.catalogUpperSequence();
             OffsetDateTime catalogAsOf = cursor == null ? now() : cursor.catalogAsOf();
@@ -88,7 +97,7 @@ public class DesiredRuntimeCatalogService {
             if (hasMore) {
                 var last = returnedRows.getLast();
                 nextCursor = cursorCodec.encode(new DesiredRuntimeCatalogCursor(1, "FULL", upperSequence,
-                        catalogAsOf, last.sourceUpdatedAt(), last.agentDefinitionId()));
+                        catalogAsOf, last.sourceUpdatedAt(), last.agentDefinitionId(), null));
             }
             String checkpoint = hasMore ? null : checkpointCodec.encode(
                     new DesiredRuntimeCatalogCheckpoint(1, upperSequence, catalogAsOf));
@@ -114,10 +123,83 @@ public class DesiredRuntimeCatalogService {
         }
     }
 
+    private DesiredRuntimeCatalogResponse getTargeted(DesiredRuntimeCatalogRequest request, int limit) {
+        List<String> sortedIds = DesiredRuntimeCatalogTargetFilter.sorted(request.agentDefinitionIds());
+        String fingerprint = DesiredRuntimeCatalogTargetFilter.fingerprint(sortedIds);
+        boolean cursorPresent = request.cursor() != null;
+        DesiredRuntimeCatalogCursor cursor = cursorPresent
+                ? cursorCodec.decodeTargeted(request.cursor(), fingerprint) : null;
+        long upperSequence = cursor == null ? repository.findCurrentUpperSequence() : cursor.catalogUpperSequence();
+        OffsetDateTime catalogAsOf = cursor == null ? now() : cursor.catalogAsOf();
+        OffsetDateTime evaluatedAt = now();
+        int start = 0;
+        if (cursor != null) {
+            int position = java.util.Collections.binarySearch(sortedIds, cursor.lastAgentDefinitionId());
+            if (position < 0) throw new DesiredRuntimeCatalogInvalidRequestException(
+                    "cursor", "The TARGETED cursor position is invalid.");
+            start = position + 1;
+        }
+        int end = Math.min(start + limit, sortedIds.size());
+        List<String> pageIds = sortedIds.subList(start, end);
+        boolean hasMore = end < sortedIds.size();
+        Set<String> pageIdSet = new HashSet<>(pageIds);
+        var changes = repository.findLatestCatalogChangesForAgentIds(pageIdSet, upperSequence);
+        var definitions = repository.findAgentDefinitionsByIds(pageIdSet);
+        List<Object> outcomes = new ArrayList<>();
+        int upserts = 0, notActive = 0, notFound = 0;
+        for (String id : pageIds) {
+            var change = changes.get(id);
+            if (change != null && "UPSERT".equals(change.action())) {
+                outcomes.add(mapper.map(change));
+                upserts++;
+                System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][TARGETED][ITEM] agentDefinitionId=" + id
+                        + " outcome=UPSERT removalReason=null");
+                continue;
+            }
+            var definition = definitions.get(id);
+            boolean found = change != null || definition != null;
+            String status = change != null ? change.sourceAgentStatus()
+                    : definition == null ? null : definition.status();
+            OffsetDateTime sourceUpdatedAt = change != null ? change.sourceUpdatedAt()
+                    : definition == null ? null : definition.updatedAt();
+            DesiredRuntimeCatalogRemovalReason reason = found
+                    ? DesiredRuntimeCatalogRemovalReason.NOT_ACTIVE : DesiredRuntimeCatalogRemovalReason.NOT_FOUND;
+            DesiredRuntimeCatalogRemovalItem removal = new DesiredRuntimeCatalogRemovalItem()
+                    .action(DesiredRuntimeCatalogRemovalItem.ActionEnum.REMOVE).agentDefinitionId(id)
+                    .removalReason(reason).evaluatedAt(evaluatedAt).sourceUpdatedAt(sourceUpdatedAt);
+            if (status != null) removal.sourceStatus(AgentDefinitionStatus.fromValue(status));
+            outcomes.add(removal);
+            if (found) notActive++; else notFound++;
+            System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][TARGETED][ITEM] agentDefinitionId=" + id
+                    + " outcome=REMOVE removalReason=" + reason);
+        }
+        String nextCursor = hasMore ? cursorCodec.encode(new DesiredRuntimeCatalogCursor(1, "TARGETED",
+                upperSequence, catalogAsOf, null, pageIds.getLast(), fingerprint)) : null;
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][TARGETED][SNAPSHOT] catalogUpperSequence="
+                + upperSequence + " catalogAsOf=" + catalogAsOf + " filterFingerprintPrefix="
+                + fingerprint.substring(0, 12));
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][TARGETED][RESOLUTION] requested=" + pageIds.size()
+                + " catalogChangesFound=" + changes.size() + " definitionsFound=" + definitions.size()
+                + " runtimePackagesRequired=" + upserts);
+        System.out.println("[IIA][DESIRED_RUNTIME_CATALOG][TARGETED][RESULT] upsertCount=" + upserts
+                + " notActiveCount=" + notActive + " notFoundCount=" + notFound + " returned=" + outcomes.size()
+                + " hasMore=" + hasMore + " nextCursorPresent=" + (nextCursor != null));
+        return new DesiredRuntimeCatalogResponse().catalogVersion(CATALOG_VERSION)
+                .mode(DesiredRuntimeCatalogMode.TARGETED).generatedAt(now()).catalogAsOf(catalogAsOf)
+                .sourceCheckpoint(null).nextCheckpoint(null).items(asCatalogItemsMixed(outcomes))
+                .page(new DesiredRuntimeCatalogPage().limit(limit).returned(outcomes.size())
+                        .hasMore(hasMore).nextCursor(nextCursor));
+    }
+
     @SuppressWarnings({"rawtypes", "unchecked"})
     private List<DesiredRuntimeCatalogItem> asCatalogItems(List<DesiredRuntimeCatalogUpsertItem> upserts) {
         // Generated oneOf classes are sibling types; preserve the runtime UPSERT subtype for Jackson.
         return (List) new ArrayList<>(upserts);
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private List<DesiredRuntimeCatalogItem> asCatalogItemsMixed(List<?> items) {
+        return (List) new ArrayList<>(items);
     }
 
     private OffsetDateTime now() { return OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC); }

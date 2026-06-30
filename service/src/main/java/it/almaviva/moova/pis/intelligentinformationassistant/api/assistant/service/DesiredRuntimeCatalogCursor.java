@@ -8,5 +8,6 @@ public record DesiredRuntimeCatalogCursor(
         long catalogUpperSequence,
         OffsetDateTime catalogAsOf,
         OffsetDateTime lastSourceUpdatedAt,
-        String lastAgentDefinitionId) {
+        String lastAgentDefinitionId,
+        String filterFingerprint) {
 }

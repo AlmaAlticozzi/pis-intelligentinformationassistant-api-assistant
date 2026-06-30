@@ -24,6 +24,21 @@ class DesiredRuntimeCatalogCursorCodecTest {
         assertThatThrownBy(() -> codec.decode(codec.encode(cursor("TARGETED"))))
                 .isInstanceOf(DesiredRuntimeCatalogInvalidRequestException.class);
     }
+    @Test void targetedRoundTripPreservesFilterAndSnapshot() {
+        String fingerprint = "a".repeat(64);
+        var value = new DesiredRuntimeCatalogCursor(1, "TARGETED", 42L,
+                OffsetDateTime.parse("2026-06-30T13:00:00Z"), null, "AGDF1", fingerprint);
+        assertThat(codec.decodeTargeted(codec.encode(value), fingerprint)).isEqualTo(value);
+        assertThatThrownBy(() -> codec.decodeTargeted(codec.encode(value), "b".repeat(64)))
+                .isInstanceOf(DesiredRuntimeCatalogInvalidRequestException.class);
+        assertThatThrownBy(() -> codec.decode(codec.encode(value)))
+                .isInstanceOf(DesiredRuntimeCatalogInvalidRequestException.class);
+    }
+    @Test void targetFingerprintIsIndependentOfInputOrder() {
+        assertThat(DesiredRuntimeCatalogTargetFilter.fingerprint(
+                DesiredRuntimeCatalogTargetFilter.sorted(java.util.Set.of("B", "A"))))
+                .isEqualTo(DesiredRuntimeCatalogTargetFilter.fingerprint(java.util.List.of("A", "B")));
+    }
     @Test void checkpointHasStableFutureFormat() {
         var mapper = JsonMapper.builder().findAndAddModules().build();
         var checkpointCodec = new DesiredRuntimeCatalogCheckpointCodec(mapper);
@@ -35,6 +50,6 @@ class DesiredRuntimeCatalogCursorCodecTest {
     private DesiredRuntimeCatalogCursor cursor(String mode) {
         return new DesiredRuntimeCatalogCursor(1, mode, 42L,
                 OffsetDateTime.parse("2026-06-30T13:00:00Z"),
-                OffsetDateTime.parse("2026-06-30T12:30:00Z"), "AGDF1");
+                OffsetDateTime.parse("2026-06-30T12:30:00Z"), "AGDF1", null);
     }
 }

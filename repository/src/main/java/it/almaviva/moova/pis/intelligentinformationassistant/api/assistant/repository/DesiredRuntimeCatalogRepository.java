@@ -9,6 +9,10 @@ import jakarta.persistence.TypedQuery;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class DesiredRuntimeCatalogRepository {
@@ -71,6 +75,39 @@ public class DesiredRuntimeCatalogRepository {
             logFailure(ex);
             throw ex;
         }
+    }
+
+    public Map<String, DesiredRuntimeCatalogRow> findLatestCatalogChangesForAgentIds(
+            Set<String> agentDefinitionIds, long catalogUpperSequence) {
+        if (agentDefinitionIds.isEmpty()) return Map.of();
+        List<AgentRuntimeCatalogChange> changes = entityManager.createQuery("""
+                select c from AgentRuntimeCatalogChange c
+                join fetch c.codAgentdefinition d
+                left join fetch c.codRuntimepackage p
+                where d.codAgentdefinition in :ids
+                  and c.numChangesequence <= :upperSequence
+                  and c.numChangesequence = (
+                    select max(latest.numChangesequence) from AgentRuntimeCatalogChange latest
+                    where latest.codAgentdefinition = c.codAgentdefinition
+                      and latest.numChangesequence <= :upperSequence)
+                """, AgentRuntimeCatalogChange.class)
+                .setParameter("ids", agentDefinitionIds)
+                .setParameter("upperSequence", catalogUpperSequence)
+                .getResultList();
+        return changes.stream().map(this::row).collect(Collectors.toMap(
+                DesiredRuntimeCatalogRow::agentDefinitionId, Function.identity()));
+    }
+
+    public Map<String, DesiredRuntimeCatalogAgentState> findAgentDefinitionsByIds(Set<String> agentDefinitionIds) {
+        if (agentDefinitionIds.isEmpty()) return Map.of();
+        return entityManager.createQuery("""
+                select d from AgentDefinition d join fetch d.sglStatus
+                where d.codAgentdefinition in :ids
+                """, it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition.class)
+                .setParameter("ids", agentDefinitionIds).getResultList().stream()
+                .map(d -> new DesiredRuntimeCatalogAgentState(d.getCodAgentdefinition(),
+                        d.getSglStatus().getSglStatus(), d.getDtUpdatedat()))
+                .collect(Collectors.toMap(DesiredRuntimeCatalogAgentState::agentDefinitionId, Function.identity()));
     }
 
     private DesiredRuntimeCatalogRow row(AgentRuntimeCatalogChange change) {

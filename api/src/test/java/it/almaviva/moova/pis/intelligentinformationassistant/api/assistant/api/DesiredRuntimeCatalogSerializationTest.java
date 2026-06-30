@@ -65,6 +65,23 @@ class DesiredRuntimeCatalogSerializationTest {
         assertThat(rootFieldCount(item.toString(), "action")).isEqualTo(1);
     }
 
+    @Test
+    void targetedMixedResponseSerializesEachDiscriminatorOnce() throws Exception {
+        DesiredRuntimeCatalogResponse response = new DesiredRuntimeCatalogResponse()
+                .catalogVersion("iia.desired-runtime-catalog/v1").mode(DesiredRuntimeCatalogMode.TARGETED)
+                .generatedAt(OffsetDateTime.parse("2026-06-30T13:00:00Z"))
+                .catalogAsOf(OffsetDateTime.parse("2026-06-30T13:00:00Z"))
+                .items(items(List.of(upsert(), removal())))
+                .page(new DesiredRuntimeCatalogPage().limit(2).returned(2).hasMore(false));
+
+        String json = objectMapper.writeValueAsString(response);
+        var serializedItems = objectMapper.readTree(json).get("items");
+        assertThat(serializedItems.get(0).get("action").asText()).isEqualTo("UPSERT");
+        assertThat(serializedItems.get(1).get("action").asText()).isEqualTo("REMOVE");
+        assertThat(rootFieldCount(serializedItems.get(0).toString(), "action")).isEqualTo(1);
+        assertThat(rootFieldCount(serializedItems.get(1).toString(), "action")).isEqualTo(1);
+    }
+
     private DesiredRuntimeCatalogUpsertItem upsert() {
         DesiredRuntimeAgentSubmission runtimePackage = new DesiredRuntimeAgentSubmission()
                 .submissionId("SUB-PERSISTED").packageVersion(1L)
@@ -88,6 +105,11 @@ class DesiredRuntimeCatalogSerializationTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private List<DesiredRuntimeCatalogItem> items(DesiredRuntimeCatalogUpsertItem item) {
         return (List) new ArrayList<>(List.of(item));
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private List<DesiredRuntimeCatalogItem> items(List<?> items) {
+        return (List) new ArrayList<>(items);
     }
 
     private int rootFieldCount(String json, String fieldName) throws Exception {
