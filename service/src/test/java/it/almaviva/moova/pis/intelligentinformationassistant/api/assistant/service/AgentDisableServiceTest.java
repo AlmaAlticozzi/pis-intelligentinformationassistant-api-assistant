@@ -11,15 +11,20 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,16 +35,25 @@ class AgentDisableServiceTest {
     private static final String AGENT_DEFINITION_ID = "AGDF1";
     private static final Instant UPDATED_AT = Instant.parse("2026-06-17T09:00:00Z");
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-17T10:00:00Z"), ZoneOffset.UTC);
+    private static final String PACKAGE_ID = "RTPK_TEST_CURRENT";
+    private static final String SUBMISSION_ID = "ACTIVATE:AGDF1:1:0123456789abcdef";
+    private static final String FINGERPRINT = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     private final AgentDefinitionLifecycleStateLoader lifecycleStateLoader = mock(AgentDefinitionLifecycleStateLoader.class);
     private final AgentDefinitionLifecycleStateWriter lifecycleStateWriter = mock(AgentDefinitionLifecycleStateWriter.class);
     private final AgentDefinitionService agentDefinitionService = mock(AgentDefinitionService.class);
     private final AgentOrchestratorGateway orchestratorGateway = mock(AgentOrchestratorGateway.class);
+    private final AgentDisableFinalizationService finalizationService = mock(AgentDisableFinalizationService.class);
+    private final PersistedRuntimePackageReader persistedRuntimePackageReader = mock(PersistedRuntimePackageReader.class);
+    private final AgentOrchestratorDisableResultInterpreter resultInterpreter = mock(AgentOrchestratorDisableResultInterpreter.class);
     private final AgentDisableService service = new AgentDisableService(
             lifecycleStateLoader,
             lifecycleStateWriter,
             agentDefinitionService,
             orchestratorGateway,
+            finalizationService,
+            persistedRuntimePackageReader,
+            resultInterpreter,
             CLOCK);
 
     @Test
@@ -109,7 +123,7 @@ class AgentDisableServiceTest {
 
     @Test
     void activeInvokesGatewayOutsideLocalWriterAndPropagatesUnavailable() {
-        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(state("ACTIVE")));
+        arrangeActive();
         when(orchestratorGateway.disable(any())).thenThrow(new AgentOrchestratorUnavailableException(
                 AgentOrchestratorOperation.DISABLE,
                 AGENT_DEFINITION_ID,
@@ -128,11 +142,12 @@ class AgentDisableServiceTest {
         assertThat(requestCaptor.getValue().gracePeriodSeconds()).isEqualTo(60);
         assertThat(requestCaptor.getValue().reason()).isEqualTo("do not log");
         verify(lifecycleStateWriter, never()).transition(any(), any(), any(), any());
+        verify(finalizationService, never()).finalizeAcceptedDisable(any(), any(), anyLong(), any(), any(), any(), any());
     }
 
     @Test
     void activeExplicitStopFalseAndGraceZeroReachGateway() {
-        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(state("ACTIVE")));
+        arrangeActive();
         when(orchestratorGateway.disable(any())).thenThrow(new AgentOrchestratorUnavailableException(
                 AgentOrchestratorOperation.DISABLE, AGENT_DEFINITION_ID, "POST", "path", false));
 
@@ -148,21 +163,32 @@ class AgentDisableServiceTest {
     }
 
     @Test
-    void activeUnexpectedGatewaySuccessIsTechnicalFailureWithoutWriter() {
-        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(state("ACTIVE")));
-        doReturn(new AgentOrchestratorRuntimeAgentResult(
-                AGENT_DEFINITION_ID, "DISABLED", "ACCEPTED", 1, "submission", CLOCK.instant(), CLOCK.instant(), null, List.of()))
-                .when(orchestratorGateway).disable(any());
+    void activeAcceptedGatewaySuccessIsFinalizedWithCurrentPackageIdentity() {
+        arrangeActive();
+        AgentOrchestratorRuntimeAgentResult accepted = new AgentOrchestratorRuntimeAgentResult(
+                AGENT_DEFINITION_ID, "DISABLED", "DISABLED", 1, SUBMISSION_ID,
+                CLOCK.instant(), CLOCK.instant(), null, List.of());
+        doReturn(accepted).when(orchestratorGateway).disable(any());
+        when(resultInterpreter.validate(any(), eq(accepted), any())).thenReturn(
+                new AgentOrchestratorDisableResultInterpreter.DisableAcceptance(1L, SUBMISSION_ID, null));
+        AgentDefinitionDetail expected = detail(AgentDefinitionStatus.DISABLED);
+        when(agentDefinitionService.getAgentDefinition(AGENT_DEFINITION_ID)).thenReturn(expected);
 
-        assertThatThrownBy(() -> service.disable(AGENT_DEFINITION_ID, null))
-                .isInstanceOf(AgentDisableRuntimeAcceptanceNotSupportedException.class);
+        assertThat(service.disable(AGENT_DEFINITION_ID, null)).isSameAs(expected);
 
         verify(lifecycleStateWriter, never()).transition(any(), any(), any(), any());
+        var order = inOrder(orchestratorGateway, resultInterpreter, finalizationService);
+        order.verify(orchestratorGateway).disable(any());
+        order.verify(resultInterpreter).validate(any(), eq(accepted), any());
+        order.verify(finalizationService).finalizeAcceptedDisable(
+                AGENT_DEFINITION_ID, PACKAGE_ID, 1L, SUBMISSION_ID, FINGERPRINT,
+                OffsetDateTime.ofInstant(UPDATED_AT, ZoneOffset.UTC),
+                OffsetDateTime.ofInstant(CLOCK.instant(), ZoneOffset.UTC));
     }
 
     @Test
     void activeRuntimeRejectionPropagatesWithoutWriter() {
-        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(state("ACTIVE")));
+        arrangeActive();
         when(orchestratorGateway.disable(any())).thenThrow(new AgentOrchestratorCommandRejectedException(
                 AgentOrchestratorOperation.DISABLE,
                 AGENT_DEFINITION_ID,
@@ -173,6 +199,7 @@ class AgentDisableServiceTest {
                 .isInstanceOf(AgentOrchestratorCommandRejectedException.class);
 
         verify(lifecycleStateWriter, never()).transition(any(), any(), any(), any());
+        verify(finalizationService, never()).finalizeAcceptedDisable(any(), any(), anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -201,7 +228,7 @@ class AgentDisableServiceTest {
 
     @Test
     void logsDoNotContainReason() {
-        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(state("ACTIVE")));
+        arrangeActive();
         when(orchestratorGateway.disable(any())).thenThrow(new AgentOrchestratorUnavailableException(
                 AgentOrchestratorOperation.DISABLE, AGENT_DEFINITION_ID, "POST", "path", false));
 
@@ -215,6 +242,14 @@ class AgentDisableServiceTest {
 
     private AgentDefinitionLifecycleState state(String status) {
         return new AgentDefinitionLifecycleState(AGENT_DEFINITION_ID, status, UPDATED_AT);
+    }
+
+    private void arrangeActive() {
+        when(lifecycleStateLoader.load(AGENT_DEFINITION_ID)).thenReturn(Optional.of(
+                new AgentDefinitionLifecycleState(AGENT_DEFINITION_ID, "ACTIVE", UPDATED_AT, PACKAGE_ID)));
+        when(persistedRuntimePackageReader.read(PACKAGE_ID, AGENT_DEFINITION_ID)).thenReturn(
+                new PersistedRuntimePackageSnapshot(PACKAGE_ID, AGENT_DEFINITION_ID, SUBMISSION_ID, 1L,
+                        FINGERPRINT, Map.of("agentDefinition", Map.of("artifact", Map.of("hash", "hash")))));
     }
 
     private AgentDefinitionDetail detail(AgentDefinitionStatus status) {

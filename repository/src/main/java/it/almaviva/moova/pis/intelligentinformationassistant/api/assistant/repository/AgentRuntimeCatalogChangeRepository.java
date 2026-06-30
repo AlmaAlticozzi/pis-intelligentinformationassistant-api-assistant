@@ -26,6 +26,18 @@ public class AgentRuntimeCatalogChangeRepository implements PanacheRepositoryBas
                 .findFirst();
     }
 
+    public Optional<AgentRuntimeCatalogChange> findLatestByAgentDefinitionId(String agentDefinitionId) {
+        return entityManager.createQuery("""
+                        select c from AgentRuntimeCatalogChange c
+                        where c.codAgentdefinition.codAgentdefinition = :agentDefinitionId
+                        order by c.numChangesequence desc
+                        """, AgentRuntimeCatalogChange.class)
+                .setParameter("agentDefinitionId", agentDefinitionId)
+                .setMaxResults(1)
+                .getResultStream()
+                .findFirst();
+    }
+
     public String nextCatalogChangeId() {
         return (String) entityManager.createNativeQuery(
                         "select pis_intelligentinformationassistant.generate_cod_id(:prefix)", String.class)

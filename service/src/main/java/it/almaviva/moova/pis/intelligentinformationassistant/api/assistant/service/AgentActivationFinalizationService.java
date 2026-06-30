@@ -74,6 +74,8 @@ public class AgentActivationFinalizationService {
         String currentStatus = definition.getSglStatus().getSglStatus();
         if ("ACTIVE".equals(currentStatus)) {
             if (runtimePackageId.equals(definition.getCodCurrentruntimepackage())) {
+                runtimeCatalogLifecyclePublisher.appendUpsert(
+                        agentDefinitionId, runtimePackage, definition.getDtUpdatedat());
                 System.out.println("[IIA][AGENT_ACTIVATION] local finalization idempotent replay agentDefinitionId="
                         + agentDefinitionId + " runtimePackageId=" + runtimePackageId + " stateChangeApplied=false");
                 return FinalizationResult.ALREADY_APPLIED;

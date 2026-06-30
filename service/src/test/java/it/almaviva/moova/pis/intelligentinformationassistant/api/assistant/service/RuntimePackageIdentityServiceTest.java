@@ -5,6 +5,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentRuntimePackageRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentCompilation;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinition;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentDefinitionStatus;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentRuntimeCatalogChange;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.AgentRuntimePackage;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.entity.RuntimeCatalogAction;
@@ -58,6 +59,7 @@ class RuntimePackageIdentityServiceTest {
     void setUp() {
         definition = new AgentDefinition();
         definition.setCodAgentdefinition(AGENT_ID);
+        definition.setSglStatus(status("READY"));
 
         definitionRepository = mock(AgentDefinitionRepository.class);
         packageRepository = mock(AgentRuntimePackageRepository.class);
@@ -85,11 +87,16 @@ class RuntimePackageIdentityServiceTest {
             packages.add(runtimePackage);
             return runtimePackage;
         });
+        when(packageRepository.findByIdOptional(any())).thenAnswer(invocation ->
+                packages.stream().filter(p -> p.getCodRuntimepackage().equals(invocation.getArgument(0))).findFirst());
 
         when(changeRepository.findByDeduplicationKey(any())).thenAnswer(invocation -> {
             String key = invocation.getArgument(0);
             return changes.stream().filter(c -> c.getDscDeduplicationkey().equals(key)).findFirst();
         });
+        when(changeRepository.findLatestByAgentDefinitionId(AGENT_ID)).thenAnswer(invocation ->
+                changes.isEmpty() ? Optional.empty() : Optional.of(changes.getLast()));
+        when(changeRepository.nextCatalogChangeId()).thenAnswer(invocation -> "RTCH" + (changes.size() + 1));
         when(changeRepository.append(any())).thenAnswer(invocation -> {
             AgentRuntimeCatalogChange change = invocation.getArgument(0);
             set(change, "numChangesequence", (long) changes.size() + 1L);
@@ -109,7 +116,10 @@ class RuntimePackageIdentityServiceTest {
                 "operator1");
         publisher = new RuntimeCatalogLifecyclePublisher(changeRepository, entityManager);
         activationFinalizer = new AgentActivationFinalizationService(definitionRepository, publisher);
+        activationFinalizer.runtimePackageRepository = packageRepository;
         disableFinalizer = new AgentDisableFinalizationService(definitionRepository, publisher);
+        disableFinalizer.runtimePackageRepository = packageRepository;
+        when(definitionRepository.statusReference(any())).thenAnswer(invocation -> status(invocation.getArgument(0)));
     }
 
     @Test
@@ -182,13 +192,6 @@ class RuntimePackageIdentityServiceTest {
     void successfulActivationSetsPointerAndAppendsOneIdempotentUpsert() {
         AgentRuntimePackage runtimePackage = identityService.materializeOrReuse(AGENT_ID, command(null));
         OffsetDateTime activatedAt = OffsetDateTime.parse("2026-06-17T10:01:00Z");
-        when(definitionRepository.transitionStatusAndCurrentRuntimePackage(
-                AGENT_ID, "READY", "ACTIVE", runtimePackage.getCodRuntimepackage(), activatedAt))
-                .thenAnswer(invocation -> {
-                    definition.setCodCurrentruntimepackage(runtimePackage.getCodRuntimepackage());
-                    return 1;
-                });
-
         assertThat(activationFinalizer.finalizeAcceptedActivation(AGENT_ID, "READY", runtimePackage, activatedAt)).isTrue();
         publisher.appendUpsert(AGENT_ID, runtimePackage, activatedAt);
         publisher.appendUpsert(AGENT_ID, runtimePackage, activatedAt);
@@ -223,14 +226,31 @@ class RuntimePackageIdentityServiceTest {
     @Test
     void reactivationWithoutPackageChangesReusesPackageAndCreatesNewLifecycleUpsert() {
         AgentRuntimePackage runtimePackage = identityService.materializeOrReuse(AGENT_ID, command(null));
-        publisher.appendUpsert(AGENT_ID, runtimePackage, OffsetDateTime.parse("2026-06-17T10:01:00Z"));
-        publisher.appendRemove(AGENT_ID, "DISABLED", OffsetDateTime.parse("2026-06-17T10:02:00Z"));
+        OffsetDateTime epochA = OffsetDateTime.parse("2026-06-17T10:01:00Z");
+        OffsetDateTime epochB = OffsetDateTime.parse("2026-06-17T10:02:00Z");
+        OffsetDateTime epochC = OffsetDateTime.parse("2026-06-17T10:03:00Z");
+        OffsetDateTime epochD = OffsetDateTime.parse("2026-06-17T10:04:00Z");
+        AgentRuntimeCatalogChange firstUpsert = publisher.appendUpsert(AGENT_ID, runtimePackage, epochA);
+        assertThat(publisher.appendUpsert(AGENT_ID, runtimePackage, epochA)).isSameAs(firstUpsert);
+        publisher.appendRemove(AGENT_ID, "DISABLED", epochB);
         AgentRuntimePackage reused = identityService.materializeOrReuse(AGENT_ID, command(null));
-        publisher.appendUpsert(AGENT_ID, reused, OffsetDateTime.parse("2026-06-17T10:03:00Z"));
+        AgentRuntimeCatalogChange secondUpsert = publisher.appendUpsert(AGENT_ID, reused, epochC);
+        assertThat(publisher.appendUpsert(AGENT_ID, reused, epochC)).isSameAs(secondUpsert);
+        publisher.appendRemove(AGENT_ID, "DISABLED", epochD);
 
         assertThat(reused.getCodRuntimepackage()).isEqualTo(runtimePackage.getCodRuntimepackage());
+        assertThat(reused.getNumPackageversion()).isEqualTo(runtimePackage.getNumPackageversion());
+        assertThat(reused.getDscPackagefingerprint()).isEqualTo(runtimePackage.getDscPackagefingerprint());
         assertThat(packages).hasSize(1);
+        assertThat(changes).extracting(AgentRuntimeCatalogChange::getSglAction)
+                .containsExactly(RuntimeCatalogAction.UPSERT, RuntimeCatalogAction.REMOVE,
+                        RuntimeCatalogAction.UPSERT, RuntimeCatalogAction.REMOVE);
         assertThat(changes).filteredOn(c -> RuntimeCatalogAction.UPSERT.equals(c.getSglAction())).hasSize(2);
+        assertThat(secondUpsert.getCodCatalogchange()).isNotEqualTo(firstUpsert.getCodCatalogchange());
+        assertThat(secondUpsert.getDscDeduplicationkey()).isNotEqualTo(firstUpsert.getDscDeduplicationkey());
+        assertThat(changes).extracting(AgentRuntimeCatalogChange::getNumChangesequence)
+                .containsExactly(1L, 2L, 3L, 4L);
+        assertThat(changes.get(1).getDscDeduplicationkey()).isNotEqualTo(changes.get(3).getDscDeduplicationkey());
     }
 
     @Test
@@ -279,6 +299,12 @@ class RuntimePackageIdentityServiceTest {
         AgentCompilation compilation = new AgentCompilation();
         compilation.setCodAgentcompilation("AGCP1");
         return compilation;
+    }
+
+    private AgentDefinitionStatus status(String value) {
+        AgentDefinitionStatus status = new AgentDefinitionStatus();
+        status.setSglStatus(value);
+        return status;
     }
 
     private AgentActivationSnapshot snapshotWithCpu(int cpu) {
@@ -342,7 +368,7 @@ class RuntimePackageIdentityServiceTest {
         contract.put("inputModel", "ServiceDataV2");
         contract.put("outputModel", "AgentOutput.CANDIDATE_SUGGESTION");
         contract.put("evaluationMode", "STATELESS_EVENT_MATCH");
-        contract.put("executionModel", "KAFKA_EVENT");
+        contract.put("runtimeExecutionModel", "STANDARD_DSL_EVALUATOR");
         contract.put("source", "SERVICE_DATA");
         contract.put("allowedTools", List.of());
         contract.put("forbiddenCapabilities", List.of("LLM_RUNTIME_EXECUTION", "EXTERNAL_CODE_EXECUTION"));
@@ -356,7 +382,7 @@ class RuntimePackageIdentityServiceTest {
     private Map<String, Object> dsl() {
         Map<String, Object> runtime = new LinkedHashMap<>();
         runtime.put("engine", "STANDARD_AGENT_DSL_EVALUATOR");
-        runtime.put("executionModel", "KAFKA_EVENT");
+        runtime.put("executionModel", "STANDARD_DSL_EVALUATOR");
         runtime.put("source", "SERVICE_DATA");
         runtime.put("interpreterType", "EVENT_INTERPRETER");
         runtime.put("triggerType", "EVENT");

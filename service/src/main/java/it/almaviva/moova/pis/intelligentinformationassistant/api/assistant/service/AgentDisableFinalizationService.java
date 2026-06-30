@@ -48,12 +48,13 @@ public class AgentDisableFinalizationService {
         String status = definition.getSglStatus().getSglStatus();
         if (!"ACTIVE".equals(status) && !"DISABLED".equals(status))
             throw new AgentDisableRejectedException(status, "Agent Definition status changed during disable.");
-        AgentRuntimeCatalogChangeDecision decision = runtimeCatalogLifecyclePublisher.appendRemoveWithDecision(
-                agentDefinitionId, "DISABLED", activationEpoch).decision();
+        OffsetDateTime lifecycleEpoch = "ACTIVE".equals(status) ? disabledAt : definition.getDtUpdatedat();
         if ("ACTIVE".equals(status)) {
             definition.setSglStatus(agentDefinitionRepository.statusReference("DISABLED"));
-            definition.setDtUpdatedat(disabledAt);
+            definition.setDtUpdatedat(lifecycleEpoch);
         }
+        AgentRuntimeCatalogChangeDecision decision = runtimeCatalogLifecyclePublisher.appendRemoveWithDecision(
+                agentDefinitionId, "DISABLED", lifecycleEpoch).decision();
         System.out.println("[IIA][AGENT_DISABLE][FINALIZATION] agentDefinitionId=" + agentDefinitionId
                 + " previousStatus=" + status + " targetStatus=DISABLED currentRuntimePackageId=" + runtimePackageId
                 + " catalogAction=REMOVE removalReason=NOT_ACTIVE catalogChangeDecision=" + decision + " committed=true");
