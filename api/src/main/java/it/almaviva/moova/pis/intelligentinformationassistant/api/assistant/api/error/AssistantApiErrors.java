@@ -902,6 +902,25 @@ public final class AssistantApiErrors {
                 .source(source);
     }
 
+    public static Error desiredRuntimeCatalogInvalidRequest(String source, String detail) {
+        return invalidParameter("IIA-DRC-GET-400-001", source, detail);
+    }
+
+    public static Error desiredRuntimeCatalogConflict(String detail) {
+        return new Error().code("IIA-DRC-GET-409-001").title("Desired Runtime Catalog inconsistent")
+                .detail(detail);
+    }
+
+    public static Error desiredRuntimeCatalogUnavailable() {
+        return new Error().code("IIA-DRC-GET-503-001").title("Desired Runtime Catalog unavailable")
+                .detail("The Desired Runtime Catalog persistence dependency is temporarily unavailable.");
+    }
+
+    public static Error desiredRuntimeCatalogUnexpectedError() {
+        return new Error().code("IIA-DRC-GET-500-001").title("Unexpected error")
+                .detail("An unexpected error occurred while reading the Desired Runtime Catalog.");
+    }
+
     private static Error conflict(String code, String title, String detail) {
         return new Error()
                 .code(code)

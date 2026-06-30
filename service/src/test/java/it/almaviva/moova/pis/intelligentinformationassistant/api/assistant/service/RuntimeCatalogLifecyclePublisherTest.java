@@ -13,7 +13,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
+import java.util.Locale;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,7 +37,8 @@ class RuntimeCatalogLifecyclePublisherTest {
     private static final String PACKAGE_ID = "RTPK1";
     private static final String CATALOG_CHANGE_ID = "RTCH0123456789ABCDEF0123456789ABCDEF";
     private static final String FINGERPRINT = "a".repeat(64);
-    private static final OffsetDateTime ACTIVATED_AT = OffsetDateTime.parse("2026-06-29T10:00:00Z");
+    private static final Instant LIFECYCLE_INSTANT = Instant.parse("2026-06-30T10:00:00Z");
+    private static final OffsetDateTime ACTIVATED_AT = OffsetDateTime.parse(LIFECYCLE_INSTANT.toString());
 
     private AgentRuntimeCatalogChangeRepository catalogRepository;
     private EntityManager entityManager;
@@ -72,8 +79,12 @@ class RuntimeCatalogLifecyclePublisherTest {
         assertThat(change.getCodRuntimepackage()).isSameAs(runtimePackage);
         assertThat(change.getNumPackageversion()).isEqualTo(5L);
         assertThat(change.getDscPackagefingerprint()).isEqualTo(FINGERPRINT);
-        assertThat(change.getDscDeduplicationkey()).isEqualTo(deduplicationKey());
+        assertThat(change.getDscDeduplicationkey())
+                .startsWith("DRC:UPSERT:")
+                .hasSize("DRC:UPSERT:".length() + 64)
+                .isEqualTo(deduplicationKey());
         assertThat(change.getSglSourceagentstatus()).isEqualTo("ACTIVE");
+        assertThat(change.getSglRemovalreason()).isNull();
         verify(catalogRepository, times(1)).nextCatalogChangeId();
         verify(catalogRepository, times(1)).append(any());
     }
@@ -172,6 +183,8 @@ class RuntimeCatalogLifecyclePublisherTest {
         when(existing.getNumPackageversion()).thenReturn(5L);
         when(existing.getDscPackagefingerprint()).thenReturn(FINGERPRINT);
         when(existing.getSglSourceagentstatus()).thenReturn("ACTIVE");
+        when(existing.getDtSourceupdatedat()).thenReturn(ACTIVATED_AT);
+        when(existing.getSglRemovalreason()).thenReturn(null);
         return existing;
     }
 
@@ -189,6 +202,14 @@ class RuntimeCatalogLifecyclePublisherTest {
     }
 
     private String deduplicationKey() {
-        return "UPSERT:" + AGENT_ID + ":5:" + FINGERPRINT;
+        String material = String.join("\u0000", "UPSERT", AGENT_ID, PACKAGE_ID, "5",
+                FINGERPRINT.toLowerCase(Locale.ROOT), LIFECYCLE_INSTANT.toString());
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(StandardCharsets.UTF_8));
+            return "DRC:UPSERT:" + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new AssertionError(ex);
+        }
     }
 }
