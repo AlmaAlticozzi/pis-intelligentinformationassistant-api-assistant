@@ -29,7 +29,7 @@ class DesiredRuntimeCatalogTargetedServiceTest {
                 new DesiredRuntimeCatalogCursorCodec(json), new DesiredRuntimeCatalogCheckpointCodec(json),
                 repository, mapper, Clock.fixed(Instant.parse("2026-06-30T15:00:00Z"), ZoneOffset.UTC));
         Set<String> ids = Set.of("AGDF_UNKNOWN", "AGDF_READY", "AGDF_DISABLED", "AGDF_ACTIVE");
-        when(repository.findCurrentUpperSequence()).thenReturn(9L);
+        when(repository.findCurrentUpperSequence("TARGETED")).thenReturn(9L);
         DesiredRuntimeCatalogRow active = row("AGDF_ACTIVE", "UPSERT", "ACTIVE");
         DesiredRuntimeCatalogRow disabled = row("AGDF_DISABLED", "REMOVE", "DISABLED");
         when(repository.findLatestCatalogChangesForAgentIds(ids, 9L))
