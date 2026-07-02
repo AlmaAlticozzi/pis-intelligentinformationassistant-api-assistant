@@ -127,7 +127,7 @@ class RuntimePackageIdentityServiceTest {
         AgentRuntimePackage runtimePackage = identityService.materializeOrReuse(AGENT_ID, command("note one"));
 
         assertThat(runtimePackage.getNumPackageversion()).isEqualTo(1);
-        assertThat(runtimePackage.getCodSubmissionid()).startsWith("ACTIVATE:AGDF1:1:");
+        assertThat(runtimePackage.getCodSubmissionid()).startsWith("ACTIVATE:AGDF1:");
         assertThat(runtimePackage.getDtCreatedat()).isNotNull();
         assertThat(runtimePackage.getDtSubmittedat()).isEqualTo(NOW);
         assertThat(runtimePackage.getDtCreatedat().toInstant()).isEqualTo(runtimePackage.getDtSubmittedat());

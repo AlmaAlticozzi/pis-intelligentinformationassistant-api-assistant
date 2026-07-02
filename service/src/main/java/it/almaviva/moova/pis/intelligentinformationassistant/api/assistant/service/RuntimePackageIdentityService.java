@@ -40,6 +40,9 @@ public class RuntimePackageIdentityService {
     RuntimeAgentPackageFactory runtimeAgentPackageFactory;
 
     @Inject
+    RuntimeAgentPackageCanonicalIdentity packageIdentity;
+
+    @Inject
     EntityManager entityManager;
 
     @ConfigProperty(
@@ -66,6 +69,7 @@ public class RuntimePackageIdentityService {
         this.snapshotLoader = snapshotLoader;
         this.preconditionValidator = preconditionValidator;
         this.runtimeAgentPackageFactory = runtimeAgentPackageFactory;
+        this.packageIdentity = new RuntimeAgentPackageCanonicalIdentity();
         this.entityManager = entityManager;
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.fallbackSubmittedBy = fallbackSubmittedBy;
@@ -91,9 +95,9 @@ public class RuntimePackageIdentityService {
                 .findByAgentDefinitionAndFingerprint(agentDefinitionId, build.packageFingerprint())
                 .orElse(null);
         if (existing != null) {
+            packageIdentity.validate(existing);
             System.out.println("[IIA][RUNTIME_PACKAGE_IDENTITY] decision=REUSED agentDefinitionId=" + agentDefinitionId
-                    + " packageVersion=" + existing.getNumPackageversion()
-                    + " fingerprintPrefix=" + prefix(existing.getDscPackagefingerprint()));
+                    + " packageVersion=" + existing.getNumPackageversion());
             return new RuntimePackageMaterialization(existing, false);
         }
 
@@ -105,7 +109,7 @@ public class RuntimePackageIdentityService {
                 packageVersion,
                 finalBuild.submission().submissionId(),
                 finalBuild.packageFingerprint(),
-                snapshot.artifact().artifactHash(),
+                finalBuild.submission().agentDefinition().artifact().hash(),
                 compilationReference(snapshot),
                 PACKAGE_SCHEMA_VERSION,
                 CANONICALIZATION,
@@ -115,10 +119,10 @@ public class RuntimePackageIdentityService {
                 packageCreatedAt,
                 OffsetDateTime.ofInstant(packageCreatedAt, ZoneOffset.UTC),
                 submittedBy());
+        packageIdentity.validate(runtimePackage);
         runtimePackageRepository.persistImmutablePackage(runtimePackage);
         System.out.println("[IIA][RUNTIME_PACKAGE_IDENTITY] decision=CREATED agentDefinitionId=" + agentDefinitionId
-                + " packageVersion=" + runtimePackage.getNumPackageversion()
-                + " fingerprintPrefix=" + prefix(runtimePackage.getDscPackagefingerprint()));
+                + " packageVersion=" + runtimePackage.getNumPackageversion());
         return new RuntimePackageMaterialization(runtimePackage, true);
     }
 
@@ -162,10 +166,6 @@ public class RuntimePackageIdentityService {
             throw new AgentActivationTechnicalException("Activation submittedBy fallback is not configured.");
         }
         return fallbackSubmittedBy.trim();
-    }
-
-    private String prefix(String fingerprint) {
-        return fingerprint == null ? null : fingerprint.substring(0, Math.min(16, fingerprint.length()));
     }
 
     private String sanitize(String message) {

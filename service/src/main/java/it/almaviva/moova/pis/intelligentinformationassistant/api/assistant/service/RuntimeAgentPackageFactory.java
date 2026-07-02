@@ -46,6 +46,6 @@ public class RuntimeAgentPackageFactory {
         if (hash == null || !hash.startsWith("sha256:") || hash.length() != 71) {
             throw new AgentRuntimePackageBuildException("SHA-256 package fingerprint is invalid.");
         }
-        return hash.substring("sha256:".length()).toLowerCase();
+        return SemanticSha256Hash.digest(hash);
     }
 }

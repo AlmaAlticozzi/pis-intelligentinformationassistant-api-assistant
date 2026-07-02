@@ -40,7 +40,6 @@ public class UnavailableAgentOrchestratorGateway {
         System.out.println("submissionId=" + submission.submissionId());
         System.out.println("packageVersion=" + submission.packageVersion());
         System.out.println("desiredStatus=" + submission.desiredStatus());
-        System.out.println("packageHashPrefix=" + packageHashPrefix(request.canonicalPackageHash()));
         System.out.println("runtimePackagePrepared=true");
         System.out.println("httpCallExecuted=false");
         System.out.println("outcome=ORCHESTRATOR_UNAVAILABLE");
@@ -75,10 +74,4 @@ public class UnavailableAgentOrchestratorGateway {
                 HTTP_CALL_EXECUTED);
     }
 
-    private String packageHashPrefix(String canonicalPackageHash) {
-        String hash = canonicalPackageHash.startsWith("sha256:")
-                ? canonicalPackageHash.substring("sha256:".length())
-                : canonicalPackageHash;
-        return hash.substring(0, Math.min(16, hash.length()));
-    }
 }

@@ -181,8 +181,7 @@ public class AgentActivationService {
             System.out.println("[IIA][AGENT_ACTIVATION] runtime package prepared agentDefinitionId="
                     + command.agentDefinitionId()
                     + " packageVersion=" + packageVersion
-                    + " submissionId=" + result.submission().submissionId()
-                    + " packageHashPrefix=" + packageHashPrefix(result.canonicalPackageHash()));
+                    + " submissionId=" + result.submission().submissionId());
             return result;
         } catch (AgentRuntimePackageBuildException ex) {
             throw new AgentActivationPreconditionFailedException(List.of(
@@ -212,15 +211,6 @@ public class AgentActivationService {
         return fallbackSubmittedBy.trim();
     }
 
-    private String packageHashPrefix(String canonicalPackageHash) {
-        if (canonicalPackageHash == null) {
-            return null;
-        }
-        String hash = canonicalPackageHash.startsWith("sha256:")
-                ? canonicalPackageHash.substring("sha256:".length())
-                : canonicalPackageHash;
-        return hash.substring(0, Math.min(16, hash.length()));
-    }
 
     private String sanitize(String message) {
         if (message == null || message.isBlank()) {

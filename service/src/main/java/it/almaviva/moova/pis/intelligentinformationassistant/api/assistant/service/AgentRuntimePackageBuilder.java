@@ -23,6 +23,7 @@ public class AgentRuntimePackageBuilder {
     private final AgentRuntimePackageConfiguration configuration;
     private final RuntimeDataSourceBindingResolverRegistry bindingResolverRegistry;
     private final AgentCanonicalJsonService canonicalJsonService;
+    private final RuntimeAgentPackageCanonicalIdentity packageIdentity = new RuntimeAgentPackageCanonicalIdentity();
     private final AgentRuntimeOperatorExtractor operatorExtractor;
 
     public AgentRuntimePackageBuilder() {
@@ -62,13 +63,8 @@ public class AgentRuntimePackageBuilder {
 
         List<AgentRuntimeSubmission.AgentRuntimeDataSourceBinding> bindings = bindingResolverRegistry.resolve(snapshot);
         AgentRuntimeSubmission.AgentRuntimeDefinitionPackage agentDefinition = toAgentDefinition(snapshot, bindings);
-        AgentCanonicalJsonHashResult packageHash = canonicalJsonService.hash(runtimeSignificantPayload(
-                command.startImmediatelyIfAllowed(),
-                agentDefinition));
-        String hashHex = stripSha256Prefix(packageHash.hash());
-        String submissionId = submissionId(snapshot.agentDefinitionId(), context.packageVersion(), hashHex);
-        AgentRuntimeSubmission submission = new AgentRuntimeSubmission(
-                submissionId,
+        AgentRuntimeSubmission unsigned = new AgentRuntimeSubmission(
+                null,
                 DESIRED_STATUS_ACTIVE,
                 context.packageVersion(),
                 context.submittedAt(),
@@ -76,19 +72,24 @@ public class AgentRuntimePackageBuilder {
                 command.startImmediatelyIfAllowed(),
                 command.note(),
                 agentDefinition);
+        RuntimeAgentPackageCanonicalIdentity.Identity identity = packageIdentity.identify(unsigned);
+        String hashHex = identity.fingerprint();
+        String submissionId = packageIdentity.stableSubmissionId(snapshot.agentDefinitionId(), hashHex);
+        AgentRuntimeSubmission submission = new AgentRuntimeSubmission(submissionId, unsigned.desiredStatus(),
+                unsigned.packageVersion(), unsigned.submittedAt(), unsigned.submittedBy(),
+                unsigned.startImmediatelyIfAllowed(), unsigned.note(), unsigned.agentDefinition());
 
         System.out.println("[IIA][AGENT_ACTIVATION][PACKAGE] completed agentDefinitionId="
                 + snapshot.agentDefinitionId()
                 + " packageVersion=" + context.packageVersion()
                 + " submissionId=" + submissionId
-                + " packageHashPrefix=" + hashHex.substring(0, 16)
                 + " bindingCount=" + bindings.size()
                 + " artifactDeliveryMode=INLINE");
         return new AgentRuntimePackageBuildResult(
                 submission,
-                packageHash.canonicalJson(),
-                packageHash.hash(),
-                packageHash.sizeBytes());
+                identity.canonicalJson(),
+                "sha256:" + identity.fingerprint(),
+                identity.sizeBytes());
     }
 
     private AgentRuntimeSubmission.AgentRuntimeDefinitionPackage toAgentDefinition(
@@ -117,31 +118,6 @@ public class AgentRuntimePackageBuilder {
                 bindings);
     }
 
-    private Map<String, Object> runtimeSignificantPayload(
-            boolean startImmediatelyIfAllowed,
-            AgentRuntimeSubmission.AgentRuntimeDefinitionPackage agentDefinition) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("desiredStatus", DESIRED_STATUS_ACTIVE);
-        payload.put("startImmediatelyIfAllowed", startImmediatelyIfAllowed);
-        payload.put("agentDefinition", new AgentRuntimeSubmission.AgentRuntimeDefinitionPackage(
-                agentDefinition.id(),
-                agentDefinition.name(),
-                agentDefinition.description(),
-                agentDefinition.source(),
-                agentDefinition.profile(),
-                agentDefinition.activationPolicy(),
-                agentDefinition.interpreterType(),
-                agentDefinition.triggerType(),
-                agentDefinition.inputModel(),
-                agentDefinition.outputModel(),
-                agentDefinition.runtimeContract(),
-                agentDefinition.artifact(),
-                agentDefinition.metadata(),
-                null,
-                agentDefinition.dataDomain(),
-                agentDefinition.dataSourceBindings()));
-        return payload;
-    }
 
     private AgentRuntimeSubmission.AgentRuntimeSourceReference toSource(AgentActivationSnapshot snapshot) {
         AgentActivationSnapshot.AgentActivationCompilationSnapshot compilation = snapshot.latestCompilation();
@@ -370,14 +346,6 @@ public class AgentRuntimePackageBuilder {
         return new RuntimeDataSourceBindingResolverRegistry(List.of(
                 new EventServiceDataRuntimeDataSourceBindingResolver(configuration),
                 new ScheduledServiceDataRuntimeDataSourceBindingResolver(configuration)));
-    }
-
-    private String submissionId(String agentDefinitionId, long packageVersion, String hashHex) {
-        String value = "ACTIVATE:" + agentDefinitionId + ":" + packageVersion + ":" + hashHex.substring(0, 16);
-        if (value.length() > 100) {
-            throw new AgentRuntimePackageBuildException("Deterministic submissionId exceeds 100 characters.");
-        }
-        return value;
     }
 
     private String stripSha256Prefix(String hash) {

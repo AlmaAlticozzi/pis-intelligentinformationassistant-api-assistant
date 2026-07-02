@@ -34,7 +34,7 @@ class AgentRuntimePackageBuilderTest {
                 context(1));
 
         AgentRuntimeSubmission submission = result.submission();
-        assertThat(submission.submissionId()).startsWith("ACTIVATE:AGDF1:1:");
+        assertThat(submission.submissionId()).startsWith("ACTIVATE:AGDF1:");
         assertThat(submission.desiredStatus()).isEqualTo("ACTIVE");
         assertThat(submission.startImmediatelyIfAllowed()).isTrue();
         assertThat(submission.note()).isEqualTo("start");
@@ -123,7 +123,7 @@ class AgentRuntimePackageBuilderTest {
         assertThat(first.submission().submissionId()).isEqualTo(second.submission().submissionId());
         assertThat(first.submission().submissionId()).hasSizeLessThanOrEqualTo(100);
         assertThat(builder.build(snapshot, new AgentActivationCommand("AGDF1", "a", true), context(2)).submission().submissionId())
-                .isNotEqualTo(first.submission().submissionId());
+                .isEqualTo(first.submission().submissionId());
     }
 
     @Test

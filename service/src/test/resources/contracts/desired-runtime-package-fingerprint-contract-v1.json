@@ -1,0 +1,29 @@
+{
+  "canonicalization": "RFC8785_JSON",
+  "hashAlgorithm": "SHA-256",
+  "expectedFingerprint": "e58dfdf34e0726179280b9c3dd83a6f9d503200eee4aec8b520730fe4a4db7b6",
+  "expectedArtifactHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "runtimePackage": {
+    "submissionId": "ACTIVATE:AGDF-CONTRACT-A:transport-can-change",
+    "desiredStatus": "ACTIVE",
+    "packageVersion": 7,
+    "submittedAt": "2026-07-01T10:00:00Z",
+    "submittedBy": "contract-author",
+    "startImmediatelyIfAllowed": true,
+    "note": "transport-only note",
+    "agentDefinition": {
+      "id": "AGDF-CONTRACT-A",
+      "name": "Contract fixture agent",
+      "description": "Human-facing description",
+      "source": {"controlPlaneComponent":"assistant","alertId":"ALRT-CONTRACT","alertName":"Fixture alert","alertVersion":3,"agentCompilationId":"AGCP-CONTRACT"},
+      "profile": {"id":"PROFILE-M","name":"Medium","enabled":true,"cpuRequestMillicores":250,"cpuLimitMillicores":500,"memoryRequestMiB":512,"memoryLimitMiB":1024,"networkPolicy":"REGISTERED_DATA_SOURCES_ONLY","runtimeClass":"STANDARD_DSL_RUNTIME","maxRuntimeConcurrency":2},
+      "activationPolicy": {"type":"DAILY_WINDOW","timezone":"Europe/Rome","validFromDate":"2026-01-01","validToDate":"2026-12-31","dailyStartTime":"06:00:00","dailyEndTime":"22:00:00","daysOfWeek":["WEDNESDAY","MONDAY"]},
+      "interpreterType":"SCHEDULED_INTERPRETER","triggerType":"SCHEDULE","inputModel":"ServiceDataV2","outputModel":"AgentOutput.CANDIDATE_SUGGESTION",
+      "runtimeContract": {"runtimeImage":"runtime:v1","sdkVersion":"1.0.0","minimumRuntimeVersion":"0.0.2","runtimeExecutionModel":"STANDARD_DSL_EVALUATOR","interpreterType":"SCHEDULED_INTERPRETER","triggerType":"SCHEDULE","inputModel":"ServiceDataV2","outputModel":"AgentOutput.CANDIDATE_SUGGESTION","evaluationMode":"STATELESS","requiredOperators":["EXISTS","CONTAINS"],"allowedTools":[{"name":"tool-z"},{"name":"tool-a"}],"networkPolicy":"REGISTERED_DATA_SOURCES_ONLY","forbiddenCapabilities":["LLM_RUNTIME_EXECUTION","EXTERNAL_CODE_EXECUTION"],"compatibility":{"runtimeClass":"STANDARD_DSL_RUNTIME","canonicalization":"RFC8785_JSON"},"requiredDataSourceAccessModes":["SCHEDULED_QUERY"],"requiredConnectorTypes":["HTTP_REST"],"allowedConnectorRefs":["service-data-v2"]},
+      "artifact": {"artifactType":"DSL","deliveryMode":"INLINE","mediaType":"application/json","schemaVersion":"iia.agent.dsl/v1","content":{"schemaVersion":"iia.agent.dsl/v1","runtime":{"executionModel":"STANDARD_DSL_EVALUATOR"},"steps":["fetch","evaluate"]},"hashAlgorithm":"SHA-256","hash":"1111111111111111111111111111111111111111111111111111111111111111","canonicalization":"RFC8785_JSON","signatureStatus":"SIGNED","signature":{"type":"LOGICAL_MVP","algorithm":"SHA256_WITH_CONTROL_PLANE_ATTESTATION","signedAt":"2026-07-01T09:00:00+00:00","signedBy":"assistant"},"createdAt":"2026-07-01T09:00:00+00:00","sizeBytes":123},
+      "metadata":{"generationMode":"DSL","complexity":"MEDIUM","implementationSummary":"audit text","requiredPermissions":["READ_B","READ_A"]},
+      "sourceUpdatedAt":"2026-07-01T09:30:00+00:00","dataDomain":"SERVICE_DATA",
+      "dataSourceBindings":[{"bindingId":"secondary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":false},{"bindingId":"primary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":true,"metadata":{"failoverConnectorRefs":["backup-z","backup-a"]}}]
+    }
+  }
+}
