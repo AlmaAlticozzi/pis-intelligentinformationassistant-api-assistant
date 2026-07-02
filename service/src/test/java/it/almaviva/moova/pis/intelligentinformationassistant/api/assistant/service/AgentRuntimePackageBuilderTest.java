@@ -62,6 +62,8 @@ class AgentRuntimePackageBuilderTest {
                     assertThat(binding.connectorType()).isEqualTo("KAFKA");
                     assertThat(binding.connectorRef()).isEqualTo("servicedata-realtime-v2");
                     assertThat(binding.operationRef()).isNull();
+                    assertThat(binding.configuration()).containsEntry("subscriptionProfile", "SERVICEDATA_EVENTS");
+                    assertThat(binding.failoverConnectorRefs()).isEmpty();
                 });
         assertThat(submission.agentDefinition().artifact().deliveryMode()).isEqualTo("INLINE");
         assertThat(submission.agentDefinition().artifact().mediaType()).isEqualTo("application/json");
@@ -105,6 +107,7 @@ class AgentRuntimePackageBuilderTest {
                     assertThat(binding.connectorType()).isEqualTo("HTTP_REST");
                     assertThat(binding.connectorRef()).isEqualTo("servicedata-stoppointjourneys-v2");
                     assertThat(binding.operationRef()).isEqualTo("searchStopPointJourneysV2");
+                    assertThat(binding.configuration()).containsEntry("subscriptionProfile", "SERVICEDATA_STOPPOINTJOURNEYS");
                 });
 
         JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(submission));
@@ -124,6 +127,29 @@ class AgentRuntimePackageBuilderTest {
         assertThat(first.submission().submissionId()).hasSizeLessThanOrEqualTo(100);
         assertThat(builder.build(snapshot, new AgentActivationCommand("AGDF1", "a", true), context(2)).submission().submissionId())
                 .isEqualTo(first.submission().submissionId());
+    }
+
+    @Test
+    void governedSubscriptionProfileIsTransmittedWithoutBindingMetadataAndChangesPackageIdentity() throws Exception {
+        AgentRuntimePackageBuildResult baseline = fixture().buildWithLocalBuilder();
+        AgentRuntimePackageBuildResult changed = fixture().subscriptionProfile("SERVICEDATA_EVENTS_V2").buildWithLocalBuilder();
+
+        assertThat(baseline.submission().agentDefinition().dataSourceBindings()).singleElement()
+                .satisfies(binding -> {
+                    assertThat(binding.configuration())
+                            .containsEntry("subscriptionProfile", "SERVICEDATA_EVENTS");
+                    assertThat(binding.getClass().getRecordComponents())
+                            .extracting(java.lang.reflect.RecordComponent::getName)
+                            .doesNotContain("metadata");
+                });
+
+        JsonNode agentDefinition = OBJECT_MAPPER.readTree(baseline.canonicalPackageJson()).path("agentDefinition");
+        assertThat(agentDefinition.at("/dataSourceBindings/0/metadata").isMissingNode()).isTrue();
+        assertThat(agentDefinition.at("/dataSourceBindings/0/configuration/subscriptionProfile").asText())
+                .isEqualTo("SERVICEDATA_EVENTS");
+        assertThat(agentDefinition.at("/metadata/requiredPermissions").isArray()).isTrue();
+        assertThat(agentDefinition.at("/metadata/requiredPermissions").isEmpty()).isFalse();
+        assertThat(changed.canonicalPackageHash()).isNotEqualTo(baseline.canonicalPackageHash());
     }
 
     @Test
@@ -275,7 +301,7 @@ class AgentRuntimePackageBuilderTest {
             @Override
             public List<AgentRuntimeSubmission.AgentRuntimeDataSourceBinding> resolve(AgentActivationSnapshot snapshot) {
                 AgentRuntimeSubmission.AgentRuntimeDataSourceBinding binding = new AgentRuntimeSubmission.AgentRuntimeDataSourceBinding(
-                        "primaryInput", "SERVICE_DATA", "EVENT_STREAM", "KAFKA", "ref", "ServiceDataV2", "v2", "schema", null, true, null);
+                        "primaryInput", "SERVICE_DATA", "EVENT_STREAM", "KAFKA", "ref", "ServiceDataV2", "v2", "schema", null, true, Map.of(), List.of());
                 return List.of(binding, binding);
             }
         };
@@ -408,6 +434,18 @@ class AgentRuntimePackageBuilderTest {
                     "iia.runtime.data-source-binding/v1",
                     new AgentRuntimePackageConfiguration.ConnectorConfiguration(value, "KAFKA", "EVENT_STREAM", "ServiceDataV2", "v2", null, "SERVICEDATA_EVENTS"),
                     AgentRuntimePackageConfiguration.defaults().scheduledServiceDataConnector());
+            return this;
+        }
+
+        Fixture subscriptionProfile(String value) {
+            AgentRuntimePackageConfiguration current = configuration;
+            AgentRuntimePackageConfiguration.ConnectorConfiguration event = current.eventServiceDataConnector();
+            configuration = new AgentRuntimePackageConfiguration(
+                    current.controlPlaneComponent(), current.defaultRuntimeClass(), current.artifactCanonicalization(),
+                    current.artifactMediaType(), current.bindingSchemaVersion(),
+                    new AgentRuntimePackageConfiguration.ConnectorConfiguration(event.connectorRef(), event.connectorType(),
+                            event.accessMode(), event.inputModel(), event.inputSchemaVersion(), event.operationRef(), value),
+                    current.scheduledServiceDataConnector(), current.minimumRuntimeVersion(), current.sdkVersion(), current.networkPolicy());
             return this;
         }
 

@@ -31,7 +31,6 @@ class AgentOrchestratorGatewayTest {
                 AGENT_DEFINITION_ID,
                 submission(AGENT_DEFINITION_ID, "operator note must not be logged"),
                 CANONICAL_PACKAGE_HASH);
-
         Captured captured = captureSystemOut(() -> gateway.activate(request));
 
         assertThat(captured.thrown()).isInstanceOf(AgentOrchestratorUnavailableException.class);
@@ -51,14 +50,15 @@ class AgentOrchestratorGatewayTest {
                 .contains("submissionId=ACTIVATE:" + AGENT_DEFINITION_ID + ":1:0123456789abcdef")
                 .contains("packageVersion=1")
                 .contains("desiredStatus=ACTIVE")
-                .contains("packageHashPrefix=0123456789abcdef")
                 .contains("runtimePackagePrepared=true")
                 .contains("httpCallExecuted=false")
                 .contains("outcome=ORCHESTRATOR_UNAVAILABLE");
         assertThat(captured.output())
+                .doesNotContain("packageFingerprint", "packageHashPrefix", "artifactHash", "requestHash")
                 .doesNotContain("operator note must not be logged")
-                .doesNotContain("dslSecretMarker")
-                .doesNotContain("runtimeSecretMarker")
+                .doesNotContain("dslSecretMarker", "runtimeSecretMarker")
+                .doesNotContain("subscriptionProfile", "SERVICEDATA_EVENTS")
+                .doesNotContain("Authorization", "credentials")
                 .doesNotContain(CANONICAL_PACKAGE_HASH);
     }
 
@@ -290,7 +290,8 @@ class AgentOrchestratorGatewayTest {
                                 "iia.runtime.data-source-binding/v1",
                                 null,
                                 true,
-                                Map.of("subscriptionProfile", "SERVICEDATA_EVENTS")))));
+                                Map.of("subscriptionProfile", "SERVICEDATA_EVENTS"),
+                                List.of()))));
     }
 
     private record Captured(String output, Throwable thrown) {

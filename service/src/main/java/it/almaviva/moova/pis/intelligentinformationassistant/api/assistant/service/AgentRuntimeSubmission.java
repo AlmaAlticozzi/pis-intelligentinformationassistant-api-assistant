@@ -179,10 +179,12 @@ public record AgentRuntimeSubmission(
             String bindingSchemaVersion,
             String operationRef,
             Boolean required,
-            Map<String, Object> metadata) {
+            Map<String, Object> configuration,
+            List<String> failoverConnectorRefs) {
 
         public AgentRuntimeDataSourceBinding {
-            metadata = immutableMap(metadata);
+            configuration = configuration == null ? Map.of() : immutableMap(configuration);
+            failoverConnectorRefs = immutableList(failoverConnectorRefs);
         }
     }
 

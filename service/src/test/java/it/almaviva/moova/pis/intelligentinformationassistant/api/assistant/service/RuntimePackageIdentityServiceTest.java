@@ -135,6 +135,9 @@ class RuntimePackageIdentityServiceTest {
         assertThat(runtimePackage.getJsnRuntimepackage()).containsKeys(
                 "submissionId", "desiredStatus", "packageVersion", "submittedAt", "submittedBy",
                 "startImmediatelyIfAllowed", "note", "agentDefinition");
+        assertThat(((Map<?, ?>) ((List<?>) ((Map<?, ?>) runtimePackage.getJsnRuntimepackage().get("agentDefinition"))
+                .get("dataSourceBindings")).getFirst()).get("configuration"))
+                .isEqualTo(Map.of("subscriptionProfile", "SERVICEDATA_EVENTS"));
         assertThat(packages).hasSize(1);
     }
 
@@ -299,6 +302,33 @@ class RuntimePackageIdentityServiceTest {
         AgentCompilation compilation = new AgentCompilation();
         compilation.setCodAgentcompilation("AGCP1");
         return compilation;
+    }
+
+    @Test
+    void legacyPackageWithoutTransmittedConfigurationIsPreservedAndNotReused() {
+        AgentRuntimePackage legacy = identityService.materializeOrReuse(AGENT_ID, command(null));
+        Map<String, Object> historicalJson = new LinkedHashMap<>(legacy.getJsnRuntimepackage());
+        Map<String, Object> historicalDefinition = new LinkedHashMap<>((Map<String, Object>) historicalJson.get("agentDefinition"));
+        List<Map<String, Object>> historicalBindings = ((List<Map<String, Object>>) historicalDefinition.get("dataSourceBindings"))
+                .stream().map(value -> (Map<String, Object>) new LinkedHashMap<>(value)).toList();
+        historicalBindings.forEach(binding -> binding.put("configuration", Map.of()));
+        historicalDefinition.put("dataSourceBindings", historicalBindings);
+        historicalJson.put("agentDefinition", historicalDefinition);
+        packages.clear();
+        legacy = AgentRuntimePackage.create(definition, 1L, legacy.getCodSubmissionid(), "8".repeat(64),
+                legacy.getDscArtifacthash(), legacy.getCodAgentcompilation(), legacy.getDscPackageschemaversion(),
+                legacy.getDscCanonicalization(), legacy.getDscHashalgorithm(), historicalJson,
+                legacy.getDtSourceupdatedat(), legacy.getDtSubmittedat(), legacy.getDtCreatedat(), legacy.getCodCreatedby());
+        set(legacy, "codRuntimepackage", "RTPK1");
+        packages.add(legacy);
+        Map<String, Object> immutableHistoricalSnapshot = new LinkedHashMap<>(historicalJson);
+
+        AgentRuntimePackage corrected = identityService.materializeOrReuse(AGENT_ID, command(null));
+
+        assertThat(corrected.getNumPackageversion()).isEqualTo(2L);
+        assertThat(corrected.getDscPackagefingerprint()).isNotEqualTo(legacy.getDscPackagefingerprint());
+        assertThat(legacy.getJsnRuntimepackage()).isEqualTo(immutableHistoricalSnapshot);
+        assertThat(packages).hasSize(2);
     }
 
     private AgentDefinitionStatus status(String value) {

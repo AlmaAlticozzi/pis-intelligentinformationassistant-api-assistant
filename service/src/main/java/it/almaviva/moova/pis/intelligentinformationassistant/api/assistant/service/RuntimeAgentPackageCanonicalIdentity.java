@@ -59,7 +59,13 @@ public class RuntimeAgentPackageCanonicalIdentity {
         sortObjects(definition, "dataSourceBindings", "bindingId");
         Object bindings = definition.get("dataSourceBindings");
         if (bindings instanceof List<?> list) {
-            for (Object binding : list) if (binding instanceof Map<?, ?> map) sortStrings(cast(map), "metadata", "failoverConnectorRefs");
+            for (Object binding : list) if (binding instanceof Map<?, ?> map) {
+                Map<String, Object> transmitted = cast(map);
+                if (transmitted.containsKey("metadata")) {
+                    throw new AgentRuntimePackageBuildException("Runtime binding canonical projection contains non-transmitted metadata.");
+                }
+                sortStrings(transmitted, "failoverConnectorRefs");
+            }
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();

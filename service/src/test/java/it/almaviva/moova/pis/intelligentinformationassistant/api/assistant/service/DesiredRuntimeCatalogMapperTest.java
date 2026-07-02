@@ -35,6 +35,8 @@ class DesiredRuntimeCatalogMapperTest {
                 .isEqualTo("STANDARD_DSL_EVALUATOR");
         assertThat(item.getRuntimePackage().getAgentDefinition().getArtifact().getDeliveryMode().toString()).isEqualTo("INLINE");
         assertThat(item.getRuntimePackage().getAgentDefinition().getDataSourceBindings()).hasSize(1);
+        assertThat(item.getRuntimePackage().getAgentDefinition().getDataSourceBindings().getFirst().getConfiguration())
+                .containsEntry("subscriptionProfile", "SERVICEDATA_EVENTS");
     }
     @Test void agentDefinitionMismatchIsRejected() { inconsistent(row("OTHER", 5, FP, packageJson("AGDF1", 5, "ACTIVE"))); }
     @Test void packageVersionMismatchIsRejected() { inconsistent(row("AGDF1", 6, FP, packageJson("AGDF1", 5, "ACTIVE"))); }
@@ -119,7 +121,8 @@ class DesiredRuntimeCatalogMapperTest {
                 Map.entry("connectorRef", "servicedata-realtime-v2"), Map.entry("inputModel", "ServiceDataV2"),
                 Map.entry("inputSchemaVersion", "service-data/v2"),
                 Map.entry("bindingSchemaVersion", "iia.runtime.binding/v1"),
-                Map.entry("operationRef", "consumeServiceDataV2"), Map.entry("configuration", Map.of()),
+                Map.entry("operationRef", "consumeServiceDataV2"),
+                Map.entry("configuration", Map.of("subscriptionProfile", "SERVICEDATA_EVENTS")),
                 Map.entry("required", true), Map.entry("failoverConnectorRefs", List.of()))));
         Map<String, Object> value = new LinkedHashMap<>();
         value.put("submissionId", "SUBMISSION-5"); value.put("desiredStatus", status);

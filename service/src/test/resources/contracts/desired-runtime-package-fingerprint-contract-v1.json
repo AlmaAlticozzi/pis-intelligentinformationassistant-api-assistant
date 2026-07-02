@@ -1,7 +1,7 @@
 {
   "canonicalization": "RFC8785_JSON",
   "hashAlgorithm": "SHA-256",
-  "expectedFingerprint": "e58dfdf34e0726179280b9c3dd83a6f9d503200eee4aec8b520730fe4a4db7b6",
+  "expectedFingerprint": "2b173c6fcd901f9f85628ea0dbe05cd8d40f3e73d83fc1e6c2822f14e610e849",
   "expectedArtifactHash": "1111111111111111111111111111111111111111111111111111111111111111",
   "runtimePackage": {
     "submissionId": "ACTIVATE:AGDF-CONTRACT-A:transport-can-change",
@@ -23,7 +23,7 @@
       "artifact": {"artifactType":"DSL","deliveryMode":"INLINE","mediaType":"application/json","schemaVersion":"iia.agent.dsl/v1","content":{"schemaVersion":"iia.agent.dsl/v1","runtime":{"executionModel":"STANDARD_DSL_EVALUATOR"},"steps":["fetch","evaluate"]},"hashAlgorithm":"SHA-256","hash":"1111111111111111111111111111111111111111111111111111111111111111","canonicalization":"RFC8785_JSON","signatureStatus":"SIGNED","signature":{"type":"LOGICAL_MVP","algorithm":"SHA256_WITH_CONTROL_PLANE_ATTESTATION","signedAt":"2026-07-01T09:00:00+00:00","signedBy":"assistant"},"createdAt":"2026-07-01T09:00:00+00:00","sizeBytes":123},
       "metadata":{"generationMode":"DSL","complexity":"MEDIUM","implementationSummary":"audit text","requiredPermissions":["READ_B","READ_A"]},
       "sourceUpdatedAt":"2026-07-01T09:30:00+00:00","dataDomain":"SERVICE_DATA",
-      "dataSourceBindings":[{"bindingId":"secondary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":false},{"bindingId":"primary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":true,"metadata":{"failoverConnectorRefs":["backup-z","backup-a"]}}]
+      "dataSourceBindings":[{"bindingId":"secondary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":false,"configuration":{},"failoverConnectorRefs":[]},{"bindingId":"primary","dataDomain":"SERVICE_DATA","accessMode":"SCHEDULED_QUERY","connectorType":"HTTP_REST","connectorRef":"service-data-v2","inputModel":"ServiceDataV2","required":true,"configuration":{"subscriptionProfile":"SERVICEDATA_EVENTS"},"failoverConnectorRefs":["backup-z","backup-a"]}]
     }
   }
 }

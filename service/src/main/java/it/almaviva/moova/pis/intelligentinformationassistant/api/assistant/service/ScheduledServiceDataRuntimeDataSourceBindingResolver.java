@@ -37,7 +37,8 @@ public class ScheduledServiceDataRuntimeDataSourceBindingResolver implements Run
                 configuration.bindingSchemaVersion(),
                 connector.operationRef(),
                 true,
-                Map.of("subscriptionProfile", connector.subscriptionProfile()));
+                Map.of("subscriptionProfile", connector.subscriptionProfile()),
+                List.of());
         System.out.println("[IIA][AGENT_ACTIVATION][PACKAGE] binding resolved agentDefinitionId=" + snapshot.agentDefinitionId()
                 + " dataDomain=SERVICE_DATA accessMode=" + binding.accessMode()
                 + " connectorType=" + binding.connectorType()
