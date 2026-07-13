@@ -5,7 +5,6 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ServiceDataTemporalCapabilityCatalog;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.preview.AlertAgentGenerationPreviewData;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PlatformNormalizer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -77,7 +76,7 @@ public class AgentBlueprintValidator {
     private static final DateTimeFormatter HOUR_MINUTE_SECOND = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final AgentGenerationCapabilityCatalog capabilityCatalog;
-    private final PlatformNormalizer platformNormalizer = new PlatformNormalizer();
+    private final PlatformOperandValidator platformOperandValidator = new PlatformOperandValidator();
 
     @Inject
     public AgentBlueprintValidator(AgentGenerationCapabilityCatalog capabilityCatalog) {
@@ -661,34 +660,35 @@ public class AgentBlueprintValidator {
             String operator,
             List<String> errors) {
         if (VALUELESS_PLATFORM_OPERATORS.contains(operator)) {
-            if (leaf.containsKey("value") || leaf.containsKey("values")) {
+            if (leaf.containsKey("value") || leaf.containsKey("values") || leaf.containsKey("otherField")) {
                 errors.add(path + ": " + operator + " does not accept value for " + field);
             }
             return;
         }
         if (NUMERIC_PLATFORM_OPERATORS.contains(operator)) {
             Object value = leaf.get("value");
-            if (!(value instanceof Number number)) {
-                errors.add(path + ": " + operator + " requires numeric value for " + field);
-            } else if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0) {
-                errors.add(path + ": PLATFORM_NUMBER_MULTIPLE_OF requires numeric value greater than 0 for " + field);
+            if (platformOperandValidator.exactInt(value).isEmpty()) {
+                errors.add(path + ": " + operator + " requires integral int numeric value for " + field);
+            } else if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator)
+                    && !platformOperandValidator.isPositiveExactInt(value)) {
+                errors.add(path + ": PLATFORM_NUMBER_MULTIPLE_OF requires integral int numeric value greater than 0 for " + field);
             }
             return;
         }
         if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
             Object value = leaf.get("value");
             if (!(value instanceof Map<?, ?> range)
-                    || !(range.get("min") instanceof Number min)
-                    || !(range.get("max") instanceof Number max)) {
-                errors.add(path + ": PLATFORM_NUMBER_BETWEEN requires value with numeric min and max for " + field);
-            } else if (min.doubleValue() > max.doubleValue()) {
+                    || platformOperandValidator.exactInt(range.get("min")).isEmpty()
+                    || platformOperandValidator.exactInt(range.get("max")).isEmpty()) {
+                errors.add(path + ": PLATFORM_NUMBER_BETWEEN requires value with integral int min and max for " + field);
+            } else if (platformOperandValidator.exactInt(range.get("min")).orElseThrow()
+                    > platformOperandValidator.exactInt(range.get("max")).orElseThrow()) {
                 errors.add(path + ": PLATFORM_NUMBER_BETWEEN requires min less than or equal to max for " + field);
             }
             return;
         }
         if (PLATFORM_VALUE_OPERATORS.contains(operator)) {
-            Object value = leaf.get("value");
-            if (!(value instanceof String text) || text.isBlank() || !platformNormalizer.normalize(text).hasNumber()) {
+            if (!platformOperandValidator.isHumanPlatformValue(leaf.get("value"))) {
                 errors.add(path + ": " + operator + " requires a non-empty human platform value for " + field);
             }
             return;
@@ -699,9 +699,7 @@ public class AgentBlueprintValidator {
                 errors.add(path + ": " + operator + " requires a non-empty values array for " + field);
                 return;
             }
-            if (!platforms.stream().allMatch(value -> value instanceof String text
-                    && !text.isBlank()
-                    && platformNormalizer.normalize(text).hasNumber())) {
+            if (!platformOperandValidator.isHumanPlatformValuesArray(platforms)) {
                 errors.add(path + ": " + operator + " requires only non-empty human platform values for " + field);
             }
         }

@@ -435,8 +435,7 @@ public final class ServiceDataCapabilityCatalog {
         if (!isPlatformTechnicalIdField(field)) {
             throw new IllegalArgumentException("Unsupported platform technical id field: " + field);
         }
-        return field(field, FieldType.PLATFORM_TECHNICAL_ID,
-                ops("PLATFORM_EQUALS_FIELD", "PLATFORM_NOT_EQUALS_FIELD"), List.of(), description);
+        return field(field, FieldType.PLATFORM_TECHNICAL_ID, ops(), List.of(), description);
     }
 
     private static Set<String> temporalOps() {

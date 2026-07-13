@@ -298,7 +298,7 @@ class ServiceDataCapabilityCatalogTest {
     }
 
     @Test
-    void platformTechnicalIdsAreRecognizedAndCannotBeUsedForMatching() {
+    void platformTechnicalIdsAreRecognizedAndRejectAllPlatformSpecializedOperators() {
         assertThat(PLATFORM_TECHNICAL_ID_FIELDS).allSatisfy(field -> {
             assertThat(ServiceDataCapabilityCatalog.isPlatformTechnicalIdField(field)).as(field).isTrue();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUALS")).as(field).isFalse();
@@ -309,8 +309,11 @@ class ServiceDataCapabilityCatalogTest {
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "CONTAINS_NORMALIZED")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "IN")).as(field).isFalse();
             assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "EQUAL_PLATFORM")).as(field).isFalse();
-            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_NOT_EQUALS_FIELD")).as(field).isTrue();
-            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_EQUALS_FIELD")).as(field).isTrue();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "IN_PLATFORMS")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_NUMBER_GREATER_THAN")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_NUMBER_EVEN")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_NOT_EQUALS_FIELD")).as(field).isFalse();
+            assertThat(ServiceDataCapabilityCatalog.isAllowedOperator(field, "PLATFORM_EQUALS_FIELD")).as(field).isFalse();
         });
     }
 

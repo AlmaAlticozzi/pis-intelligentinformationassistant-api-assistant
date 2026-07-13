@@ -213,12 +213,12 @@ Platform change:
 - A platform change branch is complete only if it contains current event evidence on payload.ongroundServiceEvent.eventsType and structural evidence inside payload.stopPointJourney.stopPointsJourneyDetails[] comparing timetabled platform with actual platform.
 - Event type alone is not sufficient for platform change verification when structural fields are catalog-supported.
 - For generic platform change, event evidence and structural evidence are both required when catalog-supported.
-- Prefer id field comparison: departure uses timetabledDeparturePlatform.id PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.id; arrival uses timetabledArrivalPlatform.id PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.id.
-- If id comparison is not catalog-supported, use dsc fallback: timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc; timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc.
+- Use description field comparison only: departure uses timetabledDeparturePlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualDeparturePlatform.platform.dsc; arrival uses timetabledArrivalPlatform.dsc PLATFORM_NOT_EQUALS_FIELD actualArrivalPlatform.platform.dsc.
+- Do not use platform technical id fields with PLATFORM_EQUALS_FIELD or PLATFORM_NOT_EQUALS_FIELD.
 - For "cambio binario in partenza", use root all [eventsType CONTAINS DEPARTURE_PLATFORM_CHANGED, journey-detail anyElement with departure structural comparison].
 - For "cambio binario in arrivo", use root all [eventsType CONTAINS ARRIVAL_PLATFORM_CHANGED, journey-detail anyElement with arrival structural comparison].
 - Generic direction uses condition.any of complete branches: all [DEPARTURE_PLATFORM_CHANGED, departure structural comparison] OR all [ARRIVAL_PLATFORM_CHANGED, arrival structural comparison].
-- Use actualDeparturePlatform.displayPlatform.id/dsc or actualArrivalPlatform.displayPlatform.id/dsc instead when displayPlatform is the selected actual/display source.
+- Use actualDeparturePlatform.displayPlatform.dsc or actualArrivalPlatform.displayPlatform.dsc instead when displayPlatform is the selected actual/display source.
 - Do not output only event type unless structural fields are unavailable in the catalog; if event-only evidence is used, add a warning.
 - DEPARTURE_PLATFORM_CHANGED and ARRIVAL_PLATFORM_CHANGED are current event values.
 - previousDeparturePlatform, previousArrivalPlatform, timetabled != actual are structural evidence when catalog-supported.
@@ -240,7 +240,6 @@ Compact operator examples:
 - {"field":"timetabledArrivalPlatform.dsc","operator":"EQUAL_PLATFORM","value":"1"}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"IN_PLATFORMS","values":["1","4"]}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"NOT_IN_PLATFORMS","values":["1","12"]}
-- {"field":"timetabledDeparturePlatform.id","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.id"}
 - {"field":"timetabledDeparturePlatform.dsc","operator":"PLATFORM_NOT_EQUALS_FIELD","otherField":"actualDeparturePlatform.platform.dsc"}
 - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"DEPARTURE_PLATFORM_CHANGED"}
 - {"field":"payload.ongroundServiceEvent.eventsType","operator":"CONTAINS","value":"ARRIVAL_PLATFORM_CHANGED"}

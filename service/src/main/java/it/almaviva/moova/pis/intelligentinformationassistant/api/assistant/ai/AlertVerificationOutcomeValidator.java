@@ -9,7 +9,7 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repos
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalOperator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.TemporalScope;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai.config.TemporalConfiguration;
-import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.PlatformNormalizer;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.PlatformOperandValidator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -127,7 +127,7 @@ public class AlertVerificationOutcomeValidator {
             "PLATFORM_EVENT",
             "GENERIC_SERVICE_DATA_EVENT");
     private final StopPointIdConditionValidator stopPointIdConditionValidator = new StopPointIdConditionValidator();
-    private final PlatformNormalizer platformNormalizer = new PlatformNormalizer();
+    private final PlatformOperandValidator platformOperandValidator = new PlatformOperandValidator();
     @Inject
     TemporalConfiguration temporalConfiguration;
 
@@ -1146,7 +1146,8 @@ public class AlertVerificationOutcomeValidator {
         }
         if (List.of("EXISTS", "NOT_NULL", "NOT_EMPTY").contains(operator)
                 || VALUELESS_PLATFORM_OPERATORS.contains(operator)) {
-            if (leaf.containsKey("value") || leaf.containsKey("values")) {
+            if (leaf.containsKey("value") || leaf.containsKey("values")
+                    || (VALUELESS_PLATFORM_OPERATORS.contains(operator) && leaf.containsKey("otherField"))) {
                 rejectCatalogField(context, field, "operator " + operator + " does not accept value.");
             }
             return;
@@ -1218,10 +1219,9 @@ public class AlertVerificationOutcomeValidator {
         String rawOtherField = stringValue(leaf.get("otherField"));
         System.out.println("[IIA][ALERT_VERIFY][PLATFORM_FIELD_COMPARE] validating field=" + field
                 + " operator=" + operator + " otherField=" + rawOtherField);
-        if (capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM
-                && capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM_TECHNICAL_ID) {
+        if (capability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
             rejectPlatformFieldComparison(context, field, operator, rawOtherField,
-                    "field must be a whitelisted platform description or technical id field.");
+                    "field must be a whitelisted platform description field.");
             return;
         }
         if (rawOtherField == null || rawOtherField.isBlank()) {
@@ -1232,16 +1232,9 @@ public class AlertVerificationOutcomeValidator {
         String otherField = resolvePlatformComparisonField(rawOtherField, arrayPath);
         ServiceDataCapabilityCatalog.FieldCapability otherCapability =
                 ServiceDataCapabilityCatalog.findField(otherField).orElse(null);
-        if (otherCapability == null
-                || (otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM
-                && otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM_TECHNICAL_ID)) {
+        if (otherCapability == null || otherCapability.type() != ServiceDataCapabilityCatalog.FieldType.PLATFORM) {
             rejectPlatformFieldComparison(context, field, operator, otherField,
-                    "otherField must be a whitelisted platform description or technical id field.");
-            return;
-        }
-        if (capability.type() != otherCapability.type()) {
-            rejectPlatformFieldComparison(context, field, operator, otherField,
-                    "field and otherField must both be platform description fields or both be platform technical id fields.");
+                    "otherField must be a whitelisted platform description field.");
             return;
         }
         context.conditionFields.add(otherField);
@@ -1273,30 +1266,30 @@ public class AlertVerificationOutcomeValidator {
             List<?> values,
             String field) {
         if (NUMERIC_PLATFORM_OPERATORS.contains(operator)) {
-            if (values.size() != 1 || !(values.getFirst() instanceof Number number)) {
-                rejectPlatformCondition(context, field, operator, "numeric platform operator requires numeric value.");
+            if (values.size() != 1 || platformOperandValidator.exactInt(values.getFirst()).isEmpty()) {
+                rejectPlatformCondition(context, field, operator, "numeric platform operator requires integral int numeric value.");
                 return;
             }
-            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0) {
-                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_MULTIPLE_OF requires numeric value greater than 0.");
+            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator)
+                    && !platformOperandValidator.isPositiveExactInt(values.getFirst())) {
+                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_MULTIPLE_OF requires integral int numeric value greater than 0.");
             }
             return;
         }
         if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
             if (values.size() != 1 || !(values.getFirst() instanceof Map<?, ?> range)
-                    || !(range.get("min") instanceof Number min)
-                    || !(range.get("max") instanceof Number max)) {
-                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_BETWEEN requires value with numeric min and max.");
+                    || platformOperandValidator.exactInt(range.get("min")).isEmpty()
+                    || platformOperandValidator.exactInt(range.get("max")).isEmpty()) {
+                rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_BETWEEN requires value with integral int min and max.");
                 return;
             }
-            if (min.doubleValue() > max.doubleValue()) {
+            if (platformOperandValidator.exactInt(range.get("min")).orElseThrow()
+                    > platformOperandValidator.exactInt(range.get("max")).orElseThrow()) {
                 rejectPlatformCondition(context, field, operator, "PLATFORM_NUMBER_BETWEEN requires min less than or equal to max.");
             }
             return;
         }
-        if (!values.stream().allMatch(value -> value instanceof String text
-                && !text.isBlank()
-                && platformNormalizer.normalize(text).hasNumber())) {
+        if (!values.stream().allMatch(platformOperandValidator::isHumanPlatformValue)) {
             rejectPlatformCondition(context, field, operator,
                     "platform values must be non-empty strings with a platform number.");
         }

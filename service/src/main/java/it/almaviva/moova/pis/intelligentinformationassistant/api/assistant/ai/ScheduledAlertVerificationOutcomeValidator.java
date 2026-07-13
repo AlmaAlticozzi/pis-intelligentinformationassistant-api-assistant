@@ -3,6 +3,7 @@ package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.ai;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationDecision;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.AlertVerificationOutcome;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledServiceDataCapabilityCatalog;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.PlatformOperandValidator;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataLocationContext;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.location.ScheduledServiceDataResolvedLocation;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -81,6 +82,7 @@ public class ScheduledAlertVerificationOutcomeValidator {
             "ServiceDataV2",
             "EVENT_INTERPRETER",
             "STATELESS_EVENT_MATCH");
+    private final PlatformOperandValidator platformOperandValidator = new PlatformOperandValidator();
 
     public AlertVerificationOutcome validate(AlertVerificationOutcome outcome) {
         return validate(outcome, null, null);
@@ -1649,12 +1651,19 @@ public class ScheduledAlertVerificationOutcomeValidator {
             return validateLocalDayOfWeek(node.get("value"));
         }
         if (PLATFORM_SINGLE_VALUE_OPERATORS.contains(operator)) {
-            if (isBlank(stringValue(node.get("value")))) {
-                return catalogFailure("platform operator " + operator + " requires non-empty string value.");
+            if (!platformOperandValidator.isHumanPlatformValue(node.get("value"))) {
+                return catalogFailure("platform operator " + operator
+                        + " requires non-empty human platform string value with a platform number.");
             }
         }
-        if (PLATFORM_VALUES_OPERATORS.contains(operator) && !hasNonEmptyValues(node)) {
-            return catalogFailure("platform operator " + operator + " requires non-empty values array.");
+        if (PLATFORM_VALUES_OPERATORS.contains(operator)) {
+            if (!hasNonEmptyValues(node)) {
+                return catalogFailure("platform operator " + operator + " requires non-empty values array.");
+            }
+            if (!platformOperandValidator.isHumanPlatformValuesArray(node.get("values"))) {
+                return catalogFailure("platform operator " + operator
+                        + " requires only non-empty human platform string values with a platform number.");
+            }
         }
         if (PLATFORM_FIELD_OPERATORS.contains(operator)) {
             String otherField = stringValue(node.get("otherField"));
@@ -1671,25 +1680,30 @@ public class ScheduledAlertVerificationOutcomeValidator {
             }
         }
         if (PLATFORM_NUMERIC_OPERATORS.contains(operator)) {
-            if (!(node.get("value") instanceof Number number)) {
-                return catalogFailure("platform numeric operator " + operator + " requires numeric value.");
+            if (platformOperandValidator.exactInt(node.get("value")).isEmpty()) {
+                return catalogFailure("platform numeric operator " + operator + " requires integral int numeric value.");
             }
-            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator) && number.doubleValue() <= 0.0) {
-                return catalogFailure("PLATFORM_NUMBER_MULTIPLE_OF requires value greater than 0.");
+            if ("PLATFORM_NUMBER_MULTIPLE_OF".equals(operator)
+                    && !platformOperandValidator.isPositiveExactInt(node.get("value"))) {
+                return catalogFailure("PLATFORM_NUMBER_MULTIPLE_OF requires integral int value greater than 0.");
             }
         }
         if ("PLATFORM_NUMBER_BETWEEN".equals(operator)) {
             Map<String, Object> value = asMap(node.get("value"));
-            if (value == null || !(value.get("min") instanceof Number min) || !(value.get("max") instanceof Number max)) {
-                return catalogFailure("PLATFORM_NUMBER_BETWEEN requires numeric min and max.");
+            if (value == null
+                    || platformOperandValidator.exactInt(value.get("min")).isEmpty()
+                    || platformOperandValidator.exactInt(value.get("max")).isEmpty()) {
+                return catalogFailure("PLATFORM_NUMBER_BETWEEN requires integral int min and max.");
             }
-            if (min.doubleValue() > max.doubleValue()) {
+            if (platformOperandValidator.exactInt(value.get("min")).orElseThrow()
+                    > platformOperandValidator.exactInt(value.get("max")).orElseThrow()) {
                 return catalogFailure("PLATFORM_NUMBER_BETWEEN requires min less than or equal to max.");
             }
         }
         if (PLATFORM_VALUELESS_OPERATORS.contains(operator)
-                && (node.containsKey("value") || node.containsKey("values"))) {
-            return catalogFailure("platform valueless operator " + operator + " must not contain value or values.");
+                && (node.containsKey("value") || node.containsKey("values") || node.containsKey("otherField"))) {
+            return catalogFailure("platform valueless operator " + operator
+                    + " must not contain value, values or otherField.");
         }
         return null;
     }

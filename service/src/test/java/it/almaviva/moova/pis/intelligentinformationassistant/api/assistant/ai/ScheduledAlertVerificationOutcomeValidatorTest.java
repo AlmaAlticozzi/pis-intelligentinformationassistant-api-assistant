@@ -228,15 +228,55 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsPlatformStringOperandsRecognizedByNormalizer() {
+        for (String value : List.of("1", "01", "Platform 1", "Binario 1", "PL 1", "PL1", "3A", "03A")) {
+            assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", value)));
+        }
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leafValues("timetabledDeparturePlatform.dsc", "IN_PLATFORMS", List.of("1", "Platform 1", "03A"))));
+    }
+
+    @Test
+    void rejectsPlatformStringOperandsWithoutRecognizedNumber() {
+        for (String value : List.of("Platform foo", "unknown", "-", "A")) {
+            assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leaf("timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", value)), "platform number");
+            assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leafValues("timetabledDeparturePlatform.dsc", "NOT_IN_PLATFORMS", List.of("1", value))), "platform number");
+        }
+    }
+
+    @Test
     void acceptsPlatformNumberGreaterThan() {
         assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", 2)));
     }
 
     @Test
+    void acceptsIntegralScalarPlatformNumericThresholdsIncludingZeroAndNegative() {
+        for (String operator : List.of(
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL")) {
+            for (int value : List.of(-1, 0, 5)) {
+                assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                        leaf("timetabledDeparturePlatform.dsc", operator, value)));
+            }
+        }
+    }
+
+    @Test
     void acceptsPlatformNumberBetween() {
         assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 2, "max", 5))));
+    }
+
+    @Test
+    void acceptsPlatformNumberBetweenWithEqualBounds() {
+        assertVerified(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 3, "max", 3))));
     }
 
     @Test
@@ -501,6 +541,22 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsNonIntegralScalarPlatformNumericOperands() {
+        for (String operator : List.of(
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL")) {
+            assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leaf("timetabledDeparturePlatform.dsc", operator, 2.5)), "integral int numeric value");
+            assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leaf("timetabledDeparturePlatform.dsc", operator, 2147483648L)), "integral int numeric value");
+            assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                    leaf("timetabledDeparturePlatform.dsc", operator, "2")), "integral int numeric value");
+        }
+    }
+
+    @Test
     void rejectsPlatformBetweenWithInvalidRange() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 5, "max", 2))),
@@ -508,10 +564,36 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void rejectsPlatformBetweenWithNonIntegralBounds() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 2.5, "max", 5))),
+                "integral int min and max");
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 2, "max", 5.5))),
+                "integral int min and max");
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", Map.of("min", 2, "max", 2147483648L))),
+                "integral int min and max");
+    }
+
+    @Test
     void rejectsPlatformMultipleOfZero() {
         assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
                 leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", 0)),
                 "value greater than 0");
+    }
+
+    @Test
+    void rejectsPlatformMultipleOfNegativeDecimalAndOverflow() {
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", -3)),
+                "value greater than 0");
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", 2.5)),
+                "integral int numeric value");
+        assertRejectedForCondition(conditionAnyElement("stopPointsJourneyDetails[]",
+                leaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", 2147483648L)),
+                "integral int numeric value");
     }
 
     @Test

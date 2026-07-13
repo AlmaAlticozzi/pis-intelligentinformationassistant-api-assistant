@@ -2391,11 +2391,12 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
-    void acceptsPlatformNotEqualsFieldOnDeparturePlatformTechnicalIds() {
-        assertPlatformConditionIsVerified(platformFieldComparisonLeaf(
+    void rejectsPlatformNotEqualsFieldOnDeparturePlatformTechnicalIds() {
+        assertPlatformConditionIsRejected(platformFieldComparisonLeaf(
                 "timetabledDeparturePlatform.id",
                 "PLATFORM_NOT_EQUALS_FIELD",
-                "actualDeparturePlatform.platform.id"));
+                "actualDeparturePlatform.platform.id"),
+                "operator is not allowed");
     }
 
     @Test
@@ -2429,7 +2430,7 @@ class AlertVerificationOutcomeValidatorTest {
                         "timetabledDeparturePlatform.dsc",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "timetabledCallStart.stopPoint.id"),
-                "otherField must be a whitelisted platform description or technical id field");
+                "otherField must be a whitelisted platform description field");
     }
 
     @Test
@@ -2447,7 +2448,7 @@ class AlertVerificationOutcomeValidatorTest {
                         "timetabledDeparturePlatform.id",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "actualDeparturePlatform.platform.dsc"),
-                "field and otherField must both be platform description fields or both be platform technical id fields");
+                "operator is not allowed");
     }
 
     @Test
@@ -2456,7 +2457,7 @@ class AlertVerificationOutcomeValidatorTest {
                         "timetabledDeparturePlatform.dsc",
                         "PLATFORM_NOT_EQUALS_FIELD",
                         "actualDeparturePlatform.platform.id"),
-                "field and otherField must both be platform description fields or both be platform technical id fields");
+                "otherField must be a whitelisted platform description field");
     }
 
     @Test
@@ -2530,12 +2531,12 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
-    void acceptsCurrentDeparturePlatformChangeEventWithStructuralComparison() {
+    void acceptsCurrentDeparturePlatformChangeEventWithDescriptionComparison() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String timetabledField =
-                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.id";
+                "payload.stopPointJourney.stopPointsJourneyDetails[].timetabledDeparturePlatform.dsc";
         String actualField =
-                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.id";
+                "payload.stopPointJourney.stopPointsJourneyDetails[].actualDeparturePlatform.platform.dsc";
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(
@@ -2546,21 +2547,21 @@ class AlertVerificationOutcomeValidatorTest {
                         Map.of("anyElement", Map.of(
                                 "path", "payload.stopPointJourney.stopPointsJourneyDetails[]",
                                 "conditions", platformFieldComparisonLeaf(
-                                        "timetabledDeparturePlatform.id",
+                                        "timetabledDeparturePlatform.dsc",
                                         "PLATFORM_NOT_EQUALS_FIELD",
-                                        "actualDeparturePlatform.platform.id"))))),
+                                        "actualDeparturePlatform.platform.dsc"))))),
                 coverageFor(eventField, timetabledField, actualField)));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
 
     @Test
-    void acceptsDeparturePlatformChangeAtCurrentStopWithStructuralComparisonNotMovementEvent() {
+    void acceptsDeparturePlatformChangeAtCurrentStopWithDescriptionComparisonNotMovementEvent() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String stopPointField = "payload.stopPointJourney.stopPoint.id";
         String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
-        String timetabledField = detailsPath + ".timetabledDeparturePlatform.id";
-        String actualField = detailsPath + ".actualDeparturePlatform.platform.id";
+        String timetabledField = detailsPath + ".timetabledDeparturePlatform.dsc";
+        String actualField = detailsPath + ".actualDeparturePlatform.platform.dsc";
         Map<String, Object> condition = Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "all", List.of(
@@ -2572,9 +2573,9 @@ class AlertVerificationOutcomeValidatorTest {
                         Map.of("anyElement", Map.of(
                                 "path", detailsPath,
                                 "conditions", platformFieldComparisonLeaf(
-                                        "timetabledDeparturePlatform.id",
+                                        "timetabledDeparturePlatform.dsc",
                                         "PLATFORM_NOT_EQUALS_FIELD",
-                                        "actualDeparturePlatform.platform.id")))));
+                                        "actualDeparturePlatform.platform.dsc")))));
 
         AlertVerificationOutcome validated = validator.validate(outcomeWithConditionAndCoverage(
                 condition,
@@ -2592,10 +2593,10 @@ class AlertVerificationOutcomeValidatorTest {
     void acceptsGenericPlatformChangeOnlyWithCompleteDepartureAndArrivalBranches() {
         String eventField = "payload.ongroundServiceEvent.eventsType";
         String detailsPath = "payload.stopPointJourney.stopPointsJourneyDetails[]";
-        String timetabledDepartureField = detailsPath + ".timetabledDeparturePlatform.id";
-        String actualDepartureField = detailsPath + ".actualDeparturePlatform.platform.id";
-        String timetabledArrivalField = detailsPath + ".timetabledArrivalPlatform.id";
-        String actualArrivalField = detailsPath + ".actualArrivalPlatform.platform.id";
+        String timetabledDepartureField = detailsPath + ".timetabledDeparturePlatform.dsc";
+        String actualDepartureField = detailsPath + ".actualDeparturePlatform.platform.dsc";
+        String timetabledArrivalField = detailsPath + ".timetabledArrivalPlatform.dsc";
+        String actualArrivalField = detailsPath + ".actualArrivalPlatform.platform.dsc";
         Map<String, Object> departureBranch = Map.of("all", List.of(
                 Map.of(
                         "field", eventField,
@@ -2604,9 +2605,9 @@ class AlertVerificationOutcomeValidatorTest {
                 Map.of("anyElement", Map.of(
                         "path", detailsPath,
                         "conditions", platformFieldComparisonLeaf(
-                                "timetabledDeparturePlatform.id",
+                                "timetabledDeparturePlatform.dsc",
                                 "PLATFORM_NOT_EQUALS_FIELD",
-                                "actualDeparturePlatform.platform.id")))));
+                                "actualDeparturePlatform.platform.dsc")))));
         Map<String, Object> arrivalBranch = Map.of("all", List.of(
                 Map.of(
                         "field", eventField,
@@ -2615,9 +2616,9 @@ class AlertVerificationOutcomeValidatorTest {
                 Map.of("anyElement", Map.of(
                         "path", detailsPath,
                         "conditions", platformFieldComparisonLeaf(
-                                "timetabledArrivalPlatform.id",
+                                "timetabledArrivalPlatform.dsc",
                                 "PLATFORM_NOT_EQUALS_FIELD",
-                                "actualArrivalPlatform.platform.id")))));
+                                "actualArrivalPlatform.platform.dsc")))));
         Map<String, Object> condition = Map.of(
                 "type", "SERVICE_DATA_FIELD_MATCH",
                 "any", List.of(departureBranch, arrivalBranch));
@@ -2635,10 +2636,10 @@ class AlertVerificationOutcomeValidatorTest {
         assertThat(condition.toString())
                 .contains("DEPARTURE_PLATFORM_CHANGED")
                 .contains("ARRIVAL_PLATFORM_CHANGED")
-                .contains("timetabledDeparturePlatform.id")
-                .contains("actualDeparturePlatform.platform.id")
-                .contains("timetabledArrivalPlatform.id")
-                .contains("actualArrivalPlatform.platform.id");
+                .contains("timetabledDeparturePlatform.dsc")
+                .contains("actualDeparturePlatform.platform.dsc")
+                .contains("timetabledArrivalPlatform.dsc")
+                .contains("actualArrivalPlatform.platform.dsc");
     }
 
     @Test
@@ -3114,6 +3115,35 @@ class AlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsPlatformStringOperandsRecognizedByNormalizer() {
+        for (String value : List.of("1", "01", "Platform 1", "Binario 1", "PL 1", "PL1", "3A", "03A")) {
+            assertPlatformConditionIsVerified(platformLeaf(
+                    "timetabledDeparturePlatform.dsc",
+                    "EQUAL_PLATFORM",
+                    "value",
+                    value));
+        }
+    }
+
+    @Test
+    void rejectsPlatformStringOperandsWithoutRecognizedNumber() {
+        for (String value : List.of("Platform foo", "unknown", "-", "A")) {
+            assertPlatformConditionIsRejected(platformLeaf(
+                            "timetabledDeparturePlatform.dsc",
+                            "EQUAL_PLATFORM",
+                            "value",
+                            value),
+                    "platform values must be non-empty strings with a platform number");
+            assertPlatformConditionIsRejected(platformLeaf(
+                            "timetabledDeparturePlatform.dsc",
+                            "IN_PLATFORMS",
+                            "values",
+                            List.of("1", value)),
+                    "platform values must be non-empty strings with a platform number");
+        }
+    }
+
+    @Test
     void acceptsAdvancedPlatformNumericOperatorsOnDescriptionField() {
         for (Map<String, Object> leaf : List.of(
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
@@ -3127,6 +3157,20 @@ class AlertVerificationOutcomeValidatorTest {
                 platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_HAS_LETTER_SUFFIX"),
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 3))) {
             assertPlatformConditionWithEventIsVerified("DEPARTED", leaf);
+        }
+    }
+
+    @Test
+    void acceptsIntegralScalarPlatformNumericThresholdsIncludingZeroAndNegative() {
+        for (String operator : List.of(
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL")) {
+            for (int value : List.of(-1, 0, 5)) {
+                assertPlatformConditionWithEventIsVerified("DEPARTED",
+                        platformLeaf("timetabledDeparturePlatform.dsc", operator, "value", value));
+            }
         }
     }
 
@@ -3197,18 +3241,55 @@ class AlertVerificationOutcomeValidatorTest {
         assertPlatformConditionIsRejected(
                 platformValuelessLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN"),
                 "requires value");
+        for (String operator : List.of(
+                "PLATFORM_NUMBER_GREATER_THAN",
+                "PLATFORM_NUMBER_GREATER_OR_EQUAL",
+                "PLATFORM_NUMBER_LESS_THAN",
+                "PLATFORM_NUMBER_LESS_OR_EQUAL")) {
+            assertPlatformConditionIsRejected(
+                    platformLeaf("timetabledDeparturePlatform.dsc", operator, "value", 2.5),
+                    "requires integral int numeric value");
+            assertPlatformConditionIsRejected(
+                    platformLeaf("timetabledDeparturePlatform.dsc", operator, "value", 2147483648L),
+                    "requires integral int numeric value");
+            assertPlatformConditionIsRejected(
+                    platformLeaf("timetabledDeparturePlatform.dsc", operator, "value", "2"),
+                    "requires integral int numeric value");
+        }
         assertPlatformConditionIsRejected(
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("max", 8)),
-                "requires value with numeric min and max");
+                "requires value with integral int min and max");
         assertPlatformConditionIsRejected(
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3)),
-                "requires value with numeric min and max");
+                "requires value with integral int min and max");
+        assertPlatformConditionWithEventIsVerified("DEPARTED",
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 3)));
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3.5, "max", 8)),
+                "requires value with integral int min and max");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8.5)),
+                "requires value with integral int min and max");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 2147483648L)),
+                "requires value with integral int min and max");
         assertPlatformConditionIsRejected(
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 8, "max", 3)),
                 "requires min less than or equal to max");
+        assertPlatformConditionWithEventIsVerified("DEPARTED",
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 3));
         assertPlatformConditionIsRejected(
                 platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 0),
                 "greater than 0");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", -3),
+                "greater than 0");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 3.5),
+                "requires integral int numeric value");
+        assertPlatformConditionIsRejected(
+                platformLeaf("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 2147483648L),
+                "requires integral int numeric value");
         assertPlatformConditionIsRejected(
                 platformLeaf("timetabledDeparturePlatform.id", "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
                 "platform technical id field cannot be used");

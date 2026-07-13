@@ -233,12 +233,45 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void previewValidatorAcceptsPlatformStringsRecognizedByNormalizer() {
+        for (String value : List.of("1", "01", "Platform 1", "Binario 1", "PL 1", "PL1", "3A", "03A")) {
+            AlertAgentGenerationPreviewData data = previewData(platformLeafCondition(
+                    "timetabledDeparturePlatform.dsc", "EQUAL_PLATFORM", "value", value));
+
+            AgentBlueprintValidationResult result =
+                    validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+            assertThat(result.valid()).as(value).isTrue();
+        }
+    }
+
+    @Test
+    void previewValidatorRejectsPlatformStringsWithoutRecognizedNumber() {
+        for (String value : List.of("Platform foo", "unknown", "-", "A")) {
+            AlertAgentGenerationPreviewData data = previewData(platformLeafCondition(
+                    "timetabledDeparturePlatform.dsc", "IN_PLATFORMS", "values", List.of("1", value)));
+
+            AgentBlueprintValidationResult result =
+                    validate(data, blueprint(data, "EVENT", false), List.of("SERVICE_DATA"));
+
+            assertThat(result.valid()).as(value).isFalse();
+            assertThat(result.errors()).anyMatch(error -> error.contains("human platform values"));
+        }
+    }
+
+    @Test
     void previewValidatorAcceptsAdvancedPlatformNumericOperators() {
         for (Map<String, Object> condition : List.of(
                 platformEventBoundCondition("DEPARTING", "actualDeparturePlatform.platform.dsc",
                         "PLATFORM_NUMBER_GREATER_THAN", "value", 5),
+                platformEventBoundCondition("DEPARTED", "timetabledDeparturePlatform.dsc",
+                        "PLATFORM_NUMBER_GREATER_OR_EQUAL", "value", 0),
+                platformEventBoundCondition("DEPARTED", "timetabledDeparturePlatform.dsc",
+                        "PLATFORM_NUMBER_LESS_THAN", "value", -1),
                 platformEventBoundCondition("ARRIVED", "actualArrivalPlatform.platform.dsc",
                         "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8)),
+                platformEventBoundCondition("ARRIVED", "actualArrivalPlatform.platform.dsc",
+                        "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 3)),
                 platformEventBoundValuelessCondition("DEPARTED", "actualDeparturePlatform.platform.dsc",
                         "PLATFORM_NUMBER_EVEN"))) {
             AlertAgentGenerationPreviewData data = previewData(condition);
@@ -270,7 +303,15 @@ class AgentBlueprintValidatorTest {
     void previewValidatorRejectsInvalidAdvancedPlatformNumericConditions() {
         for (Map<String, Object> condition : List.of(
                 platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3)),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3.5, "max", 8)),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 8.5)),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_BETWEEN", "value", Map.of("min", 3, "max", 2147483648L)),
                 platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 0),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", -3),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_MULTIPLE_OF", "value", 2.5),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 2.5),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", 2147483648L),
+                platformLeafCondition("timetabledDeparturePlatform.dsc", "PLATFORM_NUMBER_GREATER_THAN", "value", "2"),
                 platformLeafCondition("timetabledDeparturePlatform.id", "PLATFORM_NUMBER_GREATER_THAN", "value", 5))) {
             AlertAgentGenerationPreviewData data = previewData(condition);
 
