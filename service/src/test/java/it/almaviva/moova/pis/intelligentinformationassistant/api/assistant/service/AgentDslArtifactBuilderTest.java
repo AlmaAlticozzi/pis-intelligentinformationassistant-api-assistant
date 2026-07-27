@@ -16,7 +16,6 @@ class AgentDslArtifactBuilderTest {
     @Test
     void buildsEventDslArtifact() {
         AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
-        Map<String, Object> condition = condition(definition);
         AgentCompilationPreconditionValidationResult validation = validation();
 
         AgentDslArtifactBuildResult result = builder.buildEventArtifact(
@@ -38,14 +37,67 @@ class AgentDslArtifactBuilderTest {
                 .containsEntry("requiresExternalTools", false);
         assertThat(list(map(artifact.get("runtime")).get("allowedTools"))).isEmpty();
         assertThat(map(artifact.get("trigger"))).containsEntry("type", "EVENT");
-        assertThat(map(artifact.get("evaluation")))
-                .containsEntry("mode", "STATELESS_EVENT_MATCH")
-                .containsEntry("condition", condition);
+        Map<String, Object> runtimeCondition = map(map(artifact.get("evaluation")).get("condition"));
+        assertThat(runtimeCondition).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "field", "payload.status",
+                "operator", "EQUALS",
+                "value", "ARRIVING"));
+        assertThat(runtimeCondition).doesNotContainKey("type");
+        assertThat(condition(definition)).containsEntry("type", "SERVICE_DATA_FIELD_MATCH");
         assertThat(map(artifact.get("output")))
                 .containsEntry("deduplicationKeyTemplate", "SERVICE_DATA_EVENT:${agentDefinitionId}:${eventId}:${conditionHash}");
         assertThat(map(artifact.get("governance")))
                 .containsEntry("llmRuntimeExecutionAllowed", false)
                 .containsEntry("externalCodeExecutionAllowed", false);
+    }
+
+    @Test
+    void buildsIncidentContainsLeafWithoutInternalDiscriminator() {
+        AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(definition.getJsnBlueprint());
+        blueprint.put("parameters", Map.of("condition", Map.of(
+                "type", "SERVICE_DATA_FIELD_MATCH",
+                "field", "payload.ongroundServiceEvent.eventsType",
+                "operator", "CONTAINS",
+                "value", "DEPARTING")));
+        definition.setJsnBlueprint(blueprint);
+
+        AgentDslArtifactBuildResult result = builder.buildEventArtifact(
+                definition,
+                validation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> runtimeCondition = map(map(result.artifact().artifact().get("evaluation")).get("condition"));
+        assertThat(runtimeCondition).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "field", "payload.ongroundServiceEvent.eventsType",
+                "operator", "CONTAINS",
+                "value", "DEPARTING"));
+        assertThat(runtimeCondition).doesNotContainKey("type");
+    }
+
+    @Test
+    void removesInternalDiscriminatorOnlyFromLeaves() {
+        AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(definition.getJsnBlueprint());
+        blueprint.put("parameters", Map.of("condition", Map.of(
+                "type", "INTERNAL_CONDITION_GROUP",
+                "all", List.of(Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "field", "payload.status",
+                        "operator", "NOT_EQUALS",
+                        "value", "CANCELLED")))));
+        definition.setJsnBlueprint(blueprint);
+
+        AgentDslArtifactBuildResult result = builder.buildEventArtifact(
+                definition,
+                validation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        Map<String, Object> runtimeCondition = map(map(result.artifact().artifact().get("evaluation")).get("condition"));
+        List<Object> leaves = list(runtimeCondition.get("all"));
+        assertThat(runtimeCondition).containsEntry("type", "INTERNAL_CONDITION_GROUP");
+        assertThat(map(leaves.get(0))).doesNotContainKey("type");
     }
 
     @Test
@@ -155,8 +207,13 @@ class AgentDslArtifactBuilderTest {
         assertThat(map(map(artifact.get("trigger")).get("schedule"))).containsEntry("frequencySeconds", 600);
         assertThat(map(map(artifact.get("query")).get("serviceDataQuery")).get("stopPoints"))
                 .isEqualTo(List.of("TNPNTS_GERUSALEMME"));
-        assertThat(map(map(artifact.get("evaluation")).get("snapshotEvaluation")).get("condition"))
-                .isEqualTo(destinationAndCancellationCondition);
+        Map<String, Object> runtimeCondition = map(map(map(artifact.get("evaluation"))
+                .get("snapshotEvaluation")).get("condition"));
+        assertThat(runtimeCondition).containsEntry("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+        Map<String, Object> anyElement = map(runtimeCondition.get("anyElement"));
+        Map<String, Object> all = map(anyElement.get("conditions"));
+        assertThat(list(all.get("all")))
+                .allSatisfy(node -> assertThat(map(node)).doesNotContainKey("type"));
         assertThat(map(map(artifact.get("output")).get("policy"))).containsEntry("emit", "EVERY_RUN_REPORT");
         assertThat(list(map(artifact.get("runtime")).get("allowedTools")))
                 .contains("SERVICE_DATA_API.POST_/v2/stoppointjourneys");

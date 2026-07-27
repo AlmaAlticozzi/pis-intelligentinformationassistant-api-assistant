@@ -9,6 +9,7 @@ import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @ApplicationScoped
 public class AgentDslArtifactBuilder {
@@ -18,6 +19,9 @@ public class AgentDslArtifactBuilder {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
+    private static final Set<String> INTERNAL_LEAF_DISCRIMINATORS = Set.of(
+            "SERVICE_DATA_FIELD_MATCH",
+            "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
 
     public AgentDslArtifactBuildResult buildEventArtifact(
             AgentDefinition definition,
@@ -29,7 +33,7 @@ public class AgentDslArtifactBuilder {
                 + " interpreterType=" + interpreterType);
 
         Map<String, Object> blueprint = mapValue(definition == null ? null : definition.getJsnBlueprint());
-        Map<String, Object> condition = extractEventCondition(blueprint);
+        Map<String, Object> condition = canonicalRuntimeCondition(extractEventCondition(blueprint));
         if (condition == null || condition.isEmpty()) {
             return AgentDslArtifactBuildResult.failure(
                     "Event DSL artifact generation failed because no condition tree could be extracted from the validated blueprint.");
@@ -129,7 +133,7 @@ public class AgentDslArtifactBuilder {
         }
         System.out.println("[IIA][AGENT_DSL][BUILDER] scheduled serviceDataQuery extracted agentDefinitionId=" + agentDefinitionId);
 
-        Map<String, Object> snapshotEvaluation = extractScheduledSnapshotEvaluation(blueprint);
+        Map<String, Object> snapshotEvaluation = canonicalRuntimeCondition(extractScheduledSnapshotEvaluation(blueprint));
         if (snapshotEvaluation == null || snapshotEvaluation.isEmpty()) {
             return AgentDslArtifactBuildResult.failure("Scheduled DSL artifact generation failed because snapshotEvaluation is missing.");
         }
@@ -305,6 +309,44 @@ public class AgentDslArtifactBuilder {
             return OBJECT_MAPPER.convertValue(map, MAP_TYPE);
         }
         return null;
+    }
+
+    private Map<String, Object> canonicalRuntimeCondition(Map<String, Object> condition) {
+        if (condition == null) {
+            return null;
+        }
+        return canonicalRuntimeConditionMap(condition);
+    }
+
+    private Map<String, Object> canonicalRuntimeConditionMap(Map<?, ?> source) {
+        boolean leaf = source.containsKey("field") && source.containsKey("operator");
+        Object discriminator = source.get("type");
+        boolean obsoleteInternalDiscriminator = leaf
+                && discriminator instanceof String text
+                && INTERNAL_LEAF_DISCRIMINATORS.contains(text);
+
+        Map<String, Object> canonical = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : source.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            Object value = entry.getValue();
+            if (value == null || (obsoleteInternalDiscriminator && "type".equals(key))) {
+                continue;
+            }
+            canonical.put(key, canonicalRuntimeConditionValue(value));
+        }
+        return canonical;
+    }
+
+    private Object canonicalRuntimeConditionValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            return canonicalRuntimeConditionMap(map);
+        }
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .map(this::canonicalRuntimeConditionValue)
+                    .toList();
+        }
+        return value;
     }
 
     private String firstNonBlank(String... values) {

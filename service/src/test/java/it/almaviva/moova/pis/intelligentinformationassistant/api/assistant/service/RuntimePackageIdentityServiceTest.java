@@ -331,6 +331,39 @@ class RuntimePackageIdentityServiceTest {
         assertThat(packages).hasSize(2);
     }
 
+    @Test
+    void correctedCanonicalArtifactCreatesNextVersionAndStableNewSubmissionIdentity() {
+        Map<String, Object> staleDsl = dsl();
+        staleDsl.put("evaluation", Map.of(
+                "mode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of(
+                        "type", "SERVICE_DATA_FIELD_MATCH",
+                        "field", "payload.ongroundServiceEvent.eventsType",
+                        "operator", "CONTAINS",
+                        "value", "DEPARTING")));
+        when(snapshotLoader.load(AGENT_ID)).thenReturn(Optional.of(snapshot(250, staleDsl)));
+        AgentRuntimePackage stale = identityService.materializeOrReuse(AGENT_ID, command(null));
+
+        Map<String, Object> correctedDsl = dsl();
+        correctedDsl.put("evaluation", Map.of(
+                "mode", "STATELESS_EVENT_MATCH",
+                "condition", Map.of(
+                        "field", "payload.ongroundServiceEvent.eventsType",
+                        "operator", "CONTAINS",
+                        "value", "DEPARTING")));
+        when(snapshotLoader.load(AGENT_ID)).thenReturn(Optional.of(snapshot(250, correctedDsl)));
+        AgentRuntimePackage corrected = identityService.materializeOrReuse(AGENT_ID, command(null));
+        AgentRuntimePackage repeated = identityService.materializeOrReuse(AGENT_ID, command("transport-only change"));
+
+        assertThat(corrected.getNumPackageversion()).isEqualTo(stale.getNumPackageversion() + 1);
+        assertThat(corrected.getDscArtifacthash()).isNotEqualTo(stale.getDscArtifacthash());
+        assertThat(corrected.getDscPackagefingerprint()).isNotEqualTo(stale.getDscPackagefingerprint());
+        assertThat(corrected.getCodSubmissionid()).isNotEqualTo(stale.getCodSubmissionid());
+        assertThat(repeated.getCodRuntimepackage()).isEqualTo(corrected.getCodRuntimepackage());
+        assertThat(repeated.getCodSubmissionid()).isEqualTo(corrected.getCodSubmissionid());
+        assertThat(packages).hasSize(2);
+    }
+
     private AgentDefinitionStatus status(String value) {
         AgentDefinitionStatus status = new AgentDefinitionStatus();
         status.setSglStatus(value);
@@ -346,7 +379,10 @@ class RuntimePackageIdentityServiceTest {
     }
 
     private AgentActivationSnapshot snapshot(int cpu) {
-        Map<String, Object> dsl = dsl();
+        return snapshot(cpu, dsl());
+    }
+
+    private AgentActivationSnapshot snapshot(int cpu, Map<String, Object> dsl) {
         String artifactHash = new AgentCanonicalJsonService().hash(dsl).hash();
         return new AgentActivationSnapshot(
                 AGENT_ID, "Runtime Agent", "Runtime package fixture", "READY", "DSL", "MEDIUM",

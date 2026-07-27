@@ -261,6 +261,17 @@ class AgentDefinitionCompilationServiceTest {
                 .containsEntry("agentDefinitionStatusUpdated", true)
                 .containsEntry("agentDefinitionStatus", "READY");
         assertThat(resultCaptor.getValue().get("dslArtifact")).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dslArtifact = (Map<String, Object>) resultCaptor.getValue().get("dslArtifact");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> evaluation = (Map<String, Object>) dslArtifact.get("evaluation");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> compiledCondition = (Map<String, Object>) evaluation.get("condition");
+        assertThat(compiledCondition).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "field", "payload.status",
+                "operator", "EQUALS",
+                "value", "ARRIVING"));
+        assertThat(compiledCondition).doesNotContainKey("type");
         assertThat(definition.getSglStatus().getSglStatus()).isEqualTo("READY");
         assertThat(definition.getDscArtifacthash()).startsWith("sha256:");
         assertThat(definition.getSglArtifacttype().getSglArtifacttype()).isEqualTo("DSL");
