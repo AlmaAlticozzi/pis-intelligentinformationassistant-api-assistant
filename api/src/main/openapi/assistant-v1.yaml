@@ -2315,6 +2315,55 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
         '500':
           $ref: '#/components/responses/UnexpectedError'
+  /v1/agent-definitions/{agentDefinitionId}/regenerate-runtime-package:
+    parameters:
+    - $ref: '#/components/parameters/XWtfProfile'
+    - $ref: '#/components/parameters/AgentDefinitionId'
+    post:
+      tags:
+      - Agent Definitions
+      summary: Regenerate the current Runtime Agent Package for an ACTIVE Agent definition
+      description: |
+        Rebuilds the governed DSL artifact from the authoritative Agent Definition and its latest READY compilation input, materializes a canonically identified Runtime Agent Package, and atomically promotes it as the current desired package while the Agent Definition remains `ACTIVE`.
+
+        The operation does not call the Agent Orchestrator and does not disable the Agent Definition. If the same canonical package is already current, it returns that package without allocating another version or catalog change. Otherwise the existing package governance allocates `max(existing version) + 1`, preserves all historical packages, and publishes a new desired-runtime catalog UPSERT.
+
+        No raw DSL or package JSON is accepted.
+
+        ## Errors
+
+        - `HTTP Status Code 404` when the Agent Definition does not exist. Error code: `IIA-AGD-RPK-404-001`.
+        - `HTTP Status Code 409` when the Agent Definition is not ACTIVE, has no current package, has no latest READY compilation, or a concurrent lifecycle operation conflicts. Error code: `IIA-AGD-RPK-409-001`.
+        - `HTTP Status Code 422` when authoritative compilation input cannot produce a valid compatible DSL/package. Error code: `IIA-AGD-RPK-422-001`.
+        - `HTTP Status Code 500` when package persistence or atomic catalog promotion fails. Error code: `IIA-AGD-RPK-500-001`.
+      operationId: regenerateAgentRuntimePackage
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRuntimePackageRegenerationRequest'
+      responses:
+        '200':
+          description: The corrected package was atomically promoted, or the identical current package was reused.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRuntimePackageRegenerationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/UnexpectedError'
   /v1/agent-runs:
     parameters:
     - $ref: '#/components/parameters/XWtfProfile'
@@ -4795,6 +4844,56 @@ components:
           description: Maximum graceful-stop interval requested from the Agent Orchestrator. A value of zero requests no graceful wait; runtime policy still governs the final interruption behavior.
       description: |
         Optional command body used to disable an Agent Definition. When omitted, `stopRunningAgents` defaults to `true` and `gracePeriodSeconds` defaults to `60`. The command is idempotent for definitions already in `DISABLED`.
+    AgentRuntimePackageRegenerationRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 1000
+          description: Optional bounded operational note. It is audit metadata and does not alter canonical package identity.
+      description: Operational metadata for governed ACTIVE Runtime Agent Package regeneration. Raw DSL and package content are not accepted.
+    AgentRuntimePackageRegenerationResponse:
+      type: object
+      required:
+      - agentDefinitionId
+      - oldPackageVersion
+      - currentPackageVersion
+      - artifactHash
+      - packageFingerprint
+      - submissionId
+      - status
+      - packageCreated
+      - currentPackageReused
+      properties:
+        agentDefinitionId:
+          type: string
+          maxLength: 50
+        oldPackageVersion:
+          type: integer
+          format: int64
+        currentPackageVersion:
+          type: integer
+          format: int64
+        artifactHash:
+          type: string
+          maxLength: 71
+        packageFingerprint:
+          type: string
+          minLength: 64
+          maxLength: 64
+        submissionId:
+          type: string
+          maxLength: 100
+        status:
+          type: string
+          enum:
+          - ACTIVE
+        packageCreated:
+          type: boolean
+          description: True when this invocation persisted a new immutable package version.
+        currentPackageReused:
+          type: boolean
+          description: True when the corrected canonical package was already the current desired package.
     AgentCompilationStatusResponse:
       type: object
       required:

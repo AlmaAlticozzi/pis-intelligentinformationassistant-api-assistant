@@ -27,6 +27,8 @@ import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.servi
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorCommandRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentOrchestratorUnavailableException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentProfileService;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentRuntimePackageRegenerationRejectedException;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AgentRuntimePackageRegenerationService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertRuntimeStateChangeRejectedException;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertService;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service.AlertTechnicalSpecificationRejectedException;
@@ -61,6 +63,9 @@ public class AssistantV1Api implements IAssistantV1Api {
 
     @Inject
     AgentDisableService agentDisableService;
+
+    @Inject
+    AgentRuntimePackageRegenerationService agentRuntimePackageRegenerationService;
 
     @Inject
     TextImproveUseCase textImproveUseCase;
@@ -120,6 +125,45 @@ public class AssistantV1Api implements IAssistantV1Api {
                     + " error=" + ex.getMessage());
             throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                     .entity(AssistantApiErrors.agentDefinitionActivateUnexpectedError())
+                    .build());
+        }
+    }
+
+    @POST
+    @Path("/agent-definitions/{agentDefinitionId}/regenerate-runtime-package")
+    @Consumes({ "application/json" })
+    @Produces({ "application/json" })
+    public AgentRuntimePackageRegenerationResponse regenerateAgentRuntimePackage(
+            @PathParam("agentDefinitionId") @Size(max=50) String agentDefinitionId,
+            @Valid AgentRuntimePackageRegenerationRequest request) {
+        try {
+            return agentRuntimePackageRegenerationService.regenerate(agentDefinitionId, request);
+        } catch (AgentDefinitionInvalidRequestException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationInvalidRequest(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentDefinitionNotFoundException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.NOT_FOUND)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationNotFound(ex.source(), ex.getMessage()))
+                    .build());
+        } catch (AgentRuntimePackageRegenerationRejectedException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.CONFLICT)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationConflict(ex.getMessage()))
+                    .build());
+        } catch (AgentActivationPreconditionFailedException ex) {
+            throw new WebApplicationException(Response.status(422)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationUnprocessable(ex.getMessage()))
+                    .build());
+        } catch (AgentActivationTechnicalException ex) {
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationUnexpectedError(ex.getMessage()))
+                    .build());
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new WebApplicationException(Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                    .entity(AssistantApiErrors.agentRuntimePackageRegenerationUnexpectedError(
+                            "An unexpected error occurred while regenerating the Runtime Agent Package."))
                     .build());
         }
     }

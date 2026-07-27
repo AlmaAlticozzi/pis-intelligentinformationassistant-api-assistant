@@ -38,6 +38,30 @@ public record AgentActivationSnapshot(
         return latestCompilation == null ? null : latestCompilation.dslArtifact();
     }
 
+    public AgentActivationSnapshot withRegeneratedDslArtifact(
+            Map<String, Object> regeneratedDslArtifact,
+            String regeneratedArtifactHash) {
+        if (latestCompilation == null) {
+            throw new IllegalStateException("Latest compilation is required for DSL regeneration.");
+        }
+        Map<String, Object> regeneratedResult = new LinkedHashMap<>(latestCompilation.resultJson());
+        regeneratedResult.put("dslArtifact", regeneratedDslArtifact);
+        regeneratedResult.put("artifactHash", regeneratedArtifactHash);
+        AgentActivationCompilationSnapshot regeneratedCompilation = new AgentActivationCompilationSnapshot(
+                latestCompilation.compilationId(), latestCompilation.agentDefinitionId(), latestCompilation.status(),
+                latestCompilation.currentStep(), latestCompilation.requestedMode(), latestCompilation.force(),
+                latestCompilation.requestJson(), regeneratedResult, latestCompilation.errorMessage(),
+                latestCompilation.requestedBy(), latestCompilation.requestedAt(), latestCompilation.startedAt(),
+                latestCompilation.completedAt(), latestCompilation.updatedAt(), regeneratedDslArtifact);
+        AgentActivationArtifactSnapshot regeneratedMetadata = new AgentActivationArtifactSnapshot(
+                artifact.artifactType(), artifact.artifactUri(), regeneratedArtifactHash, artifact.signatureStatus(),
+                artifact.runtimeImage(), artifact.sdkVersion(), artifact.implementationSummary());
+        return new AgentActivationSnapshot(
+                agentDefinitionId, name, description, status, generationMode, complexity, interpreterType, triggerType,
+                inputModel, outputModel, createdBy, createdAt, updatedAt, alert, profile, activationPolicy,
+                requirements, regeneratedMetadata, compilationSummary, regeneratedCompilation);
+    }
+
     public record AgentActivationAlertSnapshot(
             String alertId,
             String alertName,

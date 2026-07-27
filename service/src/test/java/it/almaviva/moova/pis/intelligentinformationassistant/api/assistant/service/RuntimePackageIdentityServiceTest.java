@@ -332,6 +332,23 @@ class RuntimePackageIdentityServiceTest {
     }
 
     @Test
+    void currentReplacementNeverPromotesAnEquivalentHistoricalVersionBackward() {
+        AgentRuntimePackage historical = identityService.materializeOrReuse(AGENT_ID, command(null));
+        when(snapshotLoader.load(AGENT_ID)).thenReturn(Optional.of(snapshotWithCpu(300)));
+        AgentRuntimePackage staleCurrent = identityService.materializeOrReuse(AGENT_ID, command(null));
+        definition.setCodCurrentruntimepackage(staleCurrent.getCodRuntimepackage());
+
+        AgentRuntimePackage replacement = identityService.materializeForCurrentReplacement(
+                AGENT_ID, command(null), snapshot(), staleCurrent.getCodRuntimepackage()).runtimePackage();
+
+        assertThat(replacement.getNumPackageversion()).isEqualTo(3L);
+        assertThat(replacement.getCodRuntimepackage()).isNotEqualTo(historical.getCodRuntimepackage());
+        assertThat(replacement.getDscPackagefingerprint()).isEqualTo(historical.getDscPackagefingerprint());
+        assertThat(replacement.getCodSubmissionid()).isEqualTo(historical.getCodSubmissionid());
+        assertThat(packages).hasSize(3);
+    }
+
+    @Test
     void correctedCanonicalArtifactCreatesNextVersionAndStableNewSubmissionIdentity() {
         Map<String, Object> staleDsl = dsl();
         staleDsl.put("evaluation", Map.of(

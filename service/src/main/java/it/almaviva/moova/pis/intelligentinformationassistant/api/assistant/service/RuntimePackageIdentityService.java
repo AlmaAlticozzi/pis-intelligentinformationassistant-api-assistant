@@ -87,6 +87,34 @@ public class RuntimePackageIdentityService {
                 .orElseThrow(() -> new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found."));
         AgentActivationSnapshot snapshot = snapshotLoader.load(agentDefinitionId)
                 .orElseThrow(() -> new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found."));
+        return materializeOrReuseLocked(agentDefinitionId, command, snapshot, lockedDefinition, null, true);
+    }
+
+    @Transactional
+    RuntimePackageMaterialization materializeForCurrentReplacement(
+            String agentDefinitionId,
+            AgentActivationCommand command,
+            AgentActivationSnapshot snapshot,
+            String expectedCurrentRuntimePackageId) {
+        System.out.println("[IIA][RUNTIME_PACKAGE_IDENTITY] materialize start agentDefinitionId=" + agentDefinitionId);
+        AgentDefinition lockedDefinition = agentDefinitionRepository.findByDefinitionIdForUpdate(agentDefinitionId)
+                .orElseThrow(() -> new AgentDefinitionNotFoundException("agentDefinitionId", "Agent Definition not found."));
+        if (!java.util.Objects.equals(
+                lockedDefinition.getCodCurrentruntimepackage(), expectedCurrentRuntimePackageId)) {
+            throw new AgentRuntimePackageRegenerationRejectedException(
+                    "Current Runtime Agent Package changed during regeneration.");
+        }
+        return materializeOrReuseLocked(
+                agentDefinitionId, command, snapshot, lockedDefinition, expectedCurrentRuntimePackageId, false);
+    }
+
+    private RuntimePackageMaterialization materializeOrReuseLocked(
+            String agentDefinitionId,
+            AgentActivationCommand command,
+            AgentActivationSnapshot snapshot,
+            AgentDefinition lockedDefinition,
+            String reusableCurrentRuntimePackageId,
+            boolean reuseAnyEquivalentPackage) {
         validate(snapshot);
 
         long provisionalVersion = Math.max(1L, runtimePackageRepository.findMaximumPackageVersion(agentDefinitionId) + 1L);
@@ -94,7 +122,8 @@ public class RuntimePackageIdentityService {
         AgentRuntimePackage existing = runtimePackageRepository
                 .findByAgentDefinitionAndFingerprint(agentDefinitionId, build.packageFingerprint())
                 .orElse(null);
-        if (existing != null) {
+        if (existing != null && (reuseAnyEquivalentPackage
+                || existing.getCodRuntimepackage().equals(reusableCurrentRuntimePackageId))) {
             packageIdentity.validate(existing);
             System.out.println("[IIA][RUNTIME_PACKAGE_IDENTITY] decision=REUSED agentDefinitionId=" + agentDefinitionId
                     + " packageVersion=" + existing.getNumPackageversion());

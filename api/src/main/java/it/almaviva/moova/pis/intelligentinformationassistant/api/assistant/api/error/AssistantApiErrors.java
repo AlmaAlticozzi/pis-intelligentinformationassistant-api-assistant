@@ -728,6 +728,31 @@ public final class AssistantApiErrors {
                 detail);
     }
 
+    public static Error agentRuntimePackageRegenerationInvalidRequest(String source, String detail) {
+        return new Error().code("IIA-AGD-RPK-400-001").title("Invalid runtime package regeneration request")
+                .detail(detail).source(source);
+    }
+
+    public static Error agentRuntimePackageRegenerationNotFound(String source, String detail) {
+        return new Error().code("IIA-AGD-RPK-404-001").title("Agent Definition not found")
+                .detail(detail).source(source);
+    }
+
+    public static Error agentRuntimePackageRegenerationConflict(String detail) {
+        return new Error().code("IIA-AGD-RPK-409-001").title("Runtime package regeneration conflict")
+                .detail(detail);
+    }
+
+    public static Error agentRuntimePackageRegenerationUnprocessable(String detail) {
+        return new Error().code("IIA-AGD-RPK-422-001").title("Runtime package regeneration rejected")
+                .detail(detail);
+    }
+
+    public static Error agentRuntimePackageRegenerationUnexpectedError(String detail) {
+        return new Error().code("IIA-AGD-RPK-500-001").title("Runtime package regeneration failed")
+                .detail(detail);
+    }
+
     public static Error agentDefinitionDisableNotFound(String source, String detail) {
         return new Error()
                 .code("IIA-AGD-DIS-404-001")
