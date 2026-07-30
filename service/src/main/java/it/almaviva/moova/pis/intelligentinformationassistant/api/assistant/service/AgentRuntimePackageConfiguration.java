@@ -47,7 +47,7 @@ public record AgentRuntimePackageConfiguration(
                         "ServiceDataStopPointJourneysV2",
                         "v2",
                         "searchStopPointJourneysV2",
-                        "SERVICEDATA_STOPPOINTJOURNEYS"),
+                        null),
                 "0.0.2",
                 "1.0.0",
                 "REGISTERED_DATA_SOURCES_ONLY");

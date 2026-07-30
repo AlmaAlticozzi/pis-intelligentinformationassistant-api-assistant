@@ -62,7 +62,8 @@ class AgentRuntimePackageBuilderTest {
                     assertThat(binding.connectorType()).isEqualTo("KAFKA");
                     assertThat(binding.connectorRef()).isEqualTo("servicedata-realtime-v2");
                     assertThat(binding.operationRef()).isNull();
-                    assertThat(binding.configuration()).containsEntry("subscriptionProfile", "SERVICEDATA_EVENTS");
+                    assertThat(binding.configuration()).containsExactly(
+                            Map.entry("subscriptionProfile", "SERVICEDATA_EVENTS"));
                     assertThat(binding.failoverConnectorRefs()).isEmpty();
                 });
         assertThat(submission.agentDefinition().artifact().deliveryMode()).isEqualTo("INLINE");
@@ -107,12 +108,16 @@ class AgentRuntimePackageBuilderTest {
                     assertThat(binding.connectorType()).isEqualTo("HTTP_REST");
                     assertThat(binding.connectorRef()).isEqualTo("servicedata-stoppointjourneys-v2");
                     assertThat(binding.operationRef()).isEqualTo("searchStopPointJourneysV2");
-                    assertThat(binding.configuration()).containsEntry("subscriptionProfile", "SERVICEDATA_STOPPOINTJOURNEYS");
+                    assertThat(binding.configuration()).isEmpty();
+                    assertThat(binding.configuration()).doesNotContainKey("subscriptionProfile");
                 });
 
         JsonNode json = OBJECT_MAPPER.readTree(OBJECT_MAPPER.writeValueAsString(submission));
         assertThat(json.get("agentDefinition").get("activationPolicy").get("type").asText()).isEqualTo("DAILY_WINDOW");
         assertThat(json.get("agentDefinition").get("activationPolicy").has("validFrom")).isFalse();
+        assertThat(json.at("/agentDefinition/dataSourceBindings/0/configuration").isObject()).isTrue();
+        assertThat(json.at("/agentDefinition/dataSourceBindings/0/configuration").isEmpty()).isTrue();
+        assertThat(json.toString()).doesNotContain("SERVICEDATA_STOPPOINTJOURNEYS", "http://", "https://", "oidc", "timeout");
     }
 
     @Test

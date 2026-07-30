@@ -49,6 +49,14 @@ class FndAgentOrchestratorGatewayTest {
         assertThat(sent.getUrl()).isEqualTo("https://orchestrator.example/api/v1/runtime-agent-definitions/{agentDefinitionId}");
         assertThat(sent.getPathParams()).containsEntry("agentDefinitionId", "AGDF1");
         assertThat(sent.getBody()).isSameAs(activation.persistedPayload());
+        Map<?, ?> sentDefinition = (Map<?, ?>) ((Map<?, ?>) sent.getBody()).get("agentDefinition");
+        Map<?, ?> sentBinding = (Map<?, ?>) ((java.util.List<?>) sentDefinition.get("dataSourceBindings")).getFirst();
+        assertThat(sentBinding.get("accessMode")).isEqualTo("SCHEDULED_QUERY");
+        assertThat(sentBinding.get("connectorType")).isEqualTo("HTTP_REST");
+        assertThat(sentBinding.get("connectorRef")).isEqualTo("servicedata-stoppointjourneys-v2");
+        assertThat(sentBinding.get("operationRef")).isEqualTo("searchStopPointJourneysV2");
+        assertThat((Map<?, ?>) sentBinding.get("configuration")).isEmpty();
+        assertThat(sentBinding.toString()).doesNotContain("subscriptionProfile", "SERVICEDATA_STOPPOINTJOURNEYS");
         assertThat(sent.getOidcClientId()).isEqualTo("agent-orchestrator");
         assertThat(accepted.httpStatus()).isEqualTo(201);
         assertThat(accepted.rawResponseBody()).contains("LOADED");
@@ -167,7 +175,21 @@ class FndAgentOrchestratorGatewayTest {
         payload.put("packageVersion", 1L);
         payload.put("submittedAt", Instant.parse("2026-06-29T10:00:00Z").toString());
         payload.put("submittedBy", "test");
-        payload.put("agentDefinition", Map.of("id", "AGDF1"));
+        payload.put("agentDefinition", Map.of(
+                "id", "AGDF1",
+                "dataSourceBindings", java.util.List.of(Map.ofEntries(
+                        Map.entry("bindingId", "primaryInput"),
+                        Map.entry("dataDomain", "SERVICE_DATA"),
+                        Map.entry("accessMode", "SCHEDULED_QUERY"),
+                        Map.entry("connectorType", "HTTP_REST"),
+                        Map.entry("connectorRef", "servicedata-stoppointjourneys-v2"),
+                        Map.entry("inputModel", "ServiceDataStopPointJourneysV2"),
+                        Map.entry("inputSchemaVersion", "v2"),
+                        Map.entry("bindingSchemaVersion", "iia.runtime.data-source-binding/v1"),
+                        Map.entry("operationRef", "searchStopPointJourneysV2"),
+                        Map.entry("required", true),
+                        Map.entry("configuration", Map.of()),
+                        Map.entry("failoverConnectorRefs", java.util.List.of())))));
         payload.put("artifact", Map.of());
         payload.put("runtimeProfile", Map.of());
         payload.put("dataSources", java.util.List.of());

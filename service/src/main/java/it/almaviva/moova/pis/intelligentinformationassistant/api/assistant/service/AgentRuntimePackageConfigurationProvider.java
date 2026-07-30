@@ -66,9 +66,6 @@ public class AgentRuntimePackageConfigurationProvider {
     @ConfigProperty(name = "iia.agent-runtime-package.scheduled-service-data.operation-ref", defaultValue = "searchStopPointJourneysV2")
     String scheduledOperationRef;
 
-    @ConfigProperty(name = "iia.agent-runtime-package.scheduled-service-data.subscription-profile", defaultValue = "SERVICEDATA_STOPPOINTJOURNEYS")
-    String scheduledSubscriptionProfile;
-
     public AgentRuntimePackageConfiguration configuration() {
         return new AgentRuntimePackageConfiguration(
                 controlPlaneComponent,
@@ -91,7 +88,7 @@ public class AgentRuntimePackageConfigurationProvider {
                         scheduledInputModel,
                         scheduledInputSchemaVersion,
                         scheduledOperationRef,
-                        scheduledSubscriptionProfile),
+                        null),
                 minimumRuntimeVersion,
                 sdkVersion,
                 networkPolicy);

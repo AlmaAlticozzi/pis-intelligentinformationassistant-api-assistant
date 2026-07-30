@@ -1,5 +1,6 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentDefinitionRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentRuntimeCatalogChangeRepository;
 import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.AgentRuntimePackageRepository;
@@ -332,6 +333,69 @@ class RuntimePackageIdentityServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void correctedScheduledPackageDoesNotReuseHistoricalInvalidProfileAndThenReusesCorrectedIdentity() {
+        AgentActivationSnapshot scheduled = scheduledSnapshot();
+        when(snapshotLoader.load(AGENT_ID)).thenReturn(Optional.of(scheduled));
+
+        RuntimeAgentPackageFactory factory = new RuntimeAgentPackageFactory(new AgentRuntimePackageBuilder());
+        RuntimeAgentPackageBuild correctedCandidate = factory.build(
+                scheduled,
+                command(null),
+                new AgentRuntimePackageBuildContext(2L, NOW, "operator1"));
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        Map<String, Object> invalidPayload = mapper.convertValue(
+                correctedCandidate.runtimePackageJson(), LinkedHashMap.class);
+        Map<String, Object> invalidDefinition = (Map<String, Object>) invalidPayload.get("agentDefinition");
+        Map<String, Object> invalidBinding = (Map<String, Object>) ((List<?>) invalidDefinition
+                .get("dataSourceBindings")).getFirst();
+        invalidBinding.put("configuration", Map.of(
+                "subscriptionProfile", "SERVICEDATA_STOPPOINTJOURNEYS"));
+        invalidPayload.put("packageVersion", 1L);
+        invalidPayload.put("submissionId", null);
+
+        RuntimeAgentPackageCanonicalIdentity canonicalIdentity = new RuntimeAgentPackageCanonicalIdentity();
+        AgentRuntimeSubmission invalidUnsigned = mapper.convertValue(invalidPayload, AgentRuntimeSubmission.class);
+        String invalidFingerprint = canonicalIdentity.identify(invalidUnsigned).fingerprint();
+        invalidPayload.put("submissionId", canonicalIdentity.stableSubmissionId(AGENT_ID, invalidFingerprint));
+        AgentRuntimeSubmission invalidSubmission = mapper.convertValue(invalidPayload, AgentRuntimeSubmission.class);
+        AgentRuntimePackage invalidV1 = AgentRuntimePackage.create(
+                definition,
+                1L,
+                invalidSubmission.submissionId(),
+                invalidFingerprint,
+                invalidSubmission.agentDefinition().artifact().hash(),
+                compilation(),
+                "iia.runtime-agent-submission/v1",
+                RuntimeAgentPackageCanonicalIdentity.CANONICALIZATION,
+                RuntimeAgentPackageCanonicalIdentity.HASH_ALGORITHM,
+                invalidPayload,
+                scheduled.updatedAt(),
+                invalidSubmission.submittedAt(),
+                OffsetDateTime.ofInstant(invalidSubmission.submittedAt(), ZoneOffset.UTC),
+                "operator1");
+        set(invalidV1, "codRuntimepackage", "RTPK1");
+        packages.add(invalidV1);
+
+        AgentRuntimePackage correctedV2 = identityService.materializeOrReuse(AGENT_ID, command(null));
+        AgentRuntimePackage repeated = identityService.materializeOrReuse(AGENT_ID, command("transport-only"));
+
+        assertThat(correctedV2.getNumPackageversion()).isEqualTo(2L);
+        assertThat(correctedV2.getCodRuntimepackage()).isNotEqualTo(invalidV1.getCodRuntimepackage());
+        assertThat(correctedV2.getDscPackagefingerprint()).isNotEqualTo(invalidFingerprint);
+        Map<String, Object> correctedDefinition = (Map<String, Object>) correctedV2.getJsnRuntimepackage()
+                .get("agentDefinition");
+        Map<String, Object> correctedBinding = (Map<String, Object>) ((List<?>) correctedDefinition
+                .get("dataSourceBindings")).getFirst();
+        assertThat((Map<?, ?>) correctedBinding.get("configuration")).isEmpty();
+        assertThat(correctedBinding.toString()).doesNotContain("subscriptionProfile");
+        assertThat(repeated.getCodRuntimepackage()).isEqualTo(correctedV2.getCodRuntimepackage());
+        assertThat(repeated.getNumPackageversion()).isEqualTo(2L);
+        assertThat(repeated.getDscPackagefingerprint()).isEqualTo(correctedV2.getDscPackagefingerprint());
+        assertThat(packages).hasSize(2);
+    }
+
+    @Test
     void currentReplacementNeverPromotesAnEquivalentHistoricalVersionBackward() {
         AgentRuntimePackage historical = identityService.materializeOrReuse(AGENT_ID, command(null));
         when(snapshotLoader.load(AGENT_ID)).thenReturn(Optional.of(snapshotWithCpu(300)));
@@ -442,6 +506,80 @@ class RuntimePackageIdentityServiceTest {
                         OffsetDateTime.parse("2026-06-17T09:02:00Z"),
                         OffsetDateTime.parse("2026-06-17T09:02:00Z"),
                         dsl));
+    }
+
+    private AgentActivationSnapshot scheduledSnapshot() {
+        AgentActivationSnapshot base = snapshot();
+        Map<String, Object> scheduledDsl = scheduledDsl();
+        String artifactHash = new AgentCanonicalJsonService().hash(scheduledDsl).hash();
+        AgentActivationSnapshot.AgentActivationRequirementsSnapshot requirements =
+                new AgentActivationSnapshot.AgentActivationRequirementsSnapshot(
+                        base.requirements().requiredSources(),
+                        base.requirements().requiredPermissions(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        scheduledRuntimeContract(),
+                        base.requirements().blueprintJson());
+        AgentActivationSnapshot.AgentActivationArtifactSnapshot artifact =
+                new AgentActivationSnapshot.AgentActivationArtifactSnapshot(
+                        base.artifact().artifactType(),
+                        base.artifact().artifactUri(),
+                        artifactHash,
+                        base.artifact().signatureStatus(),
+                        base.artifact().runtimeImage(),
+                        base.artifact().sdkVersion(),
+                        base.artifact().implementationSummary());
+        AgentActivationSnapshot.AgentActivationCompilationSnapshot compilation =
+                new AgentActivationSnapshot.AgentActivationCompilationSnapshot(
+                        base.latestCompilation().compilationId(),
+                        base.latestCompilation().agentDefinitionId(),
+                        base.latestCompilation().status(),
+                        base.latestCompilation().currentStep(),
+                        base.latestCompilation().requestedMode(),
+                        base.latestCompilation().force(),
+                        base.latestCompilation().requestJson(),
+                        Map.of("artifactHash", artifactHash, "dslArtifact", scheduledDsl),
+                        base.latestCompilation().errorMessage(),
+                        base.latestCompilation().requestedBy(),
+                        base.latestCompilation().requestedAt(),
+                        base.latestCompilation().startedAt(),
+                        base.latestCompilation().completedAt(),
+                        base.latestCompilation().updatedAt(),
+                        scheduledDsl);
+        return new AgentActivationSnapshot(
+                base.agentDefinitionId(), base.name(), base.description(), base.status(), base.generationMode(),
+                base.complexity(), "SCHEDULED_INTERPRETER", "SCHEDULE", "ServiceDataStopPointJourneysV2",
+                base.outputModel(), base.createdBy(), base.createdAt(), base.updatedAt(), base.alert(), base.profile(),
+                base.activationPolicy(), requirements, artifact, base.compilationSummary(), compilation);
+    }
+
+    private Map<String, Object> scheduledRuntimeContract() {
+        Map<String, Object> contract = new LinkedHashMap<>(runtimeContract());
+        contract.put("interpreterType", "SCHEDULED_INTERPRETER");
+        contract.put("triggerType", "SCHEDULE");
+        contract.put("inputModel", "ServiceDataStopPointJourneysV2");
+        contract.put("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH");
+        contract.put("allowedTools", List.of());
+        return contract;
+    }
+
+    private Map<String, Object> scheduledDsl() {
+        Map<String, Object> artifact = new LinkedHashMap<>(dsl());
+        Map<String, Object> runtime = new LinkedHashMap<>((Map<String, Object>) artifact.get("runtime"));
+        runtime.put("interpreterType", "SCHEDULED_INTERPRETER");
+        runtime.put("triggerType", "SCHEDULE");
+        runtime.put("inputModel", "ServiceDataStopPointJourneysV2");
+        runtime.put("evaluationMode", "SCHEDULED_SNAPSHOT_MATCH");
+        artifact.put("runtime", runtime);
+        artifact.put("trigger", Map.of(
+                "type", "SCHEDULE",
+                "source", "SERVICE_DATA",
+                "inputModel", "ServiceDataStopPointJourneysV2"));
+        artifact.put("evaluation", Map.of(
+                "mode", "SCHEDULED_SNAPSHOT_MATCH",
+                "condition", Map.of("field", "journey.status", "operator", "EXISTS")));
+        return artifact;
     }
 
     private Map<String, Object> runtimeContract() {
