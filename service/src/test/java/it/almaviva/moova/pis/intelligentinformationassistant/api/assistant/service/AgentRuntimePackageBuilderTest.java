@@ -95,6 +95,16 @@ class AgentRuntimePackageBuilderTest {
                 .extractingByKey("runtime")
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
                 .containsEntry("executionModel", "STANDARD_DSL_EVALUATOR");
+        Map<String, Object> packagedEvaluation = map(submission.agentDefinition().artifact().content().get("evaluation"));
+        Map<String, Object> packagedSnapshot = map(packagedEvaluation.get("snapshotEvaluation"));
+        assertThat(packagedSnapshot).containsEntry("mode", "COUNT_MATCHING_JOURNEYS");
+        assertThat(map(packagedSnapshot.get("threshold")))
+                .containsEntry("operator", "GREATER_OR_EQUAL")
+                .containsEntry("value", 3);
+        assertThat(map(map(submission.agentDefinition().artifact().content().get("output")).get("policy")))
+                .containsEntry("emit", "ON_MATCH")
+                .containsEntry("includeCount", true)
+                .containsEntry("includeMatchingJourneys", true);
         assertThat(submission.agentDefinition().runtimeContract().requiredOperators()).containsExactly("EXISTS");
         assertThat(submission.agentDefinition().profile().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
         assertThat(submission.agentDefinition().runtimeContract().networkPolicy()).isEqualTo("REGISTERED_DATA_SOURCES_ONLY");
@@ -604,7 +614,25 @@ class AgentRuntimePackageBuilderTest {
         artifact.put("trigger", Map.of("type", "SCHEDULE", "schedule", Map.of("frequencySeconds", 600)));
         artifact.put("toolAccess", Map.of("allowedTools", List.of(TOOL)));
         artifact.put("query", Map.of("operation", "POST /v2/stoppointjourneys"));
-        artifact.put("evaluation", Map.of("mode", "SCHEDULED_SNAPSHOT_MATCH", "snapshotEvaluation", Map.of("condition", Map.of("field", "journey.status", "operator", "EXISTS"))));
+        artifact.put("evaluation", Map.of(
+                "mode", "SCHEDULED_SNAPSHOT_MATCH",
+                "snapshotEvaluation", Map.of(
+                        "mode", "COUNT_MATCHING_JOURNEYS",
+                        "journeyPath", "stopPointsJourneyDetails[]",
+                        "condition", Map.of("field", "journey.status", "operator", "EXISTS"),
+                        "threshold", Map.of("operator", "GREATER_OR_EQUAL", "value", 3))));
+        artifact.put("output", Map.of(
+                "type", "CANDIDATE_SUGGESTION",
+                "outputModel", "AgentOutput.CANDIDATE_SUGGESTION",
+                "policy", Map.of(
+                        "emit", "ON_MATCH",
+                        "includeCount", true,
+                        "includeMatchingJourneys", true)));
         return artifact;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return (Map<String, Object>) value;
     }
 }

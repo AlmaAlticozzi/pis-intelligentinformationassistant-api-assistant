@@ -249,9 +249,9 @@ public class AgentDslArtifactBuilder {
 
     Map<String, Object> extractScheduledSnapshotEvaluation(Map<String, Object> blueprint) {
         return firstNonEmptyMap(
+                nestedMap(blueprint, "parameters", "technicalSpecification", "snapshotEvaluation"),
                 nestedMap(blueprint, "parameters", "snapshotEvaluation"),
-                nestedMap(blueprint, "snapshotEvaluation"),
-                nestedMap(blueprint, "parameters", "technicalSpecification", "snapshotEvaluation"));
+                nestedMap(blueprint, "snapshotEvaluation"));
     }
 
     Map<String, Object> extractScheduledOutputPolicy(Map<String, Object> blueprint) {

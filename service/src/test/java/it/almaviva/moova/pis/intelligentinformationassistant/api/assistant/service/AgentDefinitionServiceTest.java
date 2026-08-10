@@ -28,6 +28,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -731,6 +732,43 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
+    void scheduledDefinitionUsesCompleteVerifiedSnapshotOverPartialPreview() {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
+        AgentDefinitionService service = service(definitionRepository, profileRepository);
+        stubReferences(definitionRepository);
+        Map<String, Object> technicalSpecification = new LinkedHashMap<>(scheduledTechnicalSpecification(600, 1));
+        Map<String, Object> completeSnapshot = new LinkedHashMap<>(Map.of(
+                "mode", "COUNT_MATCHING_JOURNEYS",
+                "journeyPath", "stopPointsJourneyDetails[]",
+                "condition", Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH"),
+                "threshold", Map.of("operator", "GREATER_OR_EQUAL", "value", 3)));
+        technicalSpecification.put("snapshotEvaluation", completeSnapshot);
+        technicalSpecification.put("outputPolicy", Map.of(
+                "emit", "ON_MATCH", "includeCount", true, "includeMatchingJourneys", true));
+        Alert alert = verifiedAlert(technicalSpecification);
+        alert.setJsnAgentblueprintpreview(Map.of(
+                "previewMetadata", "preserved",
+                "parameters", Map.of("snapshotEvaluation", Map.of(
+                        "mode", "COUNT_MATCHING_JOURNEYS",
+                        "condition", Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH")))));
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(alert));
+        when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
+        when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
+                .thenAnswer(invocation -> created(invocation.getArgument(0)));
+
+        service.createAgentDefinition(baseRequest(false, continuousPolicy()));
+
+        ArgumentCaptor<AgentDefinition> captor = ArgumentCaptor.forClass(AgentDefinition.class);
+        verify(definitionRepository).create(captor.capture(), anyList(), anyList(), anyList());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> parameters = (Map<String, Object>) captor.getValue().getJsnBlueprint().get("parameters");
+        assertThat(parameters.get("snapshotEvaluation")).isEqualTo(completeSnapshot);
+        assertThat(parameters.get("technicalSpecification")).isEqualTo(technicalSpecification);
+        assertThat(captor.getValue().getJsnBlueprint()).containsEntry("previewMetadata", "preserved");
+    }
+
+    @Test
     void rejectsScheduledFrequencyBelowMvpMinimum() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
@@ -1112,7 +1150,10 @@ class AgentDefinitionServiceTest {
                 "snapshotEvaluation", Map.of(
                         "mode", "REPORT_COUNT",
                         "condition", Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH")),
-                "outputPolicy", Map.of("emit", "ON_MATCH"));
+                "outputPolicy", Map.of(
+                        "emit", "EVERY_RUN",
+                        "includeCount", true,
+                        "includeMatchingJourneys", true));
     }
 
     private AgentProfile profile(boolean enabled) {

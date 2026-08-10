@@ -38,6 +38,48 @@ class AgentDslRuntimeCompatibilityValidatorTest {
     }
 
     @Test
+    void validatesAllScheduledRuntimeSemanticContracts() {
+        for (String mode : List.of("REPORT_COUNT", "COUNT_MATCHING_JOURNEYS", "BOOLEAN_EXISTS")) {
+            AgentDslRuntimeCompatibilityValidationResult result = validator.validate(scheduledDsl(mode));
+            assertThat(result.errors()).as(mode).isEmpty();
+            assertThat(result.compatible()).as(mode).isTrue();
+        }
+    }
+
+    @Test
+    void thresholdOperatorIsNotAConditionButScheduledConditionOperatorStillIsValidated() {
+        Map<String, Object> validThresholdArtifact = scheduledDsl("COUNT_MATCHING_JOURNEYS");
+        assertThat(validator.validate(validThresholdArtifact).errors())
+                .doesNotContain("DSL condition field is empty.");
+
+        Map<String, Object> invalidConditionArtifact = scheduledDsl("COUNT_MATCHING_JOURNEYS");
+        Map<String, Object> snapshot = snapshot(invalidConditionArtifact);
+        snapshot.put("condition", Map.of("field", "departureDelay.delay", "operator", "MAGIC_OPERATOR", "value", 0));
+
+        assertThat(validator.validate(invalidConditionArtifact).errors())
+                .contains("Unsupported DSL operator MAGIC_OPERATOR.");
+    }
+
+    @Test
+    void rejectsInvalidScheduledSemanticContracts() {
+        assertInvalid(withThreshold(scheduledDsl("REPORT_COUNT"), Map.of("operator", "EQUALS", "value", 1)), "must not contain threshold");
+        assertInvalid(withEmit(scheduledDsl("REPORT_COUNT"), "ON_MATCH"), "requires output.policy.emit EVERY_RUN");
+        assertInvalid(withFlag(scheduledDsl("REPORT_COUNT"), "includeCount", false), "includeCount=true");
+        assertInvalid(withoutThreshold(scheduledDsl("COUNT_MATCHING_JOURNEYS")), "requires threshold");
+        assertInvalid(withThreshold(scheduledDsl("COUNT_MATCHING_JOURNEYS"), Map.of()), "non-empty object");
+        assertInvalid(withThreshold(scheduledDsl("COUNT_MATCHING_JOURNEYS"), Map.of("operator", "MAGIC", "value", 3)), "Unsupported Scheduled threshold operator");
+        assertInvalid(withThreshold(scheduledDsl("COUNT_MATCHING_JOURNEYS"), Map.of("operator", "EQUALS")), "threshold.value must be numeric");
+        assertInvalid(withThreshold(scheduledDsl("COUNT_MATCHING_JOURNEYS"), Map.of("operator", "EQUALS", "value", "3")), "threshold.value must be numeric");
+        assertInvalid(withEmit(scheduledDsl("COUNT_MATCHING_JOURNEYS"), "EVERY_RUN"), "requires output.policy.emit ON_MATCH");
+        assertInvalid(withThreshold(scheduledDsl("BOOLEAN_EXISTS"), Map.of("operator", "EQUALS", "value", 1)), "must not contain threshold");
+        assertInvalid(withEmit(scheduledDsl("BOOLEAN_EXISTS"), "EVERY_RUN"), "requires output.policy.emit ON_MATCH");
+        assertInvalid(withMode(scheduledDsl("REPORT_COUNT"), "UNKNOWN_MODE"), "Unsupported Scheduled snapshotEvaluation.mode");
+        assertInvalid(withEmit(scheduledDsl("REPORT_COUNT"), "UNKNOWN_EMIT"), "Unsupported Scheduled output.policy.emit");
+        Map<String, Object> neitherOutput = withFlag(scheduledDsl("BOOLEAN_EXISTS"), "includeCount", false);
+        assertInvalid(withFlag(neitherOutput, "includeMatchingJourneys", false), "must include at least count or matching journeys");
+    }
+
+    @Test
     void rejectsEventDslWithAllowedTools() {
         Map<String, Object> artifact = eventDsl();
         Map<String, Object> runtime = copyMap(artifact.get("runtime"));
@@ -167,13 +209,67 @@ class AgentDslRuntimeCompatibilityValidatorTest {
     }
 
     private Map<String, Object> scheduledDsl() {
-        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
+        return scheduledDsl("REPORT_COUNT");
+    }
+
+    private Map<String, Object> scheduledDsl(String mode) {
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition(mode);
         AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
                 definition,
                 scheduledValidation(),
                 OffsetDateTime.parse("2026-06-15T10:00:00Z"));
         assertThat(result.success()).isTrue();
         return deepCopy(result.artifact().artifact());
+    }
+
+    private void assertInvalid(Map<String, Object> artifact, String errorFragment) {
+        AgentDslRuntimeCompatibilityValidationResult result = validator.validate(artifact);
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.errors()).anyMatch(error -> error.contains(errorFragment));
+    }
+
+    private Map<String, Object> withThreshold(Map<String, Object> artifact, Object threshold) {
+        snapshot(artifact).put("threshold", threshold);
+        return artifact;
+    }
+
+    private Map<String, Object> withoutThreshold(Map<String, Object> artifact) {
+        snapshot(artifact).remove("threshold");
+        return artifact;
+    }
+
+    private Map<String, Object> withMode(Map<String, Object> artifact, String mode) {
+        snapshot(artifact).put("mode", mode);
+        return artifact;
+    }
+
+    private Map<String, Object> withEmit(Map<String, Object> artifact, String emit) {
+        policy(artifact).put("emit", emit);
+        return artifact;
+    }
+
+    private Map<String, Object> withFlag(Map<String, Object> artifact, String name, boolean value) {
+        policy(artifact).put(name, value);
+        return artifact;
+    }
+
+    private Map<String, Object> snapshot(Map<String, Object> artifact) {
+        return copyInto(map(map(artifact.get("evaluation")).get("snapshotEvaluation")), map(artifact.get("evaluation")), "snapshotEvaluation");
+    }
+
+    private Map<String, Object> policy(Map<String, Object> artifact) {
+        return copyInto(map(map(artifact.get("output")).get("policy")), map(artifact.get("output")), "policy");
+    }
+
+    private Map<String, Object> copyInto(Map<String, Object> value, Map<String, Object> parent, String key) {
+        Map<String, Object> copy = new LinkedHashMap<>(value);
+        parent.put(key, copy);
+        return copy;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return (Map<String, Object>) value;
     }
 
     private AgentCompilationPreconditionValidationResult eventValidation() {

@@ -1,5 +1,8 @@
 package it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.service;
 
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledOutputEmitMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledSnapshotEvaluationMode;
+import it.almaviva.moova.pis.intelligentinformationassistant.api.assistant.repository.verification.ScheduledThresholdOperator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -44,12 +47,11 @@ public class AgentDslRuntimeCompatibilityValidator {
         validateCommonRuntime(runtime, errors);
         validateGovernance(mapValue(artifact == null ? null : artifact.get("governance")), errors);
         validateUnsafeContent(artifact, "$", errors);
-        validateConditionOperators(artifact, errors);
-        validateFieldPaths(artifact, errors);
-
         if ("EVENT_INTERPRETER".equals(interpreterType)) {
+            validateTechnicalCondition(nestedMap(artifact, "evaluation", "condition"), errors);
             validateEvent(artifact, runtime, errors);
         } else if ("SCHEDULED_INTERPRETER".equals(interpreterType)) {
+            validateTechnicalCondition(nestedMap(artifact, "evaluation", "snapshotEvaluation", "condition"), errors);
             validateScheduled(artifact, runtime, errors);
         } else if (interpreterType != null) {
             errors.add("Unsupported runtime.interpreterType " + interpreterType + ".");
@@ -218,6 +220,12 @@ public class AgentDslRuntimeCompatibilityValidator {
                 errors.add("SCHEDULED_INTERPRETER DSL is missing evaluation.snapshotEvaluation.");
             } else if (!presentMap(snapshotEvaluation.get("condition"))) {
                 errors.add("SCHEDULED_INTERPRETER DSL is missing snapshotEvaluation.condition.");
+            } else {
+                Map<String, Object> scheduledOutput = mapValue(artifact.get("output"));
+                validateScheduledSemantics(
+                        snapshotEvaluation,
+                        mapValue(scheduledOutput == null ? null : scheduledOutput.get("policy")),
+                        errors);
             }
             if (!snapshotEvaluationPresent(evaluation) && presentMap(evaluation.get("condition"))) {
                 errors.add("SCHEDULED_INTERPRETER DSL must use evaluation.snapshotEvaluation, not only evaluation.condition.");
@@ -228,6 +236,110 @@ public class AgentDslRuntimeCompatibilityValidator {
         if (output != null && !presentMap(output.get("policy"))) {
             errors.add("SCHEDULED_INTERPRETER DSL output.policy is missing.");
         }
+    }
+
+    private void validateScheduledSemantics(
+            Map<String, Object> snapshotEvaluation,
+            Map<String, Object> outputPolicy,
+            List<String> errors) {
+        String mode = stringValue(snapshotEvaluation.get("mode"));
+        String emit = stringValue(outputPolicy == null ? null : outputPolicy.get("emit"));
+        boolean thresholdPropertyPresent = snapshotEvaluation.containsKey("threshold");
+        Map<String, Object> threshold = mapValue(snapshotEvaluation.get("threshold"));
+        Boolean includeCount = booleanValue(outputPolicy == null ? null : outputPolicy.get("includeCount"));
+        Boolean includeMatchingJourneys = booleanValue(outputPolicy == null ? null : outputPolicy.get("includeMatchingJourneys"));
+
+        if (Boolean.FALSE.equals(includeCount) && Boolean.FALSE.equals(includeMatchingJourneys)) {
+            errors.add("Scheduled output.policy must include at least count or matching journeys.");
+        }
+        if (!enumContains(ScheduledSnapshotEvaluationMode.class, mode)
+                || "REPORT_MATCHING_JOURNEYS".equals(mode)) {
+            errors.add("Unsupported Scheduled snapshotEvaluation.mode " + mode + ".");
+            return;
+        }
+        if (!enumContains(ScheduledOutputEmitMode.class, emit)
+                || "ON_BOOLEAN_RESULT".equals(emit)) {
+            errors.add("Unsupported Scheduled output.policy.emit " + emit + ".");
+            return;
+        }
+
+        if ("REPORT_COUNT".equals(mode)) {
+            if (thresholdPropertyPresent) {
+                errors.add("REPORT_COUNT must not contain threshold.");
+            }
+            if (!"EVERY_RUN".equals(emit)) {
+                errors.add("REPORT_COUNT requires output.policy.emit EVERY_RUN.");
+            }
+            if (!Boolean.TRUE.equals(includeCount)) {
+                errors.add("REPORT_COUNT requires output.policy.includeCount=true.");
+            }
+        } else if ("COUNT_MATCHING_JOURNEYS".equals(mode)) {
+            validateScheduledThreshold(thresholdPropertyPresent, threshold, snapshotEvaluation.get("threshold"), errors);
+            if (!"ON_MATCH".equals(emit)) {
+                errors.add("COUNT_MATCHING_JOURNEYS requires output.policy.emit ON_MATCH.");
+            }
+            if (Boolean.FALSE.equals(includeCount)) {
+                errors.add("COUNT_MATCHING_JOURNEYS requires output.policy.includeCount=true when explicitly provided.");
+            }
+        } else if ("BOOLEAN_EXISTS".equals(mode)) {
+            if (thresholdPropertyPresent) {
+                errors.add("BOOLEAN_EXISTS must not contain threshold.");
+            }
+            if (!"ON_MATCH".equals(emit)) {
+                errors.add("BOOLEAN_EXISTS requires output.policy.emit ON_MATCH.");
+            }
+        }
+    }
+
+    private void validateScheduledThreshold(
+            boolean thresholdPropertyPresent,
+            Map<String, Object> threshold,
+            Object rawThreshold,
+            List<String> errors) {
+        if (!thresholdPropertyPresent || rawThreshold == null) {
+            errors.add("COUNT_MATCHING_JOURNEYS requires threshold.");
+            return;
+        }
+        if (threshold == null || threshold.isEmpty()) {
+            errors.add("COUNT_MATCHING_JOURNEYS threshold must be a non-empty object.");
+            return;
+        }
+        String operator = stringValue(threshold.get("operator"));
+        if (!enumContains(ScheduledThresholdOperator.class, operator)) {
+            errors.add("Unsupported Scheduled threshold operator " + operator + ".");
+        }
+        if (!(threshold.get("value") instanceof Number)) {
+            errors.add("COUNT_MATCHING_JOURNEYS threshold.value must be numeric.");
+        }
+    }
+
+    private <E extends Enum<E>> boolean enumContains(Class<E> enumType, String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            Enum.valueOf(enumType, value);
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private void validateTechnicalCondition(Object condition, List<String> errors) {
+        validateConditionOperators(condition, errors);
+        validateFieldPaths(condition, errors);
+    }
+
+    private Map<String, Object> nestedMap(Map<String, Object> source, String... path) {
+        Object value = source;
+        for (String segment : path) {
+            Map<String, Object> map = mapValue(value);
+            if (map == null) {
+                return null;
+            }
+            value = map.get(segment);
+        }
+        return mapValue(value);
     }
 
     private boolean snapshotEvaluationPresent(Map<String, Object> evaluation) {

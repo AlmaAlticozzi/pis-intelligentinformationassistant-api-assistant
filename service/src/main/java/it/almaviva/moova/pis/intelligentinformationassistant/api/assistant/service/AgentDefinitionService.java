@@ -1001,11 +1001,11 @@ public class AgentDefinitionService {
         Map<String, Object> parameters = mapValue(normalized.get("parameters"));
         parameters = parameters == null ? new LinkedHashMap<>() : new LinkedHashMap<>(parameters);
         parameters.putIfAbsent("technicalSpecificationSource", "alert.jsn_technicalspecification");
-        parameters.putIfAbsent("technicalSpecification", technicalSpecification);
-        copyMapIfAbsent(technicalSpecification, parameters, "schedule");
-        copyMapIfAbsent(technicalSpecification, parameters, "serviceDataQuery");
-        copyMapIfAbsent(technicalSpecification, parameters, "snapshotEvaluation");
-        copyMapIfAbsent(technicalSpecification, parameters, "outputPolicy");
+        parameters.put("technicalSpecification", technicalSpecification);
+        copyMapIfPresent(technicalSpecification, parameters, "schedule");
+        copyMapIfPresent(technicalSpecification, parameters, "serviceDataQuery");
+        copyMapIfPresent(technicalSpecification, parameters, "snapshotEvaluation");
+        copyMapIfPresent(technicalSpecification, parameters, "outputPolicy");
         normalized.put("parameters", parameters);
         return normalized;
     }
@@ -1014,12 +1014,6 @@ public class AgentDefinitionService {
         Map<String, Object> value = mapValue(source.get(key));
         if (value != null && !value.isEmpty()) {
             target.put(key, value);
-        }
-    }
-
-    private void copyMapIfAbsent(Map<String, Object> source, Map<String, Object> target, String key) {
-        if (mapValue(target.get(key)) == null) {
-            copyMapIfPresent(source, target, key);
         }
     }
 

@@ -345,6 +345,57 @@ class AgentDefinitionCompilationServiceTest {
     }
 
     @Test
+    void compileGeneratesThresholdScheduledDslArtifactAndMarksDefinitionReady() {
+        Map<String, Object> artifact = compileScheduledReady("COUNT_MATCHING_JOURNEYS");
+        Map<String, Object> snapshot = map(map(artifact.get("evaluation")).get("snapshotEvaluation"));
+        assertThat(snapshot).containsEntry("mode", "COUNT_MATCHING_JOURNEYS");
+        assertThat(map(snapshot.get("threshold")))
+                .containsEntry("operator", "GREATER_OR_EQUAL")
+                .containsEntry("value", 3);
+        assertThat(map(map(artifact.get("output")).get("policy"))).containsEntry("emit", "ON_MATCH");
+    }
+
+    @Test
+    void compileGeneratesBooleanExistsScheduledDslArtifactAndMarksDefinitionReady() {
+        Map<String, Object> artifact = compileScheduledReady("BOOLEAN_EXISTS");
+        Map<String, Object> snapshot = map(map(artifact.get("evaluation")).get("snapshotEvaluation"));
+        assertThat(snapshot).containsEntry("mode", "BOOLEAN_EXISTS").doesNotContainKey("threshold");
+        assertThat(map(map(artifact.get("output")).get("policy"))).containsEntry("emit", "ON_MATCH");
+    }
+
+    private Map<String, Object> compileScheduledReady(String mode) {
+        AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
+        AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);
+        AgentDefinitionService service = service(definitionRepository, compilationRepository);
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition(mode);
+        AgentCompilation created = compilation("PENDING");
+        AgentCompilation ready = compilation("READY");
+        ready.setDscCurrentstep("READY");
+        when(definitionRepository.findByDefinitionId("AGDF1")).thenReturn(Optional.of(definition));
+        stubMarkReady(definitionRepository, definition);
+        when(compilationRepository.existsRunningCompilation("AGDF1")).thenReturn(false);
+        when(compilationRepository.createCompilation(eq("AGDF1"), eq("DSL"), eq(false), any(), eq(null))).thenReturn(created);
+        when(compilationRepository.findLatestByAgentDefinitionId("AGDF1")).thenReturn(Optional.of(ready));
+        when(compilationRepository.findStepsByCompilationId("AGCP1")).thenReturn(List.of(
+                step(1, "REQUEST_ACCEPTED", "READY"), step(2, "VALIDATING_BLUEPRINT", "READY"),
+                step(3, "GENERATING_ARTIFACT", "READY"), step(4, "STATIC_ANALYSIS", "READY"),
+                step(5, "SIGNING", "READY")));
+
+        var response = service.compileAgentDefinition("AGDF1", compileRequest(AgentGenerationMode.DSL));
+        assertThat(response.getStatus().toString()).isEqualTo("READY");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> resultCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(compilationRepository).markCompleted(
+                eq("AGCP1"), eq("READY"), eq("READY"), resultCaptor.capture(), any(OffsetDateTime.class));
+        return map(resultCaptor.getValue().get("dslArtifact"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return (Map<String, Object>) value;
+    }
+
+    @Test
     void compileRejectsFunctionalPreconditionsAndDoesNotGenerateArtifactStep() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentCompilationRepository compilationRepository = mock(AgentCompilationRepository.class);

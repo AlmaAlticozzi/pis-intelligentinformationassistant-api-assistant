@@ -42,6 +42,16 @@ class AgentRuntimeOperatorExtractorTest {
                 .hasMessageContaining("Unsupported");
     }
 
+    @Test
+    void extractsOnlyScheduledConditionOperatorsAndIgnoresThresholdOperator() {
+        Map<String, Object> artifact = Map.of("evaluation", Map.of(
+                "snapshotEvaluation", Map.of(
+                        "condition", leaf("EXISTS"),
+                        "threshold", Map.of("operator", "GREATER_OR_EQUAL", "value", 3))));
+
+        assertThat(extractor.extract(artifact)).containsExactly("EXISTS");
+    }
+
     private Map<String, Object> leaf(String operator) {
         return Map.of("field", "payload.value", "operator", operator);
     }

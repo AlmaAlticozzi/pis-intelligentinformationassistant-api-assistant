@@ -121,9 +121,10 @@ public class ScheduledSnapshotEvaluationCanonicalizer {
             warnings.add(warning);
             System.out.println("[IIA][ALERT_SCHEDULED_VERIFY][BLUEPRINT_SYNC][WARN] " + warning);
         }
-        copyIfPresent(snapshotEvaluation, blueprintSnapshotEvaluation, "mode");
-        copyIfPresent(snapshotEvaluation, blueprintSnapshotEvaluation, "journeyPath");
-        copyIfPresent(snapshotEvaluation, blueprintSnapshotEvaluation, "condition");
+        copyGovernedValue(snapshotEvaluation, blueprintSnapshotEvaluation, "mode");
+        copyGovernedValue(snapshotEvaluation, blueprintSnapshotEvaluation, "journeyPath");
+        copyGovernedValue(snapshotEvaluation, blueprintSnapshotEvaluation, "condition");
+        copyGovernedValue(snapshotEvaluation, blueprintSnapshotEvaluation, "threshold");
         parameters.put("snapshotEvaluation", blueprintSnapshotEvaluation);
         copyIfPresent(technicalSpecification, parameters, "serviceDataQuery");
         copyIfPresent(technicalSpecification, parameters, "outputPolicy");
@@ -136,6 +137,14 @@ public class ScheduledSnapshotEvaluationCanonicalizer {
     private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
         if (source != null && source.containsKey(key)) {
             target.put(key, source.get(key));
+        }
+    }
+
+    private void copyGovernedValue(Map<String, Object> source, Map<String, Object> target, String key) {
+        if (source != null && source.containsKey(key) && source.get(key) != null) {
+            target.put(key, source.get(key));
+        } else {
+            target.remove(key);
         }
     }
 

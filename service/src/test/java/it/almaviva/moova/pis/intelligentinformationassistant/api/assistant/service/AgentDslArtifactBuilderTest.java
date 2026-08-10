@@ -159,6 +159,31 @@ class AgentDslArtifactBuilderTest {
     }
 
     @Test
+    void verifiedNestedTechnicalSpecificationWinsOverPartialScheduledSnapshot() {
+        AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition("COUNT_MATCHING_JOURNEYS");
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(definition.getJsnBlueprint());
+        Map<String, Object> parameters = new java.util.LinkedHashMap<>(map(blueprint.get("parameters")));
+        Map<String, Object> completeSnapshot = map(parameters.get("snapshotEvaluation"));
+        parameters.put("technicalSpecification", Map.of("snapshotEvaluation", completeSnapshot));
+        parameters.put("snapshotEvaluation", Map.of(
+                "mode", "COUNT_MATCHING_JOURNEYS",
+                "condition", completeSnapshot.get("condition")));
+        blueprint.put("parameters", parameters);
+        definition.setJsnBlueprint(blueprint);
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> snapshot = map(map(result.artifact().artifact().get("evaluation")).get("snapshotEvaluation"));
+        assertThat(map(snapshot.get("threshold")))
+                .containsEntry("operator", "GREATER_OR_EQUAL")
+                .containsEntry("value", 3);
+    }
+
+    @Test
     void buildsScheduledDslKeepingMonitoringStopPointInQueryAndDestinationInCondition() {
         AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition();
         Map<String, Object> destinationAndCancellationCondition = Map.of(

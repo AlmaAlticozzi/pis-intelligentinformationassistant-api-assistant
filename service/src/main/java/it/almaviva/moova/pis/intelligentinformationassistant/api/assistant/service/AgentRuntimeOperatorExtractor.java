@@ -20,9 +20,20 @@ public class AgentRuntimeOperatorExtractor {
     public List<String> extract(Map<String, Object> artifact) {
         TreeSet<String> operators = new TreeSet<>();
         if (artifact != null) {
-            visit(artifact.get("evaluation"), operators);
+            Map<String, Object> evaluation = mapValue(artifact.get("evaluation"));
+            Map<String, Object> snapshotEvaluation = mapValue(
+                    evaluation == null ? null : evaluation.get("snapshotEvaluation"));
+            Object condition = snapshotEvaluation == null
+                    ? (evaluation == null ? null : evaluation.get("condition"))
+                    : snapshotEvaluation.get("condition");
+            visit(condition, operators);
         }
         return List.copyOf(operators);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : null;
     }
 
     private void visit(Object node, TreeSet<String> operators) {

@@ -44,6 +44,10 @@ final class AgentCompilationTestFixtures {
     }
 
     static AgentDefinition scheduledDefinition() {
+        return scheduledDefinition("REPORT_COUNT");
+    }
+
+    static AgentDefinition scheduledDefinition(String mode) {
         AgentDefinition definition = baseDefinition("SCHEDULED_INTERPRETER", "ServiceDataStopPointJourneysV2");
         definition.setJsnAllowedtools(List.of("SERVICE_DATA_API.POST_/v2/stoppointjourneys"));
         definition.setJsnRuntimecontract(Map.of(
@@ -67,14 +71,25 @@ final class AgentCompilationTestFixtures {
                                 "field", "arrivalStatuses[].status",
                                 "operator", "CONTAINS",
                                 "value", "ARRIVAL_CANCELLATION")));
+        Map<String, Object> snapshotEvaluation = new java.util.LinkedHashMap<>();
+        snapshotEvaluation.put("mode", mode);
+        snapshotEvaluation.put("journeyPath", "stopPointsJourneyDetails[]");
+        snapshotEvaluation.put("condition", condition);
+        if ("COUNT_MATCHING_JOURNEYS".equals(mode)) {
+            snapshotEvaluation.put("threshold", Map.of("operator", "GREATER_OR_EQUAL", "value", 3));
+        }
+        String emit = "REPORT_COUNT".equals(mode) ? "EVERY_RUN" : "ON_MATCH";
         definition.setJsnBlueprint(Map.of(
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "triggerType", "SCHEDULE",
                 "evaluationMode", "SCHEDULED_SNAPSHOT_MATCH",
                 "parameters", Map.of(
                         "serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"),
-                        "snapshotEvaluation", Map.of("mode", "REPORT_COUNT", "condition", condition),
-                        "outputPolicy", Map.of("emit", "EVERY_RUN"),
+                        "snapshotEvaluation", snapshotEvaluation,
+                        "outputPolicy", Map.of(
+                                "emit", emit,
+                                "includeCount", true,
+                                "includeMatchingJourneys", true),
                         "schedule", Map.of("frequencySeconds", 600))));
         return definition;
     }
