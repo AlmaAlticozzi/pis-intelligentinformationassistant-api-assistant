@@ -11,6 +11,37 @@ class AlertRouteUnderstandingValidatorTest {
     private final AlertRouteUnderstandingValidator validator = new AlertRouteUnderstandingValidator();
 
     @Test
+    void normalizesContradictoryLlmRouteForExactPureCountReport() {
+        String prompt = "Fammi sapere ogni 10 secondi quante corse ci sono a Garibaldi FS";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, true, false),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_REPORT);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.EVERY_RUN_REPORT);
+        assertThat(validated.hasAggregation()).isTrue();
+        assertThat(validated.hasCardinalityThreshold()).isFalse();
+        assertThat(validated.hasReportIntent()).isTrue();
+    }
+
+    @Test
+    void doesNotNormalizeRealThresholdToReport() {
+        String prompt = "Fammi sapere ogni 10 secondi se ci sono piu di 5 corse a Garibaldi FS";
+
+        AlertRouteUnderstandingResult validated = validator.validate(
+                scheduledRoute(AlertRouteIntentKind.SNAPSHOT_CONDITION, AlertRouteOutputMode.ON_MATCH, true, true, false),
+                prompt,
+                AlertRouteUnderstandingHints.fromPrompt(prompt));
+
+        assertThat(validated.intentKind()).isEqualTo(AlertRouteIntentKind.SNAPSHOT_CONDITION);
+        assertThat(validated.outputMode()).isEqualTo(AlertRouteOutputMode.ON_MATCH);
+        assertThat(validated.hasCardinalityThreshold()).isTrue();
+        assertThat(validated.hasReportIntent()).isFalse();
+    }
+
+    @Test
     void routesEventPromptToEventInterpreterServiceDataKafkaEvent() {
         AlertRouteUnderstandingResult validated = validator.validate(eventRoute(),
                 "Avvisami quando una corsa parte da Garibaldi");

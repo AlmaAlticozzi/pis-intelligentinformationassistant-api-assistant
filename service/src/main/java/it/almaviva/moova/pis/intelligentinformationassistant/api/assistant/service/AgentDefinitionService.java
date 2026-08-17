@@ -885,9 +885,9 @@ public class AgentDefinitionService {
         }
         Map<String, Object> schedule = mapValue(technicalSpecification.get("schedule"));
         Integer frequencySeconds = integerValue(schedule == null ? null : schedule.get("frequencySeconds"));
-        if (frequencySeconds != null && frequencySeconds < 300) {
+        if (frequencySeconds != null && frequencySeconds < 10) {
             throw rejected(AgentDefinitionCreateRejectedException.Reason.SCHEDULE_TOO_AGGRESSIVE,
-                    "Scheduled Agent Definitions require schedule.frequencySeconds >= 300 in this MVP.");
+                    "Scheduled Agent Definitions require schedule.frequencySeconds >= 10.");
         }
         Map<String, Object> serviceDataQuery = mapValue(technicalSpecification.get("serviceDataQuery"));
         Object stopPoints = serviceDataQuery == null ? null : serviceDataQuery.get("stopPoints");

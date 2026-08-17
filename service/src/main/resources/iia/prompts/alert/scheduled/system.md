@@ -162,6 +162,8 @@ High-priority Scheduled MVP rules:
   outputPolicy.emit = EVERY_RUN.
   outputPolicy.includeCount = true.
   threshold must be null or absent.
+  If the report counts every journey returned by the governed ServiceData query and has no journey-level filter, snapshotEvaluation.condition must be omitted or null.
+  If the report counts only journeys matching a real filter, snapshotEvaluation.condition must be present and must be a valid non-empty condition expression.
   Do not use COUNT_MATCHING_JOURNEYS for reports.
 - Phrases such as how many, count, number of, quanti/quante, numero di, dimmi quante, and fammi sapere quanti are report/count intent unless the user also expresses an explicit trigger threshold.
 - This remains a report/count intent even when the prompt includes filter/control locations such as origin X, destination Y, route includes Z, cancelled stop K, or not destination W.
@@ -472,7 +474,9 @@ Output policy:
 ## DSL construction rules
 
 DSL construction rules:
-- condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
+- When snapshotEvaluation.condition is present, condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.
+- Never emit an empty condition, including {"type":"SERVICE_DATA_SCHEDULED_FIELD_MATCH","all":[]}.
+- An unfiltered REPORT_COUNT omits snapshotEvaluation.condition; do not invent an always-true predicate.
 - Use one anyElement path stopPointsJourneyDetails[] to correlate constraints on the same journey.
 - Inside stopPointsJourneyDetails[] anyElement use relative fields, not prefixed fields.
 - For nested arrays, use nested anyElement with relative fields inside the nested array.
@@ -565,7 +569,7 @@ Response JSON contract:
     "snapshotEvaluation": {
       "mode": "COUNT_MATCHING_JOURNEYS",
       "journeyPath": "stopPointsJourneyDetails[]",
-      "condition": {"type": "SERVICE_DATA_SCHEDULED_FIELD_MATCH", "all": []},
+      "condition": {"type": "SERVICE_DATA_SCHEDULED_FIELD_MATCH", "all": [{"field": "arrivalStatuses[].status", "operator": "CONTAINS", "value": "ARRIVING"}]},
       "threshold": {"operator": "GREATER_OR_EQUAL", "value": 2}
     },
     "outputPolicy": {"emit": "ON_MATCH", "includeCount": true, "includeMatchingJourneys": true},

@@ -7,6 +7,54 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AlertRouteUnderstandingHintsTest {
 
     @Test
+    void pollingIntervalNumberDoesNotBecomeJourneyCardinalityForExactCountReport() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere ogni 10 secondi quante corse ci sono a Garibaldi FS");
+
+        assertThat(hints.containsPollingExpression()).isTrue();
+        assertThat(hints.containsCountOrReportExpression()).isTrue();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+    }
+
+    @Test
+    void commonCountReportPhrasesAreNotCardinalityThresholds() {
+        for (String prompt : java.util.List.of(
+                "Quante corse ci sono a Garibaldi FS?",
+                "Dimmi il numero di corse a Garibaldi FS",
+                "Conta le corse a Garibaldi FS")) {
+            AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+            assertThat(hints.containsCountOrReportExpression()).as(prompt).isTrue();
+            assertThat(hints.containsCardinalityThresholdExpression()).as(prompt).isFalse();
+        }
+    }
+
+    @Test
+    void realCardinalityThresholdsRemainThresholdsWithPollingIntervals() {
+        for (String prompt : java.util.List.of(
+                "Fammi sapere ogni 10 secondi se ci sono piu di 5 corse a Garibaldi FS",
+                "Fammi sapere ogni 10 secondi se ci sono meno di 3 corse a Garibaldi FS",
+                "Fammi sapere ogni 10 secondi se ci sono almeno 10 corse a Garibaldi FS",
+                "Fammi sapere ogni 10 secondi se ci sono 5 corse a Garibaldi FS")) {
+            AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(prompt);
+
+            assertThat(hints.containsCardinalityThresholdExpression()).as(prompt).isTrue();
+        }
+    }
+
+    @Test
+    void immediateAbsenceConditionDoesNotBecomePureCountReport() {
+        AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
+                "Fammi sapere ogni minuto se non ci sono corse a Garibaldi FS");
+
+        assertThat(hints.containsPollingExpression()).isTrue();
+        assertThat(hints.containsSnapshotStateExpression()).isTrue();
+        assertThat(hints.containsCountOrReportExpression()).isFalse();
+        assertThat(hints.containsCardinalityThresholdExpression()).isFalse();
+        assertThat(hints.containsUnsupportedAbsenceOverTimeExpression()).isFalse();
+    }
+
+    @Test
     void platformNumberIsNotJourneyCardinalityForArrival() {
         AlertRouteUnderstandingHints hints = AlertRouteUnderstandingHints.fromPrompt(
                 "Avvisami quando una corsa arriva a Garibaldi sul binario 1");

@@ -14,6 +14,27 @@ class AgentDslArtifactBuilderTest {
     private final AgentDslArtifactBuilder builder = new AgentDslArtifactBuilder();
 
     @Test
+    void buildsConditionlessReportCountArtifactWithoutFabricatedOperator() {
+        AgentDefinition definition = AgentCompilationTestFixtures.conditionlessScheduledReportDefinition();
+
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+
+        assertThat(result.success()).isTrue();
+        Map<String, Object> artifact = result.artifact().artifact();
+        assertThat(map(map(artifact.get("trigger")).get("schedule")))
+                .containsEntry("frequencySeconds", 10);
+        Map<String, Object> snapshotEvaluation = map(map(artifact.get("evaluation")).get("snapshotEvaluation"));
+        assertThat(snapshotEvaluation)
+                .containsEntry("mode", "REPORT_COUNT")
+                .containsEntry("journeyPath", "stopPointsJourneyDetails[]")
+                .doesNotContainKey("condition");
+        assertThat(new AgentRuntimeOperatorExtractor().extract(artifact)).isEmpty();
+    }
+
+    @Test
     void buildsEventDslArtifact() {
         AgentDefinition definition = AgentCompilationTestFixtures.eventDefinition();
         AgentCompilationPreconditionValidationResult validation = validation();

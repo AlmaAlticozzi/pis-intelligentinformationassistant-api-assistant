@@ -713,6 +713,56 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     }
 
     @Test
+    void acceptsConditionlessReportCountEveryRun() {
+        Map<String, Object> technical = technicalSpecificationWithEvaluation(
+                "REPORT_COUNT",
+                validCondition(),
+                null,
+                "EVERY_RUN",
+                true);
+        map(technical.get("snapshotEvaluation")).remove("condition");
+        technical.put("outputPolicy", Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", false));
+        Map<String, Object> blueprint = blueprintWithEvaluation("REPORT_COUNT", "EVERY_RUN");
+
+        AlertVerificationOutcome validated = validator.validate(
+                validOutcome(technical, blueprint),
+                null,
+                reportRoute());
+
+        assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(validated.technicalSpecification().get("snapshotEvaluation")))
+                .doesNotContainKey("condition");
+    }
+
+    @Test
+    void rejectsPresentEmptyAllForReportCount() {
+        assertRejected(validOutcome(
+                technicalSpecificationWithEvaluation(
+                        "REPORT_COUNT",
+                        Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH", "all", List.of()),
+                        null,
+                        "EVERY_RUN",
+                        true),
+                blueprint()), "all must be a non-empty array");
+    }
+
+    @Test
+    void rejectsConditionlessCountMatchingJourneys() {
+        Map<String, Object> technical = technicalSpecificationWithEvaluation(
+                "COUNT_MATCHING_JOURNEYS",
+                validCondition(),
+                Map.of("operator", "GREATER_OR_EQUAL", "value", 2),
+                "ON_MATCH",
+                true);
+        map(technical.get("snapshotEvaluation")).remove("condition");
+
+        assertRejected(validOutcome(technical, blueprint()), "condition is required");
+    }
+
+    @Test
     void acceptsCountMatchingJourneysOnMatchWithThreshold() {
         AlertVerificationOutcome validated = validator.validate(validOutcome(
                 technicalSpecificationWithEvaluation(
@@ -826,13 +876,13 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     @Test
     void acceptsExplicitFrequencyWhenScheduleMatchesTemporalHints() {
         Map<String, Object> technical = technicalSpecification();
-        withSchedule(technical, 600, false, "Ogni 10 minuti");
+        withSchedule(technical, 10, false, "ogni 10 secondi");
 
         AlertVerificationOutcome validated = validator.validate(
                 validOutcome(technical, blueprint()),
                 null,
                 null,
-                explicitFrequencyHints(600));
+                explicitFrequencyHints(10));
 
         assertThat(validated.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
     }
@@ -948,14 +998,14 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
     @Test
     void rejectsFrequencyBelowMinimum() {
         Map<String, Object> technical = technicalSpecification();
-        withSchedule(technical, 30, false, "Ogni 30 secondi");
+        withSchedule(technical, 9, false, "Ogni 9 secondi");
 
         assertRejected(
                 validOutcome(technical, blueprint()),
                 null,
                 null,
-                explicitFrequencyHints(30),
-                "between 60 and 86400");
+                explicitFrequencyHints(9),
+                "between 10 and 86400");
     }
 
     @Test
@@ -2427,7 +2477,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -2597,7 +2647,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -2609,14 +2659,14 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         return new ScheduledAlertTemporalHints(
                 true,
                 frequencySeconds,
-                "Ogni 10 minuti",
+                frequencySeconds == 600 ? "Ogni 10 minuti" : "ogni " + frequencySeconds + " secondi",
                 false,
                 false,
                 480,
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -2635,7 +2685,7 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
                 "nelle prossime 2 ore",
                 false,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -2712,6 +2762,20 @@ class ScheduledAlertVerificationOutcomeValidatorTest {
         parameters.put("snapshotEvaluation", Map.of(
                 "mode", "COUNT_MATCHING_JOURNEYS",
                 "condition", condition));
+        blueprint.put("parameters", parameters);
+        return blueprint;
+    }
+
+    private Map<String, Object> blueprintWithEvaluation(String mode, String emit) {
+        Map<String, Object> blueprint = new LinkedHashMap<>(blueprint());
+        Map<String, Object> parameters = new LinkedHashMap<>(map(blueprint.get("parameters")));
+        parameters.put("snapshotEvaluation", Map.of(
+                "mode", mode,
+                "journeyPath", "stopPointsJourneyDetails[]"));
+        parameters.put("outputPolicy", Map.of(
+                "emit", emit,
+                "includeCount", true,
+                "includeMatchingJourneys", false));
         blueprint.put("parameters", parameters);
         return blueprint;
     }

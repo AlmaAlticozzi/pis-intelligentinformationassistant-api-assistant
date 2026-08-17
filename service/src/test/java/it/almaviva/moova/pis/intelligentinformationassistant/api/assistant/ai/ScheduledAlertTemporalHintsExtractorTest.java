@@ -7,6 +7,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ScheduledAlertTemporalHintsExtractorTest {
 
     @Test
+    void extractsAndGovernsSecondAndMinuteFrequencyForms() {
+        assertFrequency("ogni 10 secondi", 10);
+        assertFrequency("ogni 30 secondi", 30);
+        assertFrequency("ogni 60 secondi", 60);
+        assertFrequency("ogni minuto", 60);
+        assertFrequency("ogni 5 minuti", 300);
+        assertFrequency("ogni ora", 3600);
+    }
+
+    @Test
+    void clampsBelowMinimumFrequencyWithoutDefaultingIt() {
+        ScheduledAlertTemporalHints hints = extractor().extract("ogni 5 secondi");
+
+        assertThat(hints.hasExplicitFrequency()).isTrue();
+        assertThat(hints.frequencySeconds()).isEqualTo(10);
+        assertThat(hints.frequencyDefaulted()).isFalse();
+        assertThat(hints.frequencyRawText()).isEqualToIgnoringCase("ogni 5 secondi");
+    }
+
+    @Test
+    void extractsSingularSecondAndClampsItAsExplicit() {
+        ScheduledAlertTemporalHints hints = extractor().extract("ogni secondo");
+
+        assertThat(hints.hasExplicitFrequency()).isTrue();
+        assertThat(hints.frequencySeconds()).isEqualTo(10);
+        assertThat(hints.frequencyDefaulted()).isFalse();
+        assertThat(hints.frequencyRawText()).isEqualToIgnoringCase("ogni secondo");
+    }
+
+    @Test
     void extractsItalianExplicitFrequencyInMinutes() {
         ScheduledAlertTemporalHints hints = extractor().extract(
                 "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS");
@@ -172,11 +202,20 @@ class ScheduledAlertTemporalHintsExtractorTest {
     private ScheduledAlertTemporalHintsExtractor extractor() {
         ScheduledAlertTemporalHintsExtractor extractor = new ScheduledAlertTemporalHintsExtractor();
         extractor.defaultFrequencySeconds = 600;
-        extractor.minFrequencySeconds = 60;
+        extractor.minFrequencySeconds = 10;
         extractor.maxFrequencySeconds = 86400;
         extractor.defaultLookaheadMinutes = 480;
         extractor.minLookaheadMinutes = 1;
         extractor.maxLookaheadMinutes = 1440;
         return extractor;
+    }
+
+    private void assertFrequency(String prompt, int expectedSeconds) {
+        ScheduledAlertTemporalHints hints = extractor().extract(prompt);
+
+        assertThat(hints.hasExplicitFrequency()).isTrue();
+        assertThat(hints.frequencySeconds()).isEqualTo(expectedSeconds);
+        assertThat(hints.frequencyDefaulted()).isFalse();
+        assertThat(hints.frequencyRawText()).isEqualToIgnoringCase(prompt);
     }
 }

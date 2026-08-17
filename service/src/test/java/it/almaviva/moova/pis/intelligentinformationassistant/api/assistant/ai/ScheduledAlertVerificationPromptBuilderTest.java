@@ -131,7 +131,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                         "nelle possime 3 ore",
                         false,
                         600,
-                        60,
+                        10,
                         86400,
                         480,
                         1,
@@ -217,6 +217,10 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 .contains("snapshotEvaluation.mode = REPORT_COUNT when the output is a count")
                 .contains("outputPolicy.emit = EVERY_RUN")
                 .contains("threshold must be null or absent")
+                .contains("snapshotEvaluation.condition must be omitted or null")
+                .contains("When snapshotEvaluation.condition is present, condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH")
+                .contains("Never emit an empty condition")
+                .doesNotContain("\"condition\": {\"type\": \"SERVICE_DATA_SCHEDULED_FIELD_MATCH\", \"all\": []}")
                 .contains("Do not use COUNT_MATCHING_JOURNEYS for reports")
                 .contains("Every 10 minutes tell me how many delayed journeys are at stop X");
 
@@ -679,7 +683,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -698,7 +702,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -717,7 +721,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 "next 2 hours",
                 false,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -739,7 +743,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 null,
                 true,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,
@@ -771,7 +775,7 @@ class ScheduledAlertVerificationPromptBuilderTest {
                 "nelle prossime 2 ore",
                 false,
                 600,
-                60,
+                10,
                 86400,
                 480,
                 1,

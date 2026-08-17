@@ -28,7 +28,10 @@ public class ScheduledAlertTemporalHintsExtractor {
             Map.entry("cinque", 5));
 
     private static final Pattern FREQUENCY_WITH_NUMBER = Pattern.compile(
-            "\\b(?:every|ogni)\\s+(\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+(minutes?|mins?|minuti|min|hours?|h|ore)\\b");
+            "\\b(?:every|ogni)\\s+(\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+"
+                    + "(seconds?|secs?|sec|secondi|secondo|s|minutes?|mins?|minuti|minuto|min|hours?|h|ore|ora)\\b");
+    private static final Pattern FREQUENCY_EVERY_SECOND = Pattern.compile("\\b(every\\s+second|ogni\\s+secondo)\\b");
+    private static final Pattern FREQUENCY_EVERY_MINUTE = Pattern.compile("\\b(every\\s+minute|ogni\\s+minuto)\\b");
     private static final Pattern FREQUENCY_HOURLY = Pattern.compile("\\b(every\\s+hour|hourly|ogni\\s+ora)\\b");
     private static final Pattern FREQUENCY_DAILY = Pattern.compile("\\b(daily|every\\s+day|ogni\\s+giorno)\\b");
     private static final Pattern LOOKAHEAD = Pattern.compile(
@@ -49,8 +52,8 @@ public class ScheduledAlertTemporalHintsExtractor {
     @ConfigProperty(name = "iia.alert.scheduled-verify.default-frequency-seconds", defaultValue = "600")
     int defaultFrequencySeconds = 600;
 
-    @ConfigProperty(name = "iia.alert.scheduled-verify.min-frequency-seconds", defaultValue = "60")
-    int minFrequencySeconds = 60;
+    @ConfigProperty(name = "iia.alert.scheduled-verify.min-frequency-seconds", defaultValue = "10")
+    int minFrequencySeconds = 10;
 
     @ConfigProperty(name = "iia.alert.scheduled-verify.max-frequency-seconds", defaultValue = "86400")
     int maxFrequencySeconds = 86400;
@@ -120,6 +123,14 @@ public class ScheduledAlertTemporalHintsExtractor {
             int number = number(numbered.group(1));
             String unit = numbered.group(2);
             return new TemporalMatch(seconds(number, unit), rawText(originalPrompt, numbered));
+        }
+        Matcher everySecond = FREQUENCY_EVERY_SECOND.matcher(normalized);
+        if (everySecond.find()) {
+            return new TemporalMatch(1, rawText(originalPrompt, everySecond));
+        }
+        Matcher everyMinute = FREQUENCY_EVERY_MINUTE.matcher(normalized);
+        if (everyMinute.find()) {
+            return new TemporalMatch(60, rawText(originalPrompt, everyMinute));
         }
         Matcher hourly = FREQUENCY_HOURLY.matcher(normalized);
         if (hourly.find()) {
@@ -244,6 +255,12 @@ public class ScheduledAlertTemporalHintsExtractor {
     }
 
     private int seconds(int number, String unit) {
+        String normalizedUnit = unit.toLowerCase(Locale.ROOT);
+        if (normalizedUnit.startsWith("second")
+                || normalizedUnit.startsWith("sec")
+                || normalizedUnit.equals("s")) {
+            return number;
+        }
         return minutes(number, unit) * 60;
     }
 

@@ -1388,8 +1388,14 @@ public class ScheduledAlertVerificationOutcomeValidator {
         if (!presentMap(technicalSpecification.get("snapshotEvaluation"))) {
             return "technicalSpecification.snapshotEvaluation is required.";
         }
-        if (!presentMap(asMap(technicalSpecification.get("snapshotEvaluation")).get("condition"))) {
-            return "technicalSpecification.snapshotEvaluation.condition is required.";
+        Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
+        Object condition = snapshotEvaluation == null ? null : snapshotEvaluation.get("condition");
+        if (condition == null) {
+            if (!"REPORT_COUNT".equals(stringValue(snapshotEvaluation == null ? null : snapshotEvaluation.get("mode")))) {
+                return "technicalSpecification.snapshotEvaluation.condition is required.";
+            }
+        } else if (!presentMap(condition)) {
+            return "technicalSpecification.snapshotEvaluation.condition must be a non-empty object when present.";
         }
         if (!presentMap(technicalSpecification.get("outputPolicy"))) {
             return "technicalSpecification.outputPolicy is required.";
@@ -1404,20 +1410,28 @@ public class ScheduledAlertVerificationOutcomeValidator {
             Map<String, Object> technicalSpecification,
             Map<String, Object> agentBlueprintPreview) {
         Map<String, Object> snapshotEvaluation = asMap(technicalSpecification.get("snapshotEvaluation"));
-        Map<String, Object> condition = snapshotEvaluation == null ? null : asMap(snapshotEvaluation.get("condition"));
-        if (condition == null || condition.isEmpty()) {
-            return catalogFailure("technicalSpecification.snapshotEvaluation.condition is required.");
+        Object rawCondition = snapshotEvaluation == null ? null : snapshotEvaluation.get("condition");
+        Map<String, Object> condition = asMap(rawCondition);
+        Map<String, Object> parameters = asMap(agentBlueprintPreview.get("parameters"));
+        Map<String, Object> blueprintSnapshotEvaluation =
+                parameters == null ? null : asMap(parameters.get("snapshotEvaluation"));
+        Object rawBlueprintCondition =
+                blueprintSnapshotEvaluation == null ? null : blueprintSnapshotEvaluation.get("condition");
+        Map<String, Object> blueprintCondition = asMap(rawBlueprintCondition);
+        if (rawCondition == null) {
+            if (!"REPORT_COUNT".equals(stringValue(snapshotEvaluation == null ? null : snapshotEvaluation.get("mode")))) {
+                return catalogFailure("technicalSpecification.snapshotEvaluation.condition is required.");
+            }
+            if (rawBlueprintCondition != null) {
+                return catalogFailure("agentBlueprintPreview.parameters.snapshotEvaluation.condition must be absent when technicalSpecification.snapshotEvaluation.condition is absent.");
+            }
+            return null;
         }
         String failure = validateConditionNode(condition, "", true);
         if (failure != null) {
             return failure;
         }
 
-        Map<String, Object> parameters = asMap(agentBlueprintPreview.get("parameters"));
-        Map<String, Object> blueprintSnapshotEvaluation =
-                parameters == null ? null : asMap(parameters.get("snapshotEvaluation"));
-        Map<String, Object> blueprintCondition =
-                blueprintSnapshotEvaluation == null ? null : asMap(blueprintSnapshotEvaluation.get("condition"));
         if (blueprintCondition != null) {
             if (!condition.equals(blueprintCondition)) {
                 return catalogFailure("agentBlueprintPreview.parameters.snapshotEvaluation.condition must equal technicalSpecification.snapshotEvaluation.condition.");

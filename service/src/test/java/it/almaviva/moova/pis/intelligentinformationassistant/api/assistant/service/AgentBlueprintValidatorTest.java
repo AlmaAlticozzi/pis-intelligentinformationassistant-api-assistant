@@ -44,6 +44,20 @@ class AgentBlueprintValidatorTest {
     }
 
     @Test
+    void acceptsConditionlessScheduledReportCountBlueprint() {
+        AlertAgentGenerationPreviewData data = conditionlessScheduledPreviewData();
+
+        AgentBlueprintValidationResult result = validate(
+                data,
+                scheduledBlueprint(data, Map.of()),
+                List.of("SERVICE_DATA"));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.runtimeSupported()).isTrue();
+        assertThat(result.detectedDslOperators()).isEmpty();
+    }
+
+    @Test
     void rejectsScheduledBlueprintWithoutServiceDataQuery() {
         AlertAgentGenerationPreviewData data = scheduledPreviewData();
         AgentBlueprint blueprint = scheduledBlueprint(data, Map.of("serviceDataQuery", Map.of()));
@@ -684,7 +698,10 @@ class AgentBlueprintValidatorTest {
         parameters.put("snapshotEvaluation", technical.get("snapshotEvaluation"));
         parameters.put("outputPolicy", technical.get("outputPolicy"));
         parameters.put("schedule", technical.get("schedule"));
-        parameters.put("conditionType", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+        Map<String, Object> snapshotEvaluation = map(technical.get("snapshotEvaluation"));
+        if (snapshotEvaluation.get("condition") != null) {
+            parameters.put("conditionType", "SERVICE_DATA_SCHEDULED_FIELD_MATCH");
+        }
         parameters.putAll(overrides);
         return new AgentBlueprint()
                 .agentName("ScheduledServiceDataSnapshotAlertAgent")
@@ -749,6 +766,31 @@ class AgentBlueprintValidatorTest {
                 null, null, "SCHEDULED_INTERPRETER", "ServiceDataStopPointJourneysV2",
                 "AgentOutput.CANDIDATE_SUGGESTION",
                 technical, blueprint, List.of(), List.of(), List.of(SuggestionTargetType.SERVICE_DATA_JOURNEY_AGGREGATE));
+    }
+
+    private AlertAgentGenerationPreviewData conditionlessScheduledPreviewData() {
+        AlertAgentGenerationPreviewData filtered = scheduledPreviewData();
+        Map<String, Object> technical = new java.util.LinkedHashMap<>(filtered.technicalSpecification());
+        Map<String, Object> snapshotEvaluation = new java.util.LinkedHashMap<>(
+                map(technical.get("snapshotEvaluation")));
+        snapshotEvaluation.remove("condition");
+        technical.put("snapshotEvaluation", snapshotEvaluation);
+        Map<String, Object> preview = Map.of("parameters", Map.of(
+                "serviceDataQuery", technical.get("serviceDataQuery"),
+                "snapshotEvaluation", snapshotEvaluation,
+                "outputPolicy", technical.get("outputPolicy"),
+                "schedule", technical.get("schedule")));
+        return new AlertAgentGenerationPreviewData(
+                filtered.alertId(), filtered.name(), filtered.status(), filtered.verificationStatus(),
+                filtered.enabled(), filtered.deletedAt(), filtered.version(), filtered.prompt(),
+                filtered.verificationSummary(), filtered.rejectedReason(), filtered.verificationConfidence(),
+                filtered.interpreterType(), filtered.inputModel(), filtered.outputModel(),
+                technical, preview, filtered.interpretedEventNames(), filtered.warnings(), filtered.targetTypes());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return (Map<String, Object>) value;
     }
 
     private Map<String, Object> condition(String statusOperator, boolean values) {

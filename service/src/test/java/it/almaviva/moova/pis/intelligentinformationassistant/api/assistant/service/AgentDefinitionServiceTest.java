@@ -697,7 +697,7 @@ class AgentDefinitionServiceTest {
         AgentProfileRepository profileRepository = mock(AgentProfileRepository.class);
         AgentDefinitionService service = service(definitionRepository, profileRepository);
         stubReferences(definitionRepository);
-        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(scheduledTechnicalSpecification(300, 50))));
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(scheduledTechnicalSpecification(10, 50))));
         when(profileRepository.findByProfileId(PROFILE_ID)).thenReturn(Optional.of(profile(true)));
         when(definitionRepository.create(any(), anyList(), anyList(), anyList()))
                 .thenAnswer(invocation -> created(invocation.getArgument(0)));
@@ -769,10 +769,10 @@ class AgentDefinitionServiceTest {
     }
 
     @Test
-    void rejectsScheduledFrequencyBelowMvpMinimum() {
+    void rejectsScheduledFrequencyBelowMinimum() {
         AgentDefinitionRepository definitionRepository = mock(AgentDefinitionRepository.class);
         AgentDefinitionService service = service(definitionRepository, mock(AgentProfileRepository.class));
-        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(scheduledTechnicalSpecification(299, 1))));
+        when(definitionRepository.findAlert(ALERT_ID)).thenReturn(Optional.of(verifiedAlert(scheduledTechnicalSpecification(9, 1))));
 
         assertRejected(service, AgentDefinitionCreateRejectedException.Reason.SCHEDULE_TOO_AGGRESSIVE);
     }
@@ -1149,11 +1149,11 @@ class AgentDefinitionServiceTest {
                         "stopPoints", stopPoints),
                 "snapshotEvaluation", Map.of(
                         "mode", "REPORT_COUNT",
-                        "condition", Map.of("type", "SERVICE_DATA_SCHEDULED_FIELD_MATCH")),
+                        "journeyPath", "stopPointsJourneyDetails[]"),
                 "outputPolicy", Map.of(
                         "emit", "EVERY_RUN",
                         "includeCount", true,
-                        "includeMatchingJourneys", true));
+                        "includeMatchingJourneys", false));
     }
 
     private AgentProfile profile(boolean enabled) {

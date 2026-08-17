@@ -30,7 +30,7 @@ public record AlertRouteUnderstandingHints(
                     + "(?:\\w+\\s+){0,2}"
                     + "(treni|treno|corse|corsa|servizi|servizio|bus|tram|trains|train|services|service|journeys|journey|buses)\\b");
     private static final Pattern COUNT_OR_REPORT = Pattern.compile(
-            "\\b(quanti|quante|numero|conteggio|count|how many|total|quantity|report|rapporto|dimmi quante|dimmi quanti)\\b");
+            "\\b(quanti|quante|numero|conteggio|conta|count|how many|total|quantity|report|rapporto|dimmi quante|dimmi quanti)\\b");
     private static final Pattern THRESHOLD = Pattern.compile(
             "\\b(almeno|piu di|piu\\s+di|oltre|maggiore di|meno di|at least|more than|over|less than|fewer than)\\b");
     private static final Pattern CARDINALITY_THRESHOLD = Pattern.compile(
@@ -47,6 +47,9 @@ public record AlertRouteUnderstandingHints(
             "\\b(ci sono|c[' ]?e|sono presenti|presenti|disponibili|available|there are|there is|present)\\b");
     private static final Pattern POLLING = Pattern.compile(
             "\\b(ogni|every|ciascun|periodicamente|periodic)\\b(?:\\s+\\d+\\s*(?:min|mins|minute|minutes|minuti|ore|hours))?");
+    private static final Pattern POLLING_INTERVAL = Pattern.compile(
+            "\\b(?:ogni|every)\\s+(?:\\d+|one|two|three|four|five|uno|una|due|tre|quattro|cinque)\\s+"
+                    + "(?:seconds?|secs?|sec|secondi|secondo|s|minutes?|mins?|minuti|minuto|min|hours?|ore|ora|h)\\b");
     private static final Pattern PLATFORM = Pattern.compile(
             "\\b(binario|platform|track|quay|banchina|marciapiede)\\b");
     private static final Pattern PLATFORM_CHANGE = Pattern.compile(
@@ -84,7 +87,8 @@ public record AlertRouteUnderstandingHints(
         boolean hasVehicleNoun = VEHICLE_NOUN.matcher(normalized).find();
         boolean countOrReport = COUNT_OR_REPORT.matcher(normalized).find();
         boolean snapshotState = SNAPSHOT_STATE.matcher(normalized).find();
-        boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(normalized).find();
+        String withoutPollingIntervals = POLLING_INTERVAL.matcher(normalized).replaceAll(" ");
+        boolean quantifiedVehicle = QUANTIFIED_VEHICLE.matcher(withoutPollingIntervals).find();
         boolean platform = PLATFORM.matcher(normalized).find();
         boolean platformChange = PLATFORM_CHANGE.matcher(normalized).find();
         boolean changeCancellationExclusion = CHANGE_CANCELLATION_EXCLUSION.matcher(normalized).find();

@@ -106,6 +106,7 @@ public class AgentBlueprintValidator {
         boolean requiresState = Boolean.TRUE.equals(blueprint.getStateRequirements().get("requiresState"));
         boolean explicitlyStateless = Boolean.FALSE.equals(blueprint.getStateRequirements().get("requiresState"));
         boolean scheduled = isScheduled(triggerType, evaluationMode);
+        boolean conditionlessReportCount = scheduled && isConditionlessReportCount(blueprint, data);
 
         System.out.println("[IIA][AGENT_BLUEPRINT_VALIDATOR] Detected capabilities alertId=" + alertId
                 + ", sources=" + detectedSources
@@ -150,7 +151,7 @@ public class AgentBlueprintValidator {
         } else if (!"SERVICE_DATA_FIELD_MATCH".equals(conditionSummary.conditionType())) {
             errors.add("Unsupported or missing conditionType: " + conditionSummary.conditionType());
         }
-        if (conditionSummary.condition().isEmpty() || conditionSummary.partial()) {
+        if ((!conditionlessReportCount && conditionSummary.condition().isEmpty()) || conditionSummary.partial()) {
             if (conditionSummary.renderIssues().isEmpty()) {
                 errors.add("Condition tree cannot be rendered completely by the deterministic DSL renderer.");
             } else {
@@ -258,6 +259,8 @@ public class AgentBlueprintValidator {
         Map<String, Object> snapshotEvaluation = mapValue(firstNonEmpty(
                 parameters.get("snapshotEvaluation"),
                 technical.get("snapshotEvaluation")));
+        boolean conditionlessReportCount = "REPORT_COUNT".equals(firstString(snapshotEvaluation.get("mode")))
+                && snapshotEvaluation.get("condition") == null;
         Map<String, Object> snapshotCondition = mapValue(snapshotEvaluation.get("condition"));
         Map<String, Object> serviceDataQuery = mapValue(firstNonEmpty(
                 parameters.get("serviceDataQuery"),
@@ -278,18 +281,29 @@ public class AgentBlueprintValidator {
         if (snapshotEvaluation.isEmpty()) {
             errors.add("Scheduled blueprint parameters.snapshotEvaluation is missing.");
         }
-        if (snapshotCondition.isEmpty()) {
+        if (!conditionlessReportCount && snapshotCondition.isEmpty()) {
             errors.add("Scheduled blueprint parameters.snapshotEvaluation.condition is missing.");
         }
         String snapshotConditionType = stringValue(snapshotCondition.get("type"));
         String conditionType = firstString(snapshotConditionType, parameters.get("conditionType"), conditionSummary.conditionType());
-        if (!"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(snapshotConditionType)
-                || !"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(conditionType)) {
+        if (!conditionlessReportCount && (!"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(snapshotConditionType)
+                || !"SERVICE_DATA_SCHEDULED_FIELD_MATCH".equals(conditionType))) {
             errors.add("Scheduled blueprint snapshotEvaluation.condition.type must be SERVICE_DATA_SCHEDULED_FIELD_MATCH.");
         }
         if (outputPolicy.isEmpty()) {
             errors.add("Scheduled blueprint parameters.outputPolicy is missing.");
         }
+    }
+
+    private boolean isConditionlessReportCount(
+            AgentBlueprint blueprint,
+            AlertAgentGenerationPreviewData data) {
+        Map<String, Object> parameters = mapValue(blueprint.getParameters());
+        Map<String, Object> snapshotEvaluation = mapValue(firstNonEmpty(
+                parameters.get("snapshotEvaluation"),
+                data.technicalSpecification().get("snapshotEvaluation")));
+        return "REPORT_COUNT".equals(firstString(snapshotEvaluation.get("mode")))
+                && snapshotEvaluation.get("condition") == null;
     }
 
     private void validateScheduledConditionCapabilities(

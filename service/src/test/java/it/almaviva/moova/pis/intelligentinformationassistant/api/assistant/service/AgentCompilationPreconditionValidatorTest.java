@@ -126,8 +126,8 @@ class AgentCompilationPreconditionValidatorTest {
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("serviceDataQuery", Map.of("operation", "POST /v2/stoppointjourneys"));
         parameters.put("snapshotEvaluation", Map.of("mode", "REPORT_COUNT"));
-        parameters.put("outputPolicy", Map.of("emit", "ON_MATCH"));
-        parameters.put("technicalSpecification", Map.of("schedule", Map.of("frequencySeconds", 600)));
+        parameters.put("outputPolicy", Map.of("emit", "EVERY_RUN", "includeCount", true));
+        parameters.put("technicalSpecification", Map.of("schedule", Map.of("frequencySeconds", 10)));
         definition.setJsnBlueprint(Map.of(
                 "schemaVersion", "iia.agent.blueprint/v1",
                 "triggerType", "SCHEDULE",

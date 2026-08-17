@@ -218,8 +218,12 @@ public class AgentDslRuntimeCompatibilityValidator {
             Map<String, Object> snapshotEvaluation = mapValue(evaluation.get("snapshotEvaluation"));
             if (snapshotEvaluation == null || snapshotEvaluation.isEmpty()) {
                 errors.add("SCHEDULED_INTERPRETER DSL is missing evaluation.snapshotEvaluation.");
-            } else if (!presentMap(snapshotEvaluation.get("condition"))) {
+            } else if (snapshotEvaluation.get("condition") == null
+                    && !"REPORT_COUNT".equals(stringValue(snapshotEvaluation.get("mode")))) {
                 errors.add("SCHEDULED_INTERPRETER DSL is missing snapshotEvaluation.condition.");
+            } else if (snapshotEvaluation.get("condition") != null
+                    && !presentMap(snapshotEvaluation.get("condition"))) {
+                errors.add("SCHEDULED_INTERPRETER DSL snapshotEvaluation.condition must be a non-empty object when present.");
             } else {
                 Map<String, Object> scheduledOutput = mapValue(artifact.get("output"));
                 validateScheduledSemantics(

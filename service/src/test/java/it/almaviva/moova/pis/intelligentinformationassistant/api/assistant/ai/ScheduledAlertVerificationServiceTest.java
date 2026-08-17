@@ -30,6 +30,7 @@ class ScheduledAlertVerificationServiceTest {
     private static final String GORLA = "TNPNTS00000000000001";
     private static final String PERO = "TNPNTS00000000000002";
     private static final String GARIBALDI = "TNPNTS00000000000003";
+    private static final String GARIBALDI_FS = "TNPNTS00000000000009";
     private static final String VAREDO = "TNPNTS00000000000101";
     private static final String PALAZZOLO = "TNPNTS00000000000102";
     private static final String LECCO = "TNPNTS00000000000113";
@@ -212,26 +213,43 @@ class ScheduledAlertVerificationServiceTest {
     }
 
     @Test
-    void verifiesReportResponseUsingReportCount() {
-        Map<String, Object> response = validReportResponse(explicitContext(), delayCondition());
-        withSchedule(response, 600, false, "Ogni 10 minuti");
+    void verifiesExactTenSecondConditionlessReportCountRequest() {
+        ScheduledServiceDataLocationContext context = garibaldiContext();
+        Map<String, Object> response = validReportResponse(context, null);
+        Map<String, Object> technical = map(response.get("technicalSpecification"));
+        Map<String, Object> snapshotEvaluation = map(technical.get("snapshotEvaluation"));
+        snapshotEvaluation.remove("condition");
+        snapshotEvaluation.remove("threshold");
+        technical.put("outputPolicy", Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", false));
+        withSchedule(response, 10, false, "ogni 10 secondi");
         TestFixture fixture = fixture(json(response));
 
         AlertVerificationOutcome outcome = fixture.service.verify(
                 "ALRT1",
                 "Scheduled report",
                 "Scheduled ServiceData report test",
-                "Ogni 10 minuti dimmi quante corse in ritardo ci sono a Garibaldi FS",
+                "Fammi sapere ogni 10 secondi quante corse ci sono a Garibaldi FS",
                 route(AlertRouteIntentKind.SNAPSHOT_REPORT, AlertRouteOutputMode.EVERY_RUN_REPORT),
-                explicitContext());
+                context);
 
         assertThat(outcome.decision()).isEqualTo(AlertVerificationDecision.VERIFIED);
+        assertThat(map(outcome.technicalSpecification().get("schedule")))
+                .containsEntry("frequencySeconds", 10)
+                .containsEntry("defaulted", false)
+                .containsEntry("rawText", "ogni 10 secondi");
+        assertThat(map(outcome.technicalSpecification().get("serviceDataQuery")).get("stopPoints"))
+                .isEqualTo(List.of(GARIBALDI_FS));
         assertThat(map(outcome.technicalSpecification().get("snapshotEvaluation")))
                 .containsEntry("mode", "REPORT_COUNT")
-                .containsEntry("threshold", null);
+                .containsEntry("journeyPath", "stopPointsJourneyDetails[]")
+                .doesNotContainKeys("condition", "threshold");
         assertThat(map(outcome.technicalSpecification().get("outputPolicy")))
                 .containsEntry("emit", "EVERY_RUN")
-                .containsEntry("includeCount", true);
+                .containsEntry("includeCount", true)
+                .containsEntry("includeMatchingJourneys", false);
     }
 
     @Test
@@ -1693,7 +1711,7 @@ class ScheduledAlertVerificationServiceTest {
     private ScheduledAlertTemporalHintsExtractor temporalHintsExtractor() {
         ScheduledAlertTemporalHintsExtractor extractor = new ScheduledAlertTemporalHintsExtractor();
         extractor.defaultFrequencySeconds = 600;
-        extractor.minFrequencySeconds = 60;
+        extractor.minFrequencySeconds = 10;
         extractor.maxFrequencySeconds = 86400;
         extractor.defaultLookaheadMinutes = 480;
         extractor.minLookaheadMinutes = 1;
@@ -2031,6 +2049,37 @@ class ScheduledAlertVerificationServiceTest {
                 new ScheduledServiceDataApiQueryContext(
                         ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
                         List.of(GORLA),
+                        false));
+    }
+
+    private ScheduledServiceDataLocationContext garibaldiContext() {
+        List<ScheduledServiceDataResolvedLocation> monitored = List.of(new ScheduledServiceDataResolvedLocation(
+                "Garibaldi FS",
+                "Garibaldi FS",
+                ScheduledAlertLocationRole.MONITORED_STOP_POINT,
+                ScheduledAlertLocationPolarity.INCLUDE,
+                true,
+                true,
+                ScheduledServiceDataLocationResolutionStatus.RESOLVED,
+                List.of(GARIBALDI_FS),
+                List.of(),
+                false,
+                false,
+                List.of("body.stopPoints[]"),
+                ""));
+        return new ScheduledServiceDataLocationContext(
+                ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                monitored,
+                List.of(),
+                List.of(),
+                List.of(GARIBALDI_FS),
+                false,
+                false,
+                List.of(),
+                List.of(),
+                new ScheduledServiceDataApiQueryContext(
+                        ScheduledAlertMonitoringScope.EXPLICIT_STOP_POINTS,
+                        List.of(GARIBALDI_FS),
                         false));
     }
 

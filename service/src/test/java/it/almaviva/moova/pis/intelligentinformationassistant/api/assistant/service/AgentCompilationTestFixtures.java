@@ -94,6 +94,27 @@ final class AgentCompilationTestFixtures {
         return definition;
     }
 
+    static AgentDefinition conditionlessScheduledReportDefinition() {
+        AgentDefinition definition = scheduledDefinition("REPORT_COUNT");
+        Map<String, Object> blueprint = new java.util.LinkedHashMap<>(definition.getJsnBlueprint());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> originalParameters = (Map<String, Object>) blueprint.get("parameters");
+        Map<String, Object> parameters = new java.util.LinkedHashMap<>(originalParameters);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> originalSnapshot = (Map<String, Object>) parameters.get("snapshotEvaluation");
+        Map<String, Object> snapshotEvaluation = new java.util.LinkedHashMap<>(originalSnapshot);
+        snapshotEvaluation.remove("condition");
+        parameters.put("snapshotEvaluation", snapshotEvaluation);
+        parameters.put("outputPolicy", Map.of(
+                "emit", "EVERY_RUN",
+                "includeCount", true,
+                "includeMatchingJourneys", false));
+        parameters.put("schedule", Map.of("frequencySeconds", 10));
+        blueprint.put("parameters", parameters);
+        definition.setJsnBlueprint(blueprint);
+        return definition;
+    }
+
     private static AgentDefinition baseDefinition(String interpreterTypeValue, String inputModel) {
         AgentDefinition definition = new AgentDefinition();
         definition.setCodAgentdefinition("AGDF1");

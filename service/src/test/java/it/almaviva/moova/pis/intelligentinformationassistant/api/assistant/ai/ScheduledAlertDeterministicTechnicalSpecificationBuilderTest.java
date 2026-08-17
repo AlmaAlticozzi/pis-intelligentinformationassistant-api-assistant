@@ -168,7 +168,7 @@ class ScheduledAlertDeterministicTechnicalSpecificationBuilderTest {
     private ScheduledAlertTemporalHints temporalHints(String prompt) {
         ScheduledAlertTemporalHintsExtractor extractor = new ScheduledAlertTemporalHintsExtractor();
         extractor.defaultFrequencySeconds = 600;
-        extractor.minFrequencySeconds = 60;
+        extractor.minFrequencySeconds = 10;
         extractor.maxFrequencySeconds = 86400;
         extractor.defaultLookaheadMinutes = 480;
         extractor.minLookaheadMinutes = 1;

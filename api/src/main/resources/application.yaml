@@ -92,7 +92,7 @@ iia:
     scheduled-verify:
       enabled: ${IIA_ALERT_SCHEDULED_VERIFY_ENABLED:true}
       default-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_DEFAULT_FREQUENCY_SECONDS:600}
-      min-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_MIN_FREQUENCY_SECONDS:60}
+      min-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_MIN_FREQUENCY_SECONDS:10}
       max-frequency-seconds: ${IIA_ALERT_SCHEDULED_VERIFY_MAX_FREQUENCY_SECONDS:86400}
       default-lookahead-minutes: ${IIA_ALERT_SCHEDULED_VERIFY_DEFAULT_LOOKAHEAD_MINUTES:480}
       min-lookahead-minutes: ${IIA_ALERT_SCHEDULED_VERIFY_MIN_LOOKAHEAD_MINUTES:1}

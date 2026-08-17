@@ -38,6 +38,17 @@ class AgentDslRuntimeCompatibilityValidatorTest {
     }
 
     @Test
+    void validatesConditionlessReportCountDslArtifact() {
+        Map<String, Object> artifact = scheduledConditionlessReportDsl();
+
+        AgentDslRuntimeCompatibilityValidationResult result = validator.validate(artifact);
+
+        assertThat(result.compatible()).isTrue();
+        assertThat(result.errors()).isEmpty();
+        assertThat(snapshot(artifact)).doesNotContainKey("condition");
+    }
+
+    @Test
     void validatesAllScheduledRuntimeSemanticContracts() {
         for (String mode : List.of("REPORT_COUNT", "COUNT_MATCHING_JOURNEYS", "BOOLEAN_EXISTS")) {
             AgentDslRuntimeCompatibilityValidationResult result = validator.validate(scheduledDsl(mode));
@@ -132,8 +143,8 @@ class AgentDslRuntimeCompatibilityValidatorTest {
     }
 
     @Test
-    void rejectsScheduledDslWithoutSnapshotEvaluationCondition() {
-        Map<String, Object> artifact = scheduledDsl();
+    void rejectsConditionalScheduledDslWithoutSnapshotEvaluationCondition() {
+        Map<String, Object> artifact = scheduledDsl("COUNT_MATCHING_JOURNEYS");
         Map<String, Object> evaluation = copyMap(artifact.get("evaluation"));
         Map<String, Object> snapshotEvaluation = copyMap(evaluation.get("snapshotEvaluation"));
         snapshotEvaluation.remove("condition");
@@ -214,6 +225,16 @@ class AgentDslRuntimeCompatibilityValidatorTest {
 
     private Map<String, Object> scheduledDsl(String mode) {
         AgentDefinition definition = AgentCompilationTestFixtures.scheduledDefinition(mode);
+        AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
+                definition,
+                scheduledValidation(),
+                OffsetDateTime.parse("2026-06-15T10:00:00Z"));
+        assertThat(result.success()).isTrue();
+        return deepCopy(result.artifact().artifact());
+    }
+
+    private Map<String, Object> scheduledConditionlessReportDsl() {
+        AgentDefinition definition = AgentCompilationTestFixtures.conditionlessScheduledReportDefinition();
         AgentDslArtifactBuildResult result = builder.buildScheduledArtifact(
                 definition,
                 scheduledValidation(),
